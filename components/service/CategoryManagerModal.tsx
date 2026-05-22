@@ -29,6 +29,9 @@ export default function CategoryManagerModal({ vehicle, onClose, onUpdated }: Pr
   const [catSaving, setCatSaving] = useState(false)
   const [renameWarn, setRenameWarn] = useState(false)
 
+  // Merge duplicates state
+  const [merging, setMerging] = useState(false)
+
   // Delete category state
   const [deleteCatId, setDeleteCatId] = useState<string | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState(false)
@@ -118,6 +121,29 @@ export default function CategoryManagerModal({ vehicle, onClose, onUpdated }: Pr
     onUpdated()
   }
 
+  async function mergeAllDuplicates() {
+    setMerging(true)
+    const byName = new Map<string, ServiceCategory[]>()
+    for (const cat of categories) {
+      const key = cat.name.toLowerCase().trim()
+      byName.set(key, [...(byName.get(key) ?? []), cat])
+    }
+    for (const [, group] of byName) {
+      if (group.length <= 1) continue
+      // Keep the one with an interval set; if tied, keep the first (oldest by sort order)
+      const primary = group.find(c => c.interval_miles || c.interval_days) ?? group[0]
+      const duplicates = group.filter(c => c.id !== primary.id)
+      for (const dup of duplicates) {
+        await supabase.from('service_logs').update({ category_id: primary.id }).eq('category_id', dup.id)
+        await supabase.from('service_category_products').update({ category_id: primary.id }).eq('category_id', dup.id)
+        await supabase.from('service_categories').delete().eq('id', dup.id)
+      }
+    }
+    await load()
+    onUpdated()
+    setMerging(false)
+  }
+
   async function confirmDelete() {
     if (!deleteCatId) return
     setDeleting(true)
@@ -174,6 +200,23 @@ export default function CategoryManagerModal({ vehicle, onClose, onUpdated }: Pr
 
   const maintenanceCats = categories.filter(c => c.category_type === 'maintenance')
 
+  const duplicateGroups = (() => {
+    const byName = new Map<string, ServiceCategory[]>()
+    for (const cat of maintenanceCats) {
+      const key = cat.name.toLowerCase().trim()
+      byName.set(key, [...(byName.get(key) ?? []), cat])
+    }
+    return Array.from(byName.values()).filter(g => g.length > 1)
+  })()
+
+  // IDs that are duplicates (not the one that would be kept)
+  const duplicateIds = new Set(
+    duplicateGroups.flatMap(group => {
+      const primary = group.find(c => c.interval_miles || c.interval_days) ?? group[0]
+      return group.filter(c => c.id !== primary.id).map(c => c.id)
+    })
+  )
+
   return (
     <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
       <div className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-lg max-h-[90vh] flex flex-col">
@@ -189,6 +232,30 @@ export default function CategoryManagerModal({ vehicle, onClose, onUpdated }: Pr
         </div>
 
         <div className="overflow-y-auto flex-1 p-5 space-y-3">
+          {duplicateGroups.length > 0 && !loading && (
+            <div className="bg-amber-500/8 border border-amber-500/30 rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <AlertCircle size={13} className="text-amber-400 shrink-0" />
+                  <p className="text-amber-400 text-sm font-semibold">
+                    {duplicateGroups.length} duplicate {duplicateGroups.length === 1 ? 'category' : 'categories'} found
+                  </p>
+                </div>
+                <p className="text-zinc-500 text-xs truncate">
+                  {duplicateGroups.map(g => g[0].name).join(', ')}
+                </p>
+                <p className="text-zinc-600 text-xs mt-0.5">Merging keeps the one with an interval set and re-links all records.</p>
+              </div>
+              <button
+                onClick={mergeAllDuplicates}
+                disabled={merging}
+                className="bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl px-3 py-2 transition-colors shrink-0"
+              >
+                {merging ? 'Merging…' : 'Merge All'}
+              </button>
+            </div>
+          )}
+
           {loading && (
             <div className="flex items-center justify-center py-8">
               <div className="w-6 h-6 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
@@ -200,8 +267,11 @@ export default function CategoryManagerModal({ vehicle, onClose, onUpdated }: Pr
             const isOpen = expanded[cat.id]
             const isEditing = editCat?.id === cat.id
 
+            const noInterval = !cat.interval_miles && !cat.interval_days
+            const isDuplicate = duplicateIds.has(cat.id)
+
             return (
-              <div key={cat.id} className="bg-zinc-800/50 border border-zinc-700/60 rounded-2xl overflow-hidden">
+              <div key={cat.id} className={`border rounded-2xl overflow-hidden ${isDuplicate ? 'bg-red-500/5 border-red-500/20 opacity-70' : noInterval ? 'bg-amber-500/5 border-amber-500/25' : 'bg-zinc-800/50 border-zinc-700/60'}`}>
                 {isEditing ? (
                   <div className="p-4 space-y-3">
                     <div className="flex items-center gap-2 mb-1">
@@ -271,12 +341,24 @@ export default function CategoryManagerModal({ vehicle, onClose, onUpdated }: Pr
                         {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                       </button>
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium text-zinc-100 text-sm">{cat.name}</p>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-medium text-zinc-100 text-sm">{cat.name}</p>
+                          {isDuplicate && (
+                            <span className="text-xs font-semibold px-1.5 py-0.5 rounded-md bg-red-500/15 text-red-400 border border-red-500/25 shrink-0">
+                              Duplicate
+                            </span>
+                          )}
+                          {!isDuplicate && noInterval && (
+                            <span className="text-xs font-semibold px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-400 border border-amber-500/25 shrink-0">
+                              No interval
+                            </span>
+                          )}
+                        </div>
                         <p className="text-zinc-500 text-xs mt-0.5">
                           {[
                             cat.interval_miles ? `${cat.interval_miles.toLocaleString()} mi` : null,
                             cat.interval_days ? `${Math.round(cat.interval_days / 30)} mo` : null,
-                          ].filter(Boolean).join(' / ') || 'No interval set'}
+                          ].filter(Boolean).join(' / ') || 'Won\'t appear on dashboard'}
                         </p>
                       </div>
                       <div className="flex items-center gap-1">
@@ -294,6 +376,21 @@ export default function CategoryManagerModal({ vehicle, onClose, onUpdated }: Pr
                         </button>
                       </div>
                     </div>
+
+                    {noInterval && !isOpen && (
+                      <div className="border-t border-amber-500/20 px-4 py-2.5 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5">
+                          <AlertCircle size={12} className="text-amber-400 shrink-0" />
+                          <p className="text-amber-400/80 text-xs">Intentionally no schedule?</p>
+                        </div>
+                        <button
+                          onClick={() => openEditCat(cat)}
+                          className="text-amber-400 text-xs font-semibold hover:text-amber-300 transition-colors shrink-0"
+                        >
+                          Set interval →
+                        </button>
+                      </div>
+                    )}
 
                     {isOpen && (
                       <div className="border-t border-zinc-700/50 px-4 pb-4 pt-3 space-y-2">

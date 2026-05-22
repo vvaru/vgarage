@@ -2,12 +2,13 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Wrench, Fuel } from 'lucide-react'
+import { LayoutDashboard, Wrench, Fuel, Car } from 'lucide-react'
 
 const tabs = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/service', label: 'Service', icon: Wrench },
   { href: '/fuel', label: 'Fuel', icon: Fuel },
+  { href: '/garage', label: 'Garage', icon: Car },
 ]
 
 export default function BottomNav() {

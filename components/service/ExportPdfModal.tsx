@@ -1,8 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { X, Download, FileText } from 'lucide-react'
-import { format, parseISO } from 'date-fns'
+import { X, Download } from 'lucide-react'
+import { format, parseISO, differenceInDays } from 'date-fns'
 import { supabase } from '@/lib/supabase'
 import type { Vehicle, ServiceLog } from '@/lib/types'
 
@@ -12,31 +12,44 @@ interface Props {
   onClose: () => void
 }
 
-async function blobToBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result as string)
-    reader.onerror = reject
-    reader.readAsDataURL(blob)
-  })
+interface ReceiptAsset {
+  data: string
+  format: 'JPEG' | 'PNG' | 'WEBP'
 }
 
-async function fetchReceiptAsBase64(path: string): Promise<{ data: string; isImage: boolean } | null> {
+async function fetchReceiptAsset(path: string): Promise<ReceiptAsset | null> {
   try {
-    const { data: urlData } = await supabase.storage
-      .from('receipts')
-      .createSignedUrl(path, 60)
+    const { data: urlData } = await supabase.storage.from('receipts').createSignedUrl(path, 60)
     if (!urlData?.signedUrl) return null
-
     const response = await fetch(urlData.signedUrl)
     const blob = await response.blob()
-    const isImage = blob.type.startsWith('image/')
-    if (!isImage) return null
-
-    const b64 = await blobToBase64(blob)
-    return { data: b64, isImage: true }
+    if (!blob.type.startsWith('image/')) return null
+    const fmt: ReceiptAsset['format'] = blob.type.includes('png') ? 'PNG' : blob.type.includes('webp') ? 'WEBP' : 'JPEG'
+    const b64 = await new Promise<string>((res, rej) => {
+      const reader = new FileReader()
+      reader.onload = () => res(reader.result as string)
+      reader.onerror = rej
+      reader.readAsDataURL(blob)
+    })
+    return { data: b64, format: fmt }
   } catch {
     return null
+  }
+}
+
+function computeAverages(sortedLogs: ServiceLog[]) {
+  if (sortedLogs.length < 2) return { avgMiles: null as number | null, avgDays: null as number | null }
+  const milesArr: number[] = []
+  const daysArr: number[] = []
+  for (let i = 1; i < sortedLogs.length; i++) {
+    const mi = sortedLogs[i].odometer - sortedLogs[i - 1].odometer
+    const dy = differenceInDays(parseISO(sortedLogs[i].date), parseISO(sortedLogs[i - 1].date))
+    if (mi > 0) milesArr.push(mi)
+    if (dy > 0) daysArr.push(dy)
+  }
+  return {
+    avgMiles: milesArr.length ? Math.round(milesArr.reduce((a, b) => a + b) / milesArr.length) : null,
+    avgDays: daysArr.length ? Math.round(daysArr.reduce((a, b) => a + b) / daysArr.length) : null,
   }
 }
 
@@ -44,9 +57,8 @@ export default function ExportPdfModal({ vehicle, logs, onClose }: Props) {
   const [generating, setGenerating] = useState(false)
   const [progress, setProgress] = useState('')
 
-  const ownerCount = logs.filter(l => l.performed_by !== 'shop').length
-  const shopCount = logs.filter(l => l.performed_by === 'shop').length
-  const totalCost = logs.reduce((s, l) => s + Number(l.cost ?? 0), 0)
+  const maintenanceLogs = logs.filter(l => l.record_type !== 'repair')
+  const repairLogs = logs.filter(l => l.record_type === 'repair')
   const receiptCount = logs.filter(l => l.receipt_url).length
 
   async function generate() {
@@ -59,227 +71,240 @@ export default function ExportPdfModal({ vehicle, logs, onClose }: Props) {
 
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
       const pageW = doc.internal.pageSize.getWidth()
+      const pageH = doc.internal.pageSize.getHeight()
 
-      // ─── COLORS ───────────────────────────────────────────────────────────
-      const navyR = 30, navyG = 64, navyB = 175
-      const ownerBg: [number, number, number] = [219, 234, 254]  // blue-100
-      const shopBg: [number, number, number] = [220, 252, 231]    // green-100
-      const headBg: [number, number, number] = [navyR, navyG, navyB]
-
-      // ─── PAGE 1: COVER ─────────────────────────────────────────────────────
-      doc.setFillColor(navyR, navyG, navyB)
-      doc.rect(0, 0, pageW, 50, 'F')
-
-      doc.setTextColor(255, 255, 255)
-      doc.setFontSize(22)
-      doc.setFont('helvetica', 'bold')
-      doc.text('VEHICLE HISTORY REPORT', pageW / 2, 18, { align: 'center' })
-
-      doc.setFontSize(14)
-      doc.setFont('helvetica', 'normal')
+      const NAVY: [number, number, number] = [30, 64, 175]
+      const DIY_BG: [number, number, number] = [219, 234, 254]
+      const SHOP_BG: [number, number, number] = [220, 252, 231]
+      const VERIFIED_BG: [number, number, number] = [240, 253, 244]
       const vehicleName = `${vehicle.year} ${vehicle.make} ${vehicle.model}${vehicle.trim ? ' ' + vehicle.trim : ''}`
-      doc.text(vehicleName, pageW / 2, 28, { align: 'center' })
 
-      doc.setFontSize(9)
-      doc.text(`Generated ${format(new Date(), 'MMMM d, yyyy')}`, pageW / 2, 36, { align: 'center' })
-
-      if (vehicle.vin) {
-        doc.text(`VIN: ${vehicle.vin}`, pageW / 2, 43, { align: 'center' })
-      }
-
-      // Summary box
-      const summaryY = 58
-      doc.setTextColor(30, 41, 59)
-      doc.setFontSize(11)
-      doc.setFont('helvetica', 'bold')
-      doc.text('SERVICE SUMMARY', 14, summaryY)
-
-      const summaryItems = [
-        ['Total Service Records', String(logs.length)],
-        ['Owner-Performed', String(ownerCount)],
-        ['Shop-Performed', String(shopCount)],
-        ['Total Documented Spend', logs.some(l => l.cost != null) ? `$${totalCost.toFixed(2)}` : 'N/A'],
-        ['First Record', logs.length ? format(parseISO(logs[logs.length - 1].date), 'MMM d, yyyy') : 'N/A'],
-        ['Last Record', logs.length ? format(parseISO(logs[0].date), 'MMM d, yyyy') : 'N/A'],
-        ['Current Odometer', `${vehicle.odometer.toLocaleString()} mi`],
-        ['Receipts Attached', String(receiptCount)],
-      ]
-
-      doc.setFontSize(10)
-      let sy = summaryY + 8
-      for (const [label, value] of summaryItems) {
-        doc.setFont('helvetica', 'normal')
-        doc.setTextColor(100, 116, 139)
-        doc.text(label, 14, sy)
-        doc.setFont('helvetica', 'bold')
-        doc.setTextColor(15, 23, 42)
-        doc.text(value, pageW - 14, sy, { align: 'right' })
-        doc.setDrawColor(226, 232, 240)
-        doc.line(14, sy + 2, pageW - 14, sy + 2)
-        sy += 9
-      }
-
-      // Legend
-      const legendY = sy + 8
-      doc.setFontSize(9)
-      doc.setFont('helvetica', 'bold')
-      doc.setTextColor(30, 41, 59)
-      doc.text('LEGEND', 14, legendY)
-
-      doc.setFillColor(...ownerBg)
-      doc.rect(14, legendY + 4, 6, 4, 'F')
-      doc.setFont('helvetica', 'normal')
-      doc.setTextColor(100, 116, 139)
-      doc.text('Owner-performed service', 22, legendY + 7.5)
-
-      doc.setFillColor(...shopBg)
-      doc.rect(14, legendY + 11, 6, 4, 'F')
-      doc.text('Shop-performed service', 22, legendY + 14.5)
-
-      // ─── PAGE 2+: SERVICE HISTORY TABLE ────────────────────────────────────
-      setProgress('Building service table…')
-      doc.addPage()
-
-      doc.setFillColor(navyR, navyG, navyB)
-      doc.rect(0, 0, pageW, 14, 'F')
-      doc.setTextColor(255, 255, 255)
-      doc.setFontSize(11)
-      doc.setFont('helvetica', 'bold')
-      doc.text('SERVICE HISTORY', pageW / 2, 9, { align: 'center' })
-
-      const receiptRefs: Array<{ label: string; log: ServiceLog }> = []
+      // Assign appendix refs to all receipted logs (chronological)
+      const receiptRefMap = new Map<string, string>()
       let refIdx = 1
+      for (const log of [...logs].sort((a, b) => a.date.localeCompare(b.date))) {
+        if (log.receipt_url) receiptRefMap.set(log.id, `A${refIdx++}`)
+      }
 
-      const tableRows = [...logs].reverse().map(log => {
-        let refStr = ''
-        if (log.receipt_url) {
-          refStr = ` [A${refIdx}]`
-          receiptRefs.push({ label: `A${refIdx}`, log })
-          refIdx++
-        }
-        return [
-          format(parseISO(log.date), 'MMM d, yyyy'),
-          log.odometer ? log.odometer.toLocaleString() + ' mi' : '—',
-          log.service_type + refStr,
-          log.record_type === 'repair' ? 'Repair' : 'Maintenance',
-          log.performed_by === 'shop' ? 'Shop' : 'Owner',
-          log.shop_name
-            ? log.shop_name + (log.shop_location ? '\n' + log.shop_location : '')
-            : '—',
-          log.cost != null ? '$' + Number(log.cost).toFixed(2) : '—',
-        ]
-      })
+      function addFooter() {
+        const pg = doc.getNumberOfPages()
+        doc.setFontSize(7.5)
+        doc.setTextColor(150, 150, 150)
+        doc.text(`${vehicleName}  ·  Page ${pg}`, pageW / 2, pageH - 5, { align: 'center' })
+      }
 
-      autoTable(doc, {
-        head: [['Date', 'Mileage', 'Service', 'Type', 'By', 'Shop / Location', 'Cost']],
-        body: tableRows,
-        startY: 18,
-        margin: { left: 10, right: 10 },
-        headStyles: {
-          fillColor: headBg,
-          textColor: [255, 255, 255],
-          fontStyle: 'bold',
-          fontSize: 8.5,
-        },
-        bodyStyles: { fontSize: 8, cellPadding: 2.5 },
-        columnStyles: {
-          0: { cellWidth: 22 },
-          1: { cellWidth: 22 },
-          2: { cellWidth: 42 },
-          3: { cellWidth: 22 },
-          4: { cellWidth: 16 },
-          5: { cellWidth: 35 },
-          6: { cellWidth: 18 },
-        },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        willDrawCell: (data: any) => {
-          if (data.section === 'body') {
-            const log = [...logs].reverse()[data.row.index]
-            if (log?.performed_by === 'owner') {
-              data.cell.styles.fillColor = ownerBg
-            } else {
-              data.cell.styles.fillColor = shopBg
-            }
-          }
-        },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        didDrawPage: (_data: any) => {
-          const pg = doc.getNumberOfPages()
-          doc.setFontSize(8)
-          doc.setTextColor(150, 150, 150)
-          doc.text(
-            `${vehicleName}  ·  Page ${pg}`,
-            pageW / 2,
-            doc.internal.pageSize.getHeight() - 6,
-            { align: 'center' }
-          )
-        },
-      })
-
-      // ─── APPENDIX: RECEIPTS ─────────────────────────────────────────────────
-      if (receiptRefs.length > 0) {
-        setProgress(`Loading ${receiptRefs.length} receipt${receiptRefs.length > 1 ? 's' : ''}…`)
-
-        doc.addPage()
-        doc.setFillColor(navyR, navyG, navyB)
-        doc.rect(0, 0, pageW, 14, 'F')
+      function addPageHeader(title: string, sub?: string) {
+        doc.setFillColor(...NAVY)
+        doc.rect(0, 0, pageW, sub ? 18 : 14, 'F')
         doc.setTextColor(255, 255, 255)
         doc.setFontSize(11)
         doc.setFont('helvetica', 'bold')
-        doc.text('APPENDIX — SERVICE RECEIPTS', pageW / 2, 9, { align: 'center' })
+        doc.text(title, pageW / 2, sub ? 10 : 9, { align: 'center' })
+        if (sub) {
+          doc.setFontSize(8)
+          doc.setFont('helvetica', 'normal')
+          doc.text(sub, pageW / 2, 15, { align: 'center' })
+        }
+      }
 
-        let appendixY = 20
+      function drawServiceTable(logsForTable: ServiceLog[], startY: number, includeServiceCol: boolean) {
+        const sorted = [...logsForTable].sort((a, b) => a.date.localeCompare(b.date))
+        const rows = sorted.map(log => {
+          const ref = receiptRefMap.get(log.id) ?? '—'
+          const verified = receiptRefMap.has(log.id) ? '✓ ' + ref : '—'
+          return [
+            format(parseISO(log.date), 'MMM d, yyyy'),
+            log.odometer ? log.odometer.toLocaleString() + ' mi' : '—',
+            ...(includeServiceCol ? [log.service_type] : []),
+            log.performed_by === 'shop' ? 'Shop' : 'DIY',
+            log.shop_name ? log.shop_name + (log.shop_location ? '\n' + log.shop_location : '') : '—',
+            ref,
+            verified,
+          ]
+        })
 
-        for (const { label, log } of receiptRefs) {
-          if (!log.receipt_url) continue
+        const baseColWidths = includeServiceCol
+          ? [22, 20, 36, 12, 34, 10, 18]  // with service col
+          : [24, 22, 12, 42, 10, 18]       // without (Date Odo By Shop Ref Verified)
 
-          const title = `${label}  —  ${log.service_type}  ·  ${format(parseISO(log.date), 'MMM d, yyyy')}${log.shop_name ? '  ·  ' + log.shop_name : ''}`
-
-          doc.setFontSize(9)
-          doc.setFont('helvetica', 'bold')
-          doc.setTextColor(30, 41, 59)
-
-          if (appendixY > 250) {
-            doc.addPage()
-            appendixY = 14
-          }
-
-          doc.text(title, 14, appendixY)
-          appendixY += 5
-
-          const receipt = await fetchReceiptAsBase64(log.receipt_url)
-          if (receipt) {
-            const maxW = pageW - 28
-            const maxH = 160
-
-            if (appendixY + maxH > 280) {
-              doc.addPage()
-              appendixY = 14
+        autoTable(doc, {
+          head: [
+            [
+              'Date', 'Odometer',
+              ...(includeServiceCol ? ['Service'] : []),
+              'By', 'Shop / Location', 'Ref', 'Verified',
+            ],
+          ],
+          body: rows,
+          startY,
+          margin: { left: 10, right: 10 },
+          headStyles: { fillColor: NAVY, textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
+          bodyStyles: { fontSize: 7.5, cellPadding: 2 },
+          columnStyles: Object.fromEntries(baseColWidths.map((w, i) => [i, { cellWidth: w }])),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          willDrawCell: (data: any) => {
+            if (data.section !== 'body') return
+            const log = sorted[data.row.index]
+            if (!log) return
+            const lastCol = includeServiceCol ? 6 : 5
+            if (data.column.index === lastCol && receiptRefMap.has(log.id)) {
+              data.cell.styles.fillColor = VERIFIED_BG
+              data.cell.styles.textColor = [22, 101, 52]
+            } else if (log.performed_by === 'owner') {
+              data.cell.styles.fillColor = DIY_BG
+            } else {
+              data.cell.styles.fillColor = SHOP_BG
             }
+          },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          didDrawPage: (_data: any) => { addFooter() },
+        })
 
-            doc.addImage(receipt.data, 'JPEG', 14, appendixY, maxW, maxH, undefined, 'FAST')
-            appendixY += maxH + 12
-          } else {
-            doc.setFont('helvetica', 'normal')
-            doc.setFontSize(8.5)
-            doc.setTextColor(100, 116, 139)
-            doc.text('(PDF receipt — see original file)', 14, appendixY + 4)
-            appendixY += 14
+        // Return finalY
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return (doc as any).lastAutoTable?.finalY as number ?? startY + 20
+      }
+
+      // ── COVER PAGE ────────────────────────────────────────────────────────────
+      doc.setFillColor(...NAVY)
+      doc.rect(0, 0, pageW, 52, 'F')
+      doc.setTextColor(255, 255, 255)
+      doc.setFontSize(20)
+      doc.setFont('helvetica', 'bold')
+      doc.text('VEHICLE HISTORY REPORT', pageW / 2, 18, { align: 'center' })
+      doc.setFontSize(13)
+      doc.setFont('helvetica', 'normal')
+      doc.text(vehicleName, pageW / 2, 29, { align: 'center' })
+      doc.setFontSize(9)
+      doc.text(`Generated ${format(new Date(), 'MMMM d, yyyy')}`, pageW / 2, 37, { align: 'center' })
+      if (vehicle.vin) doc.text(`VIN: ${vehicle.vin}`, pageW / 2, 44, { align: 'center' })
+
+      let sy = 62
+      doc.setTextColor(30, 41, 59)
+      doc.setFontSize(10)
+      doc.setFont('helvetica', 'bold')
+      doc.text('SERVICE SUMMARY', 14, sy)
+      sy += 7
+
+      const maintTypes = Array.from(new Set(maintenanceLogs.map(l => l.service_type))).sort()
+      const summaryItems: [string, string][] = [
+        ['Total Records', String(logs.length)],
+        ['Maintenance Types', String(maintTypes.length)],
+        ['Repair Records', String(repairLogs.length)],
+        ['DIY Services', String(logs.filter(l => l.performed_by !== 'shop').length)],
+        ['Shop Services', String(logs.filter(l => l.performed_by === 'shop').length)],
+        ['Verified (Receipt on file)', String(receiptCount)],
+        ['Total Documented Spend', logs.some(l => l.cost != null) ? `$${logs.reduce((s, l) => s + Number(l.cost ?? 0), 0).toFixed(2)}` : 'N/A'],
+        ['Current Odometer', `${vehicle.odometer.toLocaleString()} mi`],
+      ]
+      for (const [label, val] of summaryItems) {
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(100, 116, 139)
+        doc.text(label, 14, sy)
+        doc.setFont('helvetica', 'bold'); doc.setTextColor(15, 23, 42)
+        doc.text(val, pageW - 14, sy, { align: 'right' })
+        doc.setDrawColor(226, 232, 240); doc.line(14, sy + 2, pageW - 14, sy + 2)
+        sy += 8
+      }
+
+      sy += 4
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(30, 41, 59)
+      doc.text('CONTENTS', 14, sy); sy += 6
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(100, 116, 139)
+      maintTypes.forEach((t, i) => { doc.text(`${i + 2}. ${t}`, 14, sy); sy += 5 })
+      if (repairLogs.length > 0) { doc.text(`${maintTypes.length + 2}. Repair History`, 14, sy); sy += 5 }
+      if (receiptCount > 0) { doc.text(`${maintTypes.length + (repairLogs.length > 0 ? 3 : 2)}. Appendix — Receipts`, 14, sy) }
+
+      addFooter()
+
+      // ── ONE PAGE PER MAINTENANCE TYPE ─────────────────────────────────────────
+      for (const svcType of maintTypes) {
+        setProgress(`Building: ${svcType}…`)
+        const typeLogs = maintenanceLogs
+          .filter(l => l.service_type === svcType)
+          .sort((a, b) => a.date.localeCompare(b.date))
+
+        doc.addPage()
+        addPageHeader(svcType.toUpperCase(), `${typeLogs.length} record${typeLogs.length !== 1 ? 's' : ''}`)
+
+        const finalY = drawServiceTable(typeLogs, 22, false)
+
+        const avgs = computeAverages(typeLogs)
+        if (avgs.avgMiles || avgs.avgDays) {
+          const ay = finalY + 8
+          if (ay < pageH - 20) {
+            doc.setFontSize(8.5); doc.setFont('helvetica', 'bold'); doc.setTextColor(30, 41, 59)
+            doc.text('AVERAGE INTERVAL', 10, ay)
+            doc.setFont('helvetica', 'normal'); doc.setTextColor(100, 116, 139)
+            const parts: string[] = []
+            if (avgs.avgMiles) parts.push(`${avgs.avgMiles.toLocaleString()} mi between services`)
+            if (avgs.avgDays) parts.push(`${Math.round(avgs.avgDays / 30)} months between services`)
+            doc.text(parts.join('   ·   '), 10, ay + 5.5)
           }
         }
       }
 
-      // ─── SAVE ───────────────────────────────────────────────────────────────
+      // ── REPAIR HISTORY PAGE ──────────────────────────────────────────────────
+      if (repairLogs.length > 0) {
+        setProgress('Building repair history…')
+        doc.addPage()
+        addPageHeader('REPAIR HISTORY', `${repairLogs.length} record${repairLogs.length !== 1 ? 's' : ''}`)
+        drawServiceTable(repairLogs, 22, true)
+      }
+
+      // ── APPENDIX: RECEIPTS ──────────────────────────────────────────────────
+      if (receiptCount > 0) {
+        setProgress(`Loading ${receiptCount} receipt${receiptCount !== 1 ? 's' : ''}…`)
+        doc.addPage()
+        addPageHeader('APPENDIX — SERVICE RECEIPTS')
+        let ay = 22
+
+        const logsWithReceipts = [...logs]
+          .sort((a, b) => a.date.localeCompare(b.date))
+          .filter(l => l.receipt_url)
+
+        for (const log of logsWithReceipts) {
+          if (!log.receipt_url) continue
+          const ref = receiptRefMap.get(log.id) ?? '?'
+          const title = `${ref}  —  ${log.service_type}  ·  ${format(parseISO(log.date), 'MMM d, yyyy')}${log.shop_name ? '  ·  ' + log.shop_name : ''}`
+
+          if (ay > pageH - 30) {
+            doc.addPage()
+            addPageHeader('APPENDIX — SERVICE RECEIPTS (cont.)')
+            ay = 22
+          }
+
+          doc.setFontSize(8.5); doc.setFont('helvetica', 'bold'); doc.setTextColor(30, 41, 59)
+          doc.text(title, 10, ay)
+          ay += 5
+
+          const asset = await fetchReceiptAsset(log.receipt_url)
+          if (asset) {
+            const maxW = pageW - 20
+            const maxH = 150
+            if (ay + maxH > pageH - 10) {
+              doc.addPage()
+              addPageHeader('APPENDIX — SERVICE RECEIPTS (cont.)')
+              ay = 22
+            }
+            doc.addImage(asset.data, asset.format, 10, ay, maxW, maxH, undefined, 'FAST')
+            ay += maxH + 10
+          } else {
+            doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(100, 116, 139)
+            doc.text('(PDF receipt — see original file)', 10, ay + 3)
+            ay += 12
+          }
+        }
+        addFooter()
+      }
+
       setProgress('Saving PDF…')
       const filename = `vGarage-${vehicle.year}-${vehicle.make}-${vehicle.model}.pdf`
-        .replace(/\s+/g, '-')
-        .toLowerCase()
+        .replace(/\s+/g, '-').toLowerCase()
       doc.save(filename)
       onClose()
     } catch (err) {
       console.error(err)
-      setProgress('Error generating PDF')
-    } finally {
+      setProgress('Error generating PDF. Check console.')
       setGenerating(false)
     }
   }
@@ -289,9 +314,7 @@ export default function ExportPdfModal({ vehicle, logs, onClose }: Props) {
       <div className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-sm p-6">
         <div className="flex items-center justify-between mb-5">
           <h3 className="font-bold text-zinc-100 text-lg">Export Car History</h3>
-          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300">
-            <X size={20} />
-          </button>
+          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300"><X size={20} /></button>
         </div>
 
         <div className="space-y-3 mb-6">
@@ -301,16 +324,16 @@ export default function ExportPdfModal({ vehicle, logs, onClose }: Props) {
           </div>
           <div className="flex items-center gap-3">
             <div className="flex-1 bg-zinc-800/60 rounded-xl px-3 py-2.5 text-center">
-              <p className="text-blue-300 font-bold">{ownerCount}</p>
-              <p className="text-zinc-500 text-xs">Owner</p>
+              <p className="text-blue-300 font-bold">{logs.filter(l => l.performed_by !== 'shop').length}</p>
+              <p className="text-zinc-500 text-xs">DIY</p>
             </div>
             <div className="flex-1 bg-zinc-800/60 rounded-xl px-3 py-2.5 text-center">
-              <p className="text-green-400 font-bold">{shopCount}</p>
+              <p className="text-green-400 font-bold">{logs.filter(l => l.performed_by === 'shop').length}</p>
               <p className="text-zinc-500 text-xs">Shop</p>
             </div>
             <div className="flex-1 bg-zinc-800/60 rounded-xl px-3 py-2.5 text-center">
               <p className="text-amber-400 font-bold">{receiptCount}</p>
-              <p className="text-zinc-500 text-xs">Receipts</p>
+              <p className="text-zinc-500 text-xs">Verified</p>
             </div>
           </div>
         </div>
@@ -318,11 +341,13 @@ export default function ExportPdfModal({ vehicle, logs, onClose }: Props) {
         <div className="bg-zinc-800/40 border border-zinc-700/50 rounded-xl px-4 py-3 mb-5 space-y-1.5">
           <p className="text-zinc-300 text-sm font-medium">Report includes:</p>
           {[
-            'Cover page with vehicle summary',
-            'Color-coded service history table',
-            receiptCount > 0 ? `Appendix with ${receiptCount} receipt image${receiptCount > 1 ? 's' : ''}` : 'Appendix section (no receipts yet)',
-          ].map(item => (
-            <div key={item} className="flex items-center gap-2 text-zinc-400 text-xs">
+            'Cover with summary & table of contents',
+            'One page per maintenance type with interval averages',
+            repairLogs.length > 0 ? `Repair history page (${repairLogs.length})` : null,
+            'Verified column for receipted services',
+            receiptCount > 0 ? `Appendix: ${receiptCount} receipt image${receiptCount !== 1 ? 's' : ''}` : null,
+          ].filter(Boolean).map(item => (
+            <div key={item as string} className="flex items-center gap-2 text-zinc-400 text-xs">
               <div className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
               {item}
             </div>
@@ -336,12 +361,7 @@ export default function ExportPdfModal({ vehicle, logs, onClose }: Props) {
           </div>
         ) : (
           <div className="flex gap-3">
-            <button
-              onClick={onClose}
-              className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-medium rounded-2xl py-3 transition-colors"
-            >
-              Cancel
-            </button>
+            <button onClick={onClose} className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-medium rounded-2xl py-3 transition-colors">Cancel</button>
             <button
               onClick={generate}
               disabled={logs.length === 0}

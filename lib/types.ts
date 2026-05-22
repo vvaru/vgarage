@@ -44,6 +44,7 @@ export interface ServiceLog {
   shop_name: string | null
   shop_location: string | null
   receipt_url: string | null
+  session_id: string | null
   date: string
   odometer: number
   cost: number | null

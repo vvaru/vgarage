@@ -6,7 +6,9 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
 import type { ServiceCategory, Vehicle } from '@/lib/types'
 
-const CLAUDE_PROMPT = `I have a Carfax vehicle history report for my 2022 Honda Civic Sport. Please extract every service record from it and return them as a JSON array — nothing else, just raw JSON, no markdown fences, no explanatory text.
+function buildClaudePrompt(vehicle: Vehicle) {
+  const name = `${vehicle.year} ${vehicle.make} ${vehicle.model}${vehicle.trim ? ' ' + vehicle.trim : ''}`
+  return `I have a Carfax vehicle history report for my ${name}. Please extract every service record from it and return them as a JSON array — nothing else, just raw JSON, no markdown fences, no explanatory text.
 
 Each object must follow this exact shape:
 {
@@ -30,6 +32,7 @@ Rules:
 
 Here is my Carfax report text (paste it below this line):
 `
+}
 
 interface Props {
   vehicle: Vehicle
@@ -59,7 +62,7 @@ export default function CarfaxImportModal({ vehicle, categories, onClose, onImpo
   const [importResult, setImportResult] = useState<{ success: number; errors: number; lastError?: string } | null>(null)
 
   async function copyPrompt() {
-    await navigator.clipboard.writeText(CLAUDE_PROMPT)
+    await navigator.clipboard.writeText(buildClaudePrompt(vehicle))
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
@@ -181,7 +184,7 @@ export default function CarfaxImportModal({ vehicle, categories, onClose, onImpo
 
               <div className="relative">
                 <pre className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 text-zinc-300 text-xs leading-relaxed overflow-x-auto whitespace-pre-wrap font-mono">
-                  {CLAUDE_PROMPT}
+                  {buildClaudePrompt(vehicle)}
                 </pre>
                 <button
                   onClick={copyPrompt}

@@ -8,6 +8,7 @@ export interface Vehicle {
   odometer: number
   vin: string | null
   license_plate: string | null
+  details_confirmed?: boolean
   created_at: string
 }
 
@@ -17,8 +18,43 @@ export interface ServiceCategory {
   vehicle_id: string
   name: string
   category_type: 'maintenance' | 'repair'
+  sub_type: 'service' | 'check' | null
   interval_miles: number | null
   interval_days: number | null
+  global_category_id?: string | null
+  is_visible?: boolean
+  created_at: string
+}
+
+export interface UserProfile {
+  id: string
+  email: string | null
+  full_name: string | null
+  role: 'admin' | 'user'
+  created_at: string
+}
+
+export interface GlobalCategory {
+  id: string
+  name: string
+  category_type: 'maintenance' | 'repair'
+  interval_miles: number | null
+  interval_days: number | null
+  is_active: boolean
+  created_by: string | null
+  created_at: string
+}
+
+export interface CategoryRequest {
+  id: string
+  user_id: string
+  vehicle_id: string | null
+  name: string
+  description: string | null
+  interval_miles: number | null
+  interval_days: number | null
+  status: 'pending' | 'approved' | 'rejected'
+  admin_notes: string | null
   created_at: string
 }
 
@@ -63,6 +99,28 @@ export interface FuelLog {
   total_cost: number
   mpg: number | null
   created_at: string
+}
+
+export interface Product {
+  id: string
+  user_id: string
+  vehicle_id: string | null
+  name: string
+  brand: string | null
+  notes: string | null
+  created_at: string
+}
+
+export interface ProductLink {
+  id: string
+  product_id: string
+  label: string
+  url: string
+}
+
+export interface ProductCategoryLink {
+  product_id: string
+  category_id: string
 }
 
 export interface ServiceReminder {

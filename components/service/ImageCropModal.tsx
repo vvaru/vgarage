@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState, useRef, useCallback } from 'react'
 import ReactCrop, { type Crop, type PixelCrop } from 'react-image-crop'
@@ -113,7 +113,7 @@ export default function ImageCropModal({ file, onConfirm, onCancel }: Props) {
           <button
             onClick={handleConfirm}
             disabled={processing || !completedCrop || completedCrop.width === 0}
-            className="flex-1 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-zinc-950 font-bold rounded-2xl py-3 transition-colors flex items-center justify-center gap-2"
+            className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-bold rounded-2xl py-3 transition-colors flex items-center justify-center gap-2"
           >
             {processing
               ? <div className="w-4 h-4 border-2 border-zinc-900 border-t-transparent rounded-full animate-spin" />

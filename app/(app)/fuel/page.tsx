@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState, useCallback } from 'react'
 import { format, parseISO, subDays, subMonths, subYears, getMonth } from 'date-fns'
@@ -72,13 +72,16 @@ export default function FuelPage() {
   const load = useCallback(async () => {
     if (!vehicle) return
     setLoading(true)
-    const { data } = await supabase
-      .from('fuel_logs')
-      .select('*')
-      .eq('vehicle_id', vehicle.id)
-      .order('date', { ascending: false })
-    setLogs(data ?? [])
-    setLoading(false)
+    try {
+      const { data } = await supabase
+        .from('fuel_logs')
+        .select('*')
+        .eq('vehicle_id', vehicle.id)
+        .order('date', { ascending: false })
+      setLogs(data ?? [])
+    } finally {
+      setLoading(false)
+    }
   }, [vehicle])
 
   useEffect(() => { load() }, [load])
@@ -183,7 +186,7 @@ export default function FuelPage() {
         </div>
         <button
           onClick={openAdd}
-          className="flex items-center gap-2 bg-amber-500 hover:bg-amber-400 text-zinc-950 font-bold rounded-2xl px-4 py-2.5 text-sm transition-colors shadow-lg shadow-amber-500/20"
+          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-2xl px-4 py-2.5 text-sm transition-colors shadow-lg shadow-blue-500/20"
         >
           <Plus size={16} />
           Add
@@ -199,7 +202,7 @@ export default function FuelPage() {
               onClick={() => setPeriod(p.key)}
               className={`shrink-0 px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
                 period === p.key
-                  ? 'bg-amber-500 text-zinc-950'
+                  ? 'bg-blue-600 text-white'
                   : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
               }`}
             >
@@ -213,7 +216,7 @@ export default function FuelPage() {
       {logs.length > 0 && (
         <div className="px-4 mb-4 grid grid-cols-3 gap-2">
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-center">
-            <p className="text-lg font-bold text-amber-400">
+            <p className="text-lg font-bold text-blue-400">
               {avgMpg ? avgMpg.toFixed(1) : '—'}
             </p>
             <p className="text-xs text-zinc-500">Avg MPG</p>
@@ -233,7 +236,7 @@ export default function FuelPage() {
       {chartData.length >= 2 && (
         <div className="mx-4 mb-4 bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
           <div className="flex items-center gap-2 mb-4">
-            <TrendingUp size={16} className="text-amber-500" />
+            <TrendingUp size={16} className="text-blue-500" />
             <p className="text-sm font-semibold text-zinc-100">MPG Trend</p>
           </div>
           <ResponsiveContainer width="100%" height={130}>
@@ -272,7 +275,7 @@ export default function FuelPage() {
           <div className="grid grid-cols-4 gap-2">
             {seasonalAvgs.map(s => (
               <div key={s.label} className="text-center">
-                <p className={`text-base font-bold ${s.avg != null ? 'text-amber-400' : 'text-zinc-600'}`}>
+                <p className={`text-base font-bold ${s.avg != null ? 'text-blue-400' : 'text-zinc-600'}`}>
                   {s.avg != null ? s.avg.toFixed(1) : '—'}
                 </p>
                 <p className="text-xs text-zinc-500 mt-0.5">{s.label}</p>
@@ -289,7 +292,7 @@ export default function FuelPage() {
       <div className="px-4 space-y-2 pb-6">
         {loading && (
           <div className="flex items-center justify-center py-12">
-            <div className="w-7 h-7 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+            <div className="w-7 h-7 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
           </div>
         )}
 
@@ -319,7 +322,7 @@ export default function FuelPage() {
                     ${Number(log.total_cost).toFixed(2)}
                   </span>
                   {log.mpg != null && (
-                    <span className="bg-amber-500/10 text-amber-400 text-xs font-bold px-2 py-1 rounded-lg border border-amber-500/20">
+                    <span className="bg-blue-500/10 text-blue-400 text-xs font-bold px-2 py-1 rounded-lg border border-blue-500/20">
                       {Number(log.mpg).toFixed(1)} mpg
                     </span>
                   )}
@@ -369,7 +372,7 @@ export default function FuelPage() {
                     value={form.date}
                     onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
                     required
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-3 text-zinc-100 focus:outline-none focus:border-amber-500/70 focus:ring-1 focus:ring-amber-500/30 transition-all"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-3 text-zinc-100 focus:outline-none focus:border-blue-500/70 focus:ring-1 focus:ring-blue-500/30 transition-all"
                   />
                 </div>
                 <div>
@@ -381,7 +384,7 @@ export default function FuelPage() {
                     onChange={e => setForm(f => ({ ...f, odometer: e.target.value }))}
                     required
                     min="0"
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-3 text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-amber-500/70 focus:ring-1 focus:ring-amber-500/30 transition-all"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-3 text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500/70 focus:ring-1 focus:ring-blue-500/30 transition-all"
                   />
                 </div>
               </div>
@@ -397,7 +400,7 @@ export default function FuelPage() {
                     required
                     min="0.001"
                     step="0.001"
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-3 text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-amber-500/70 focus:ring-1 focus:ring-amber-500/30 transition-all"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-3 text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500/70 focus:ring-1 focus:ring-blue-500/30 transition-all"
                   />
                 </div>
                 <div>
@@ -410,7 +413,7 @@ export default function FuelPage() {
                     required
                     min="0.001"
                     step="0.001"
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-3 text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-amber-500/70 focus:ring-1 focus:ring-amber-500/30 transition-all"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-3 text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500/70 focus:ring-1 focus:ring-blue-500/30 transition-all"
                   />
                 </div>
               </div>
@@ -418,7 +421,7 @@ export default function FuelPage() {
               {preview != null && (
                 <div className="bg-zinc-800/60 border border-zinc-700/60 rounded-xl px-4 py-3 flex items-center justify-between">
                   <span className="text-zinc-400 text-sm">Total cost</span>
-                  <span className="text-amber-400 font-bold text-lg">${preview.toFixed(2)}</span>
+                  <span className="text-blue-400 font-bold text-lg">${preview.toFixed(2)}</span>
                 </div>
               )}
 
@@ -439,7 +442,7 @@ export default function FuelPage() {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="flex-1 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-zinc-950 font-bold rounded-2xl py-3 transition-colors"
+                  className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-bold rounded-2xl py-3 transition-colors"
                 >
                   {saving ? 'Saving…' : 'Save'}
                 </button>

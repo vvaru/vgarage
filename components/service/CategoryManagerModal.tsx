@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect, useCallback } from 'react'
 import { X, Plus, Pencil, Trash2, Check, ChevronDown, ChevronRight, ExternalLink, AlertCircle } from 'lucide-react'
@@ -12,7 +12,7 @@ interface Props {
   onUpdated: () => void
 }
 
-const EMPTY_CAT = { name: '', interval_miles: '', interval_days: '' }
+const EMPTY_CAT = { name: '', interval_miles: '', interval_days: '', sub_type: 'service' as 'service' | 'check', category_type: 'maintenance' as 'maintenance' | 'repair' }
 const EMPTY_PROD = { name: '', product_url: '', last_price: '' }
 
 export default function CategoryManagerModal({ vehicle, onClose, onUpdated }: Props) {
@@ -22,22 +22,18 @@ export default function CategoryManagerModal({ vehicle, onClose, onUpdated }: Pr
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(true)
 
-  // Edit/Add category state
   const [editCat, setEditCat] = useState<ServiceCategory | null>(null)
   const [newCat, setNewCat] = useState(false)
   const [catForm, setCatForm] = useState(EMPTY_CAT)
   const [catSaving, setCatSaving] = useState(false)
   const [renameWarn, setRenameWarn] = useState(false)
 
-  // Merge duplicates state
   const [merging, setMerging] = useState(false)
 
-  // Delete category state
   const [deleteCatId, setDeleteCatId] = useState<string | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
-  // Product state
   const [editProd, setEditProd] = useState<{ catId: string; prod: ServiceCategoryProduct | null } | null>(null)
   const [prodForm, setProdForm] = useState(EMPTY_PROD)
   const [prodSaving, setProdSaving] = useState(false)
@@ -76,6 +72,8 @@ export default function CategoryManagerModal({ vehicle, onClose, onUpdated }: Pr
       name: cat.name,
       interval_miles: cat.interval_miles != null ? String(cat.interval_miles) : '',
       interval_days: cat.interval_days != null ? String(cat.interval_days) : '',
+      sub_type: cat.sub_type ?? 'service',
+      category_type: cat.category_type,
     })
     setRenameWarn(false)
   }
@@ -95,7 +93,8 @@ export default function CategoryManagerModal({ vehicle, onClose, onUpdated }: Pr
         user_id: user.id,
         vehicle_id: vehicle.id,
         name: catForm.name.trim(),
-        category_type: 'maintenance',
+        category_type: catForm.category_type,
+        sub_type: catForm.category_type === 'maintenance' ? catForm.sub_type : null,
         interval_miles: catForm.interval_miles ? parseInt(catForm.interval_miles) : null,
         interval_days: catForm.interval_days ? parseInt(catForm.interval_days) : null,
       })
@@ -103,6 +102,7 @@ export default function CategoryManagerModal({ vehicle, onClose, onUpdated }: Pr
       const nameChanged = catForm.name.trim() !== editCat.name
       await supabase.from('service_categories').update({
         name: catForm.name.trim(),
+        sub_type: editCat.category_type === 'maintenance' ? catForm.sub_type : null,
         interval_miles: catForm.interval_miles ? parseInt(catForm.interval_miles) : null,
         interval_days: catForm.interval_days ? parseInt(catForm.interval_days) : null,
       }).eq('id', editCat.id)
@@ -130,7 +130,6 @@ export default function CategoryManagerModal({ vehicle, onClose, onUpdated }: Pr
     }
     for (const [, group] of byName) {
       if (group.length <= 1) continue
-      // Keep the one with an interval set; if tied, keep the first (oldest by sort order)
       const primary = group.find(c => c.interval_miles || c.interval_days) ?? group[0]
       const duplicates = group.filter(c => c.id !== primary.id)
       for (const dup of duplicates) {
@@ -199,6 +198,9 @@ export default function CategoryManagerModal({ vehicle, onClose, onUpdated }: Pr
   }
 
   const maintenanceCats = categories.filter(c => c.category_type === 'maintenance')
+  const repairCatsList = categories.filter(c => c.category_type === 'repair')
+  const serviceCats = maintenanceCats.filter(c => c.sub_type !== 'check')
+  const checkCats = maintenanceCats.filter(c => c.sub_type === 'check')
 
   const duplicateGroups = (() => {
     const byName = new Map<string, ServiceCategory[]>()
@@ -209,7 +211,6 @@ export default function CategoryManagerModal({ vehicle, onClose, onUpdated }: Pr
     return Array.from(byName.values()).filter(g => g.length > 1)
   })()
 
-  // IDs that are duplicates (not the one that would be kept)
   const duplicateIds = new Set(
     duplicateGroups.flatMap(group => {
       const primary = group.find(c => c.interval_miles || c.interval_days) ?? group[0]
@@ -217,40 +218,166 @@ export default function CategoryManagerModal({ vehicle, onClose, onUpdated }: Pr
     })
   )
 
+  // ─── Shared category row renderer ────────────────────────────────────────────
+  function renderCatRow(cat: ServiceCategory) {
+    const catProds = products[cat.id] ?? []
+    const isOpen = expanded[cat.id]
+    const isEditing = editCat?.id === cat.id
+    const noInterval = !cat.interval_miles && !cat.interval_days && cat.category_type === 'maintenance'
+    const isDuplicate = duplicateIds.has(cat.id)
+
+    return (
+      <div key={cat.id} className={`border rounded-2xl overflow-hidden ${isDuplicate ? 'bg-red-500/5 border-red-500/20 opacity-70' : noInterval ? 'bg-blue-500/5 border-blue-500/25' : 'bg-zinc-800/50 border-zinc-700/60'}`}>
+        {isEditing ? (
+          <div className="p-4 space-y-3">
+            <div className="flex items-center gap-2 mb-1">
+              <p className="text-sm font-medium text-zinc-300">Edit Category</p>
+              {renameWarn && <span className="text-xs text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-lg">Renaming updates all past records</span>}
+            </div>
+            <input
+              type="text"
+              placeholder="Category name"
+              value={catForm.name}
+              onChange={e => { setCatForm(f => ({ ...f, name: e.target.value })); if (e.target.value.trim() !== cat.name) setRenameWarn(true); else setRenameWarn(false) }}
+              className="w-full bg-zinc-700 border border-zinc-600 rounded-xl px-3 py-2.5 text-zinc-100 text-sm focus:outline-none focus:border-blue-500/70 transition-all"
+            />
+            {cat.category_type === 'maintenance' && (
+              <div>
+                <label className="block text-xs text-zinc-500 mb-1.5">Sub-type</label>
+                <div className="flex gap-2">
+                  {(['service', 'check'] as const).map(st => (
+                    <button key={st} type="button" onClick={() => setCatForm(f => ({ ...f, sub_type: st }))}
+                      className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-colors border ${catForm.sub_type === st ? 'bg-blue-500/20 text-blue-300 border-blue-500/40' : 'bg-zinc-700 text-zinc-500 border-zinc-600'}`}>
+                      {st === 'service' ? 'Service' : 'Check'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-xs text-zinc-500 mb-1">Every X miles</label>
+                <input type="number" placeholder="e.g. 5000" value={catForm.interval_miles} onChange={e => setCatForm(f => ({ ...f, interval_miles: e.target.value }))}
+                  className="w-full bg-zinc-700 border border-zinc-600 rounded-xl px-3 py-2 text-zinc-100 text-sm focus:outline-none focus:border-blue-500/70 transition-all" />
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-500 mb-1">Every X days</label>
+                <input type="number" placeholder="e.g. 180" value={catForm.interval_days} onChange={e => setCatForm(f => ({ ...f, interval_days: e.target.value }))}
+                  className="w-full bg-zinc-700 border border-zinc-600 rounded-xl px-3 py-2 text-zinc-100 text-sm focus:outline-none focus:border-blue-500/70 transition-all" />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => { setEditCat(null); setRenameWarn(false) }} className="flex-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-sm font-medium rounded-xl py-2 transition-colors">Cancel</button>
+              <button onClick={saveCat} disabled={catSaving || !catForm.name.trim()} className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-sm font-bold rounded-xl py-2 transition-colors">{catSaving ? 'Saving…' : 'Save'}</button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center p-4 gap-3">
+              <button onClick={() => setExpanded(e => ({ ...e, [cat.id]: !e[cat.id] }))} className="text-zinc-500 hover:text-zinc-300 transition-colors">
+                {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+              </button>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="font-medium text-zinc-100 text-sm">{cat.name}</p>
+                  {isDuplicate && <span className="text-xs font-semibold px-1.5 py-0.5 rounded-md bg-red-500/15 text-red-400 border border-red-500/25 shrink-0">Duplicate</span>}
+                  {!isDuplicate && noInterval && <span className="text-xs font-semibold px-1.5 py-0.5 rounded-md bg-blue-500/15 text-blue-400 border border-blue-500/25 shrink-0">No interval</span>}
+                </div>
+                <p className="text-zinc-500 text-xs mt-0.5">
+                  {[cat.interval_miles ? `${cat.interval_miles.toLocaleString()} mi` : null, cat.interval_days ? `${Math.round(cat.interval_days / 30)} mo` : null].filter(Boolean).join(' / ') || (cat.category_type === 'maintenance' ? 'Won\'t appear on dashboard' : 'As needed')}
+                </p>
+              </div>
+              <div className="flex items-center gap-1">
+                <button onClick={() => openEditCat(cat)} className="w-7 h-7 rounded-lg bg-zinc-700/60 flex items-center justify-center text-zinc-400 hover:text-zinc-200 transition-colors"><Pencil size={12} /></button>
+                <button onClick={() => { setDeleteCatId(cat.id); setDeleteConfirm(false) }} className="w-7 h-7 rounded-lg bg-zinc-700/60 flex items-center justify-center text-zinc-400 hover:text-red-400 transition-colors"><Trash2 size={12} /></button>
+              </div>
+            </div>
+
+            {noInterval && !isOpen && (
+              <div className="border-t border-blue-500/20 px-4 py-2.5 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  <AlertCircle size={12} className="text-blue-400 shrink-0" />
+                  <p className="text-blue-400/80 text-xs">Intentionally no schedule?</p>
+                </div>
+                <button onClick={() => openEditCat(cat)} className="text-blue-400 text-xs font-semibold hover:text-blue-300 transition-colors shrink-0">Set interval →</button>
+              </div>
+            )}
+
+            {isOpen && (
+              <div className="border-t border-zinc-700/50 px-4 pb-4 pt-3 space-y-2">
+                <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide mb-2">Products / Parts ({catProds.length})</p>
+                {catProds.map(p =>
+                  editProd?.prod?.id === p.id ? (
+                    <div key={p.id} className="bg-zinc-700/40 rounded-xl p-3 space-y-2">
+                      <input type="text" placeholder="Product name" value={prodForm.name} onChange={e => setProdForm(f => ({ ...f, name: e.target.value }))} className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-zinc-100 text-sm focus:outline-none focus:border-blue-500/70 transition-all" />
+                      <input type="url" placeholder="Product URL (optional)" value={prodForm.product_url} onChange={e => setProdForm(f => ({ ...f, product_url: e.target.value }))} className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-zinc-100 text-sm focus:outline-none focus:border-blue-500/70 transition-all" />
+                      <input type="number" placeholder="Last price $" value={prodForm.last_price} onChange={e => setProdForm(f => ({ ...f, last_price: e.target.value }))} min="0" step="0.01" className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-zinc-100 text-sm focus:outline-none focus:border-blue-500/70 transition-all" />
+                      <div className="flex gap-2">
+                        <button onClick={() => setEditProd(null)} className="flex-1 bg-zinc-700 text-zinc-300 text-xs font-medium rounded-lg py-2 hover:bg-zinc-600 transition-colors">Cancel</button>
+                        <button onClick={saveProd} disabled={prodSaving} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg py-2 disabled:opacity-40 transition-colors">{prodSaving ? 'Saving…' : 'Save'}</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div key={p.id} className="flex items-center gap-3 bg-zinc-700/30 rounded-xl px-3 py-2.5">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-zinc-200 text-sm truncate">{p.name}</p>
+                          {p.product_url && <a href={p.product_url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-400"><ExternalLink size={12} /></a>}
+                        </div>
+                        {p.last_price != null && <p className="text-blue-400 text-xs font-medium">${Number(p.last_price).toFixed(2)}</p>}
+                      </div>
+                      <button onClick={() => openEditProd(cat.id, p)} className="w-6 h-6 rounded-md bg-zinc-600/60 flex items-center justify-center text-zinc-400 hover:text-zinc-200"><Pencil size={11} /></button>
+                      <button onClick={() => setDeleteProdId(p.id)} className="w-6 h-6 rounded-md bg-zinc-600/60 flex items-center justify-center text-zinc-400 hover:text-red-400"><Trash2 size={11} /></button>
+                    </div>
+                  )
+                )}
+
+                {editProd?.catId === cat.id && !editProd.prod ? (
+                  <div className="bg-zinc-700/40 rounded-xl p-3 space-y-2">
+                    <input type="text" placeholder="Product name" value={prodForm.name} onChange={e => setProdForm(f => ({ ...f, name: e.target.value }))} className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-zinc-100 text-sm focus:outline-none focus:border-blue-500/70 transition-all" />
+                    <input type="url" placeholder="Product URL (optional)" value={prodForm.product_url} onChange={e => setProdForm(f => ({ ...f, product_url: e.target.value }))} className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-zinc-100 text-sm focus:outline-none focus:border-blue-500/70 transition-all" />
+                    <input type="number" placeholder="Last price $" value={prodForm.last_price} onChange={e => setProdForm(f => ({ ...f, last_price: e.target.value }))} min="0" step="0.01" className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-zinc-100 text-sm focus:outline-none focus:border-blue-500/70 transition-all" />
+                    <div className="flex gap-2">
+                      <button onClick={() => setEditProd(null)} className="flex-1 bg-zinc-700 text-zinc-300 text-xs font-medium rounded-lg py-2 hover:bg-zinc-600 transition-colors">Cancel</button>
+                      <button onClick={saveProd} disabled={prodSaving || !prodForm.name.trim()} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg py-2 disabled:opacity-40 transition-colors">{prodSaving ? 'Saving…' : 'Add'}</button>
+                    </div>
+                  </div>
+                ) : (
+                  <button onClick={() => openEditProd(cat.id, null)} className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors py-1">
+                    <Plus size={12} /> Add Product
+                  </button>
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
       <div className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-lg max-h-[90vh] flex flex-col">
-        {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-zinc-800 shrink-0">
           <div>
             <h3 className="font-bold text-zinc-100 text-lg">Manage Categories</h3>
             <p className="text-zinc-500 text-sm">Maintenance intervals & products</p>
           </div>
-          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300">
-            <X size={20} />
-          </button>
+          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300"><X size={20} /></button>
         </div>
 
         <div className="overflow-y-auto flex-1 p-5 space-y-3">
           {duplicateGroups.length > 0 && !loading && (
-            <div className="bg-amber-500/8 border border-amber-500/30 rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
+            <div className="bg-blue-500/8 border border-blue-500/30 rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5 mb-0.5">
-                  <AlertCircle size={13} className="text-amber-400 shrink-0" />
-                  <p className="text-amber-400 text-sm font-semibold">
-                    {duplicateGroups.length} duplicate {duplicateGroups.length === 1 ? 'category' : 'categories'} found
-                  </p>
+                  <AlertCircle size={13} className="text-blue-400 shrink-0" />
+                  <p className="text-blue-400 text-sm font-semibold">{duplicateGroups.length} duplicate {duplicateGroups.length === 1 ? 'category' : 'categories'} found</p>
                 </div>
-                <p className="text-zinc-500 text-xs truncate">
-                  {duplicateGroups.map(g => g[0].name).join(', ')}
-                </p>
+                <p className="text-zinc-500 text-xs truncate">{duplicateGroups.map(g => g[0].name).join(', ')}</p>
                 <p className="text-zinc-600 text-xs mt-0.5">Merging keeps the one with an interval set and re-links all records.</p>
               </div>
-              <button
-                onClick={mergeAllDuplicates}
-                disabled={merging}
-                className="bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl px-3 py-2 transition-colors shrink-0"
-              >
+              <button onClick={mergeAllDuplicates} disabled={merging} className="bg-blue-500 hover:bg-blue-400 disabled:opacity-50 text-zinc-950 font-bold text-xs rounded-xl px-3 py-2 transition-colors shrink-0">
                 {merging ? 'Merging…' : 'Merge All'}
               </button>
             </div>
@@ -258,257 +385,95 @@ export default function CategoryManagerModal({ vehicle, onClose, onUpdated }: Pr
 
           {loading && (
             <div className="flex items-center justify-center py-8">
-              <div className="w-6 h-6 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+              <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
             </div>
           )}
 
-          {!loading && maintenanceCats.map(cat => {
-            const catProds = products[cat.id] ?? []
-            const isOpen = expanded[cat.id]
-            const isEditing = editCat?.id === cat.id
+          {/* Service section */}
+          {!loading && serviceCats.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-widest text-zinc-600 mb-2 px-1">Service</p>
+              <div className="space-y-2">{serviceCats.map(cat => renderCatRow(cat))}</div>
+            </div>
+          )}
 
-            const noInterval = !cat.interval_miles && !cat.interval_days
-            const isDuplicate = duplicateIds.has(cat.id)
+          {/* Checks section */}
+          {!loading && checkCats.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-widest text-zinc-600 mb-2 px-1 mt-4">Checks</p>
+              <div className="space-y-2">{checkCats.map(cat => renderCatRow(cat))}</div>
+            </div>
+          )}
 
-            return (
-              <div key={cat.id} className={`border rounded-2xl overflow-hidden ${isDuplicate ? 'bg-red-500/5 border-red-500/20 opacity-70' : noInterval ? 'bg-amber-500/5 border-amber-500/25' : 'bg-zinc-800/50 border-zinc-700/60'}`}>
-                {isEditing ? (
-                  <div className="p-4 space-y-3">
-                    <div className="flex items-center gap-2 mb-1">
-                      <p className="text-sm font-medium text-zinc-300">Edit Category</p>
-                      {renameWarn && (
-                        <span className="text-xs text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-lg">
-                          Renaming updates all past records
-                        </span>
-                      )}
-                    </div>
-                    <input
-                      type="text"
-                      placeholder="Category name"
-                      value={catForm.name}
-                      onChange={e => {
-                        setCatForm(f => ({ ...f, name: e.target.value }))
-                        if (e.target.value.trim() !== cat.name) setRenameWarn(true)
-                        else setRenameWarn(false)
-                      }}
-                      className="w-full bg-zinc-700 border border-zinc-600 rounded-xl px-3 py-2.5 text-zinc-100 text-sm focus:outline-none focus:border-amber-500/70 transition-all"
-                    />
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-xs text-zinc-500 mb-1">Every X miles</label>
-                        <input
-                          type="number"
-                          placeholder="e.g. 5000"
-                          value={catForm.interval_miles}
-                          onChange={e => setCatForm(f => ({ ...f, interval_miles: e.target.value }))}
-                          className="w-full bg-zinc-700 border border-zinc-600 rounded-xl px-3 py-2 text-zinc-100 text-sm focus:outline-none focus:border-amber-500/70 transition-all"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs text-zinc-500 mb-1">Every X days</label>
-                        <input
-                          type="number"
-                          placeholder="e.g. 180"
-                          value={catForm.interval_days}
-                          onChange={e => setCatForm(f => ({ ...f, interval_days: e.target.value }))}
-                          className="w-full bg-zinc-700 border border-zinc-600 rounded-xl px-3 py-2 text-zinc-100 text-sm focus:outline-none focus:border-amber-500/70 transition-all"
-                        />
-                      </div>
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => { setEditCat(null); setRenameWarn(false) }}
-                        className="flex-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-sm font-medium rounded-xl py-2 transition-colors"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        onClick={saveCat}
-                        disabled={catSaving || !catForm.name.trim()}
-                        className="flex-1 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-zinc-950 text-sm font-bold rounded-xl py-2 transition-colors"
-                      >
-                        {catSaving ? 'Saving…' : 'Save'}
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <div className="flex items-center p-4 gap-3">
-                      <button
-                        onClick={() => setExpanded(e => ({ ...e, [cat.id]: !e[cat.id] }))}
-                        className="text-zinc-500 hover:text-zinc-300 transition-colors"
-                      >
-                        {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                      </button>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="font-medium text-zinc-100 text-sm">{cat.name}</p>
-                          {isDuplicate && (
-                            <span className="text-xs font-semibold px-1.5 py-0.5 rounded-md bg-red-500/15 text-red-400 border border-red-500/25 shrink-0">
-                              Duplicate
-                            </span>
-                          )}
-                          {!isDuplicate && noInterval && (
-                            <span className="text-xs font-semibold px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-400 border border-amber-500/25 shrink-0">
-                              No interval
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-zinc-500 text-xs mt-0.5">
-                          {[
-                            cat.interval_miles ? `${cat.interval_miles.toLocaleString()} mi` : null,
-                            cat.interval_days ? `${Math.round(cat.interval_days / 30)} mo` : null,
-                          ].filter(Boolean).join(' / ') || 'Won\'t appear on dashboard'}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => openEditCat(cat)}
-                          className="w-7 h-7 rounded-lg bg-zinc-700/60 flex items-center justify-center text-zinc-400 hover:text-zinc-200 transition-colors"
-                        >
-                          <Pencil size={12} />
-                        </button>
-                        <button
-                          onClick={() => { setDeleteCatId(cat.id); setDeleteConfirm(false) }}
-                          className="w-7 h-7 rounded-lg bg-zinc-700/60 flex items-center justify-center text-zinc-400 hover:text-red-400 transition-colors"
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      </div>
-                    </div>
-
-                    {noInterval && !isOpen && (
-                      <div className="border-t border-amber-500/20 px-4 py-2.5 flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-1.5">
-                          <AlertCircle size={12} className="text-amber-400 shrink-0" />
-                          <p className="text-amber-400/80 text-xs">Intentionally no schedule?</p>
-                        </div>
-                        <button
-                          onClick={() => openEditCat(cat)}
-                          className="text-amber-400 text-xs font-semibold hover:text-amber-300 transition-colors shrink-0"
-                        >
-                          Set interval →
-                        </button>
-                      </div>
-                    )}
-
-                    {isOpen && (
-                      <div className="border-t border-zinc-700/50 px-4 pb-4 pt-3 space-y-2">
-                        <p className="text-xs font-medium text-zinc-500 uppercase tracking-wide mb-2">
-                          Products / Parts ({catProds.length})
-                        </p>
-                        {catProds.map(p => (
-                          editProd?.prod?.id === p.id ? (
-                            <div key={p.id} className="bg-zinc-700/40 rounded-xl p-3 space-y-2">
-                              <input
-                                type="text"
-                                placeholder="Product name"
-                                value={prodForm.name}
-                                onChange={e => setProdForm(f => ({ ...f, name: e.target.value }))}
-                                className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-zinc-100 text-sm focus:outline-none focus:border-amber-500/70 transition-all"
-                              />
-                              <input
-                                type="url"
-                                placeholder="Product URL (optional)"
-                                value={prodForm.product_url}
-                                onChange={e => setProdForm(f => ({ ...f, product_url: e.target.value }))}
-                                className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-zinc-100 text-sm focus:outline-none focus:border-amber-500/70 transition-all"
-                              />
-                              <input
-                                type="number"
-                                placeholder="Last price $"
-                                value={prodForm.last_price}
-                                onChange={e => setProdForm(f => ({ ...f, last_price: e.target.value }))}
-                                min="0" step="0.01"
-                                className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-zinc-100 text-sm focus:outline-none focus:border-amber-500/70 transition-all"
-                              />
-                              <div className="flex gap-2">
-                                <button onClick={() => setEditProd(null)} className="flex-1 bg-zinc-700 text-zinc-300 text-xs font-medium rounded-lg py-2 hover:bg-zinc-600 transition-colors">Cancel</button>
-                                <button onClick={saveProd} disabled={prodSaving} className="flex-1 bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs font-bold rounded-lg py-2 disabled:opacity-40 transition-colors">{prodSaving ? 'Saving…' : 'Save'}</button>
-                              </div>
-                            </div>
-                          ) : (
-                            <div key={p.id} className="flex items-center gap-3 bg-zinc-700/30 rounded-xl px-3 py-2.5">
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <p className="text-zinc-200 text-sm truncate">{p.name}</p>
-                                  {p.product_url && (
-                                    <a href={p.product_url} target="_blank" rel="noopener noreferrer" className="text-amber-500 hover:text-amber-400">
-                                      <ExternalLink size={12} />
-                                    </a>
-                                  )}
-                                </div>
-                                {p.last_price != null && (
-                                  <p className="text-amber-400 text-xs font-medium">${Number(p.last_price).toFixed(2)}</p>
-                                )}
-                              </div>
-                              <button onClick={() => openEditProd(cat.id, p)} className="w-6 h-6 rounded-md bg-zinc-600/60 flex items-center justify-center text-zinc-400 hover:text-zinc-200"><Pencil size={11} /></button>
-                              <button onClick={() => setDeleteProdId(p.id)} className="w-6 h-6 rounded-md bg-zinc-600/60 flex items-center justify-center text-zinc-400 hover:text-red-400"><Trash2 size={11} /></button>
-                            </div>
-                          )
-                        ))}
-
-                        {editProd?.catId === cat.id && !editProd.prod ? (
-                          <div className="bg-zinc-700/40 rounded-xl p-3 space-y-2">
-                            <input type="text" placeholder="Product name" value={prodForm.name} onChange={e => setProdForm(f => ({ ...f, name: e.target.value }))} className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-zinc-100 text-sm focus:outline-none focus:border-amber-500/70 transition-all" />
-                            <input type="url" placeholder="Product URL (optional)" value={prodForm.product_url} onChange={e => setProdForm(f => ({ ...f, product_url: e.target.value }))} className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-zinc-100 text-sm focus:outline-none focus:border-amber-500/70 transition-all" />
-                            <input type="number" placeholder="Last price $" value={prodForm.last_price} onChange={e => setProdForm(f => ({ ...f, last_price: e.target.value }))} min="0" step="0.01" className="w-full bg-zinc-700 border border-zinc-600 rounded-lg px-3 py-2 text-zinc-100 text-sm focus:outline-none focus:border-amber-500/70 transition-all" />
-                            <div className="flex gap-2">
-                              <button onClick={() => setEditProd(null)} className="flex-1 bg-zinc-700 text-zinc-300 text-xs font-medium rounded-lg py-2 hover:bg-zinc-600 transition-colors">Cancel</button>
-                              <button onClick={saveProd} disabled={prodSaving || !prodForm.name.trim()} className="flex-1 bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs font-bold rounded-lg py-2 disabled:opacity-40 transition-colors">{prodSaving ? 'Saving…' : 'Add'}</button>
-                            </div>
-                          </div>
-                        ) : (
-                          <button
-                            onClick={() => openEditProd(cat.id, null)}
-                            className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors py-1"
-                          >
-                            <Plus size={12} /> Add Product
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            )
-          })}
+          {/* Repair section */}
+          {!loading && repairCatsList.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-widest text-zinc-600 mb-2 px-1 mt-4">Repair</p>
+              <div className="space-y-2">{repairCatsList.map(cat => renderCatRow(cat))}</div>
+            </div>
+          )}
 
           {/* New category form */}
           {newCat && (
-            <div className="bg-zinc-800/50 border border-amber-500/30 rounded-2xl p-4 space-y-3">
-              <p className="text-sm font-medium text-zinc-300">New Maintenance Category</p>
+            <div className="bg-zinc-800/50 border border-blue-500/30 rounded-2xl p-4 space-y-3">
+              <p className="text-sm font-medium text-zinc-300">New Category</p>
+
+              {/* Type toggle */}
+              <div>
+                <label className="block text-xs text-zinc-500 mb-1.5">Category type</label>
+                <div className="flex gap-2">
+                  {(['maintenance', 'repair'] as const).map(ct => (
+                    <button key={ct} type="button" onClick={() => setCatForm(f => ({ ...f, category_type: ct }))}
+                      className={`flex-1 py-2 rounded-xl text-xs font-semibold capitalize transition-colors border ${catForm.category_type === ct ? ct === 'maintenance' ? 'bg-blue-500/20 text-blue-300 border-blue-500/40' : 'bg-orange-500/20 text-orange-300 border-orange-500/40' : 'bg-zinc-700 text-zinc-500 border-zinc-600'}`}>
+                      {ct}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Sub-type toggle (maintenance only) */}
+              {catForm.category_type === 'maintenance' && (
+                <div>
+                  <label className="block text-xs text-zinc-500 mb-1.5">Sub-type</label>
+                  <div className="flex gap-2">
+                    {(['service', 'check'] as const).map(st => (
+                      <button key={st} type="button" onClick={() => setCatForm(f => ({ ...f, sub_type: st }))}
+                        className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-colors border ${catForm.sub_type === st ? 'bg-blue-500/20 text-blue-300 border-blue-500/40' : 'bg-zinc-700 text-zinc-500 border-zinc-600'}`}>
+                        {st === 'service' ? 'Service' : 'Check'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <input
                 type="text"
-                placeholder="Category name (e.g. Coolant Flush)"
+                placeholder={catForm.category_type === 'maintenance' ? 'Category name (e.g. Coolant Flush)' : 'Repair type (e.g. Strut replacement)'}
                 value={catForm.name}
                 onChange={e => setCatForm(f => ({ ...f, name: e.target.value }))}
-                className="w-full bg-zinc-700 border border-zinc-600 rounded-xl px-3 py-2.5 text-zinc-100 text-sm focus:outline-none focus:border-amber-500/70 transition-all"
+                className="w-full bg-zinc-700 border border-zinc-600 rounded-xl px-3 py-2.5 text-zinc-100 text-sm focus:outline-none focus:border-blue-500/70 transition-all"
                 autoFocus
               />
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block text-xs text-zinc-500 mb-1">Every X miles</label>
-                  <input type="number" placeholder="e.g. 30000" value={catForm.interval_miles} onChange={e => setCatForm(f => ({ ...f, interval_miles: e.target.value }))} className="w-full bg-zinc-700 border border-zinc-600 rounded-xl px-3 py-2 text-zinc-100 text-sm focus:outline-none focus:border-amber-500/70 transition-all" />
+                  <input type="number" placeholder="e.g. 30000" value={catForm.interval_miles} onChange={e => setCatForm(f => ({ ...f, interval_miles: e.target.value }))} className="w-full bg-zinc-700 border border-zinc-600 rounded-xl px-3 py-2 text-zinc-100 text-sm focus:outline-none focus:border-blue-500/70 transition-all" />
                 </div>
                 <div>
                   <label className="block text-xs text-zinc-500 mb-1">Every X days</label>
-                  <input type="number" placeholder="e.g. 365" value={catForm.interval_days} onChange={e => setCatForm(f => ({ ...f, interval_days: e.target.value }))} className="w-full bg-zinc-700 border border-zinc-600 rounded-xl px-3 py-2 text-zinc-100 text-sm focus:outline-none focus:border-amber-500/70 transition-all" />
+                  <input type="number" placeholder="e.g. 365" value={catForm.interval_days} onChange={e => setCatForm(f => ({ ...f, interval_days: e.target.value }))} className="w-full bg-zinc-700 border border-zinc-600 rounded-xl px-3 py-2 text-zinc-100 text-sm focus:outline-none focus:border-blue-500/70 transition-all" />
                 </div>
               </div>
               <div className="flex gap-2">
                 <button onClick={() => setNewCat(false)} className="flex-1 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-sm font-medium rounded-xl py-2 transition-colors">Cancel</button>
-                <button onClick={saveCat} disabled={catSaving || !catForm.name.trim()} className="flex-1 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-zinc-950 text-sm font-bold rounded-xl py-2 transition-colors">{catSaving ? 'Saving…' : 'Add Category'}</button>
+                <button onClick={saveCat} disabled={catSaving || !catForm.name.trim()} className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-sm font-bold rounded-xl py-2 transition-colors">{catSaving ? 'Saving…' : 'Add Category'}</button>
               </div>
             </div>
           )}
 
           {!newCat && !loading && (
-            <button
-              onClick={openNewCat}
-              className="flex items-center gap-2 w-full border-2 border-dashed border-zinc-700 hover:border-amber-500/40 rounded-2xl px-4 py-3 text-zinc-500 hover:text-amber-500 text-sm font-medium transition-colors"
-            >
-              <Plus size={16} /> Add Maintenance Category
+            <button onClick={openNewCat} className="flex items-center gap-2 w-full border-2 border-dashed border-zinc-700 hover:border-blue-500/40 rounded-2xl px-4 py-3 text-zinc-500 hover:text-blue-500 text-sm font-medium transition-colors">
+              <Plus size={16} /> Add Category
             </button>
           )}
         </div>
@@ -524,9 +489,7 @@ export default function CategoryManagerModal({ vehicle, onClose, onUpdated }: Pr
               </div>
               <div>
                 <p className="font-bold text-zinc-100">Delete category?</p>
-                <p className="text-zinc-400 text-sm mt-1">
-                  Existing service records <span className="text-zinc-200">won&apos;t be deleted</span>, but they will lose their category link. You can re-assign them manually.
-                </p>
+                <p className="text-zinc-400 text-sm mt-1">Existing service records <span className="text-zinc-200">won&apos;t be deleted</span>, but they will lose their category link.</p>
               </div>
             </div>
             <div className="flex gap-3">

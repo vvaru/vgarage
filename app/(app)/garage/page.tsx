@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState, useCallback } from 'react'
 import { format, differenceInDays, parseISO } from 'date-fns'
@@ -101,25 +101,28 @@ export default function GaragePage() {
   const load = useCallback(async () => {
     if (!user || vehicles.length === 0) { setLoading(false); return }
     setLoading(true)
-    const vehicleIds = vehicles.map(v => v.id)
+    try {
+      const vehicleIds = vehicles.map(v => v.id)
 
-    const [{ data: cats }, { data: svcs }, { data: fuels }] = await Promise.all([
-      supabase.from('service_categories').select('*').in('vehicle_id', vehicleIds).eq('category_type', 'maintenance'),
-      supabase.from('service_logs').select('*').in('vehicle_id', vehicleIds).order('date', { ascending: false }),
-      supabase.from('fuel_logs').select('id,date,odometer,vehicle_id').in('vehicle_id', vehicleIds).order('date', { ascending: true }),
-    ])
+      const [{ data: cats }, { data: svcs }, { data: fuels }] = await Promise.all([
+        supabase.from('service_categories').select('*').in('vehicle_id', vehicleIds).eq('category_type', 'maintenance'),
+        supabase.from('service_logs').select('*').in('vehicle_id', vehicleIds).order('date', { ascending: false }),
+        supabase.from('fuel_logs').select('id,date,odometer,vehicle_id').in('vehicle_id', vehicleIds).order('date', { ascending: true }),
+      ])
 
-    const map = new Map<string, VehicleCardData>()
-    for (const v of vehicles) {
-      map.set(v.id, {
-        vehicle: v,
-        categories: (cats ?? []).filter(c => c.vehicle_id === v.id),
-        serviceLogs: (svcs ?? []).filter(l => l.vehicle_id === v.id),
-        fuelLogs: (fuels ?? []).filter(l => l.vehicle_id === v.id) as FuelLog[],
-      })
+      const map = new Map<string, VehicleCardData>()
+      for (const v of vehicles) {
+        map.set(v.id, {
+          vehicle: v,
+          categories: (cats ?? []).filter(c => c.vehicle_id === v.id),
+          serviceLogs: (svcs ?? []).filter(l => l.vehicle_id === v.id),
+          fuelLogs: (fuels ?? []).filter(l => l.vehicle_id === v.id) as FuelLog[],
+        })
+      }
+      setVehicleData(map)
+    } finally {
+      setLoading(false)
     }
-    setVehicleData(map)
-    setLoading(false)
   }, [user, vehicles])
 
   useEffect(() => { load() }, [load])
@@ -154,7 +157,7 @@ export default function GaragePage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
       </div>
     )
   }
@@ -169,7 +172,7 @@ export default function GaragePage() {
         </div>
         <button
           onClick={() => setShowAddModal(true)}
-          className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-zinc-950 text-sm font-bold px-3 py-2 rounded-xl transition-colors"
+          className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold px-3 py-2 rounded-xl transition-colors"
         >
           <Plus size={15} /> Add Vehicle
         </button>
@@ -199,7 +202,7 @@ export default function GaragePage() {
           const healthScore = statuses.length
             ? Math.max(0, Math.round(((statuses.length - overdue.length) / statuses.length) * 100))
             : 100
-          const healthColor = healthScore >= 80 ? 'text-green-400' : healthScore >= 50 ? 'text-amber-400' : 'text-red-400'
+          const healthColor = healthScore >= 80 ? 'text-green-400' : healthScore >= 50 ? 'text-blue-400' : 'text-red-400'
           const healthLabel = healthScore >= 80 ? 'Good' : healthScore >= 50 ? 'Fair' : 'Needs Attention'
 
           const lastService = data.serviceLogs[0] ?? null
@@ -208,7 +211,7 @@ export default function GaragePage() {
             <div
               key={v.id}
               className={`bg-zinc-900 border rounded-2xl overflow-hidden transition-all ${
-                isActive ? 'border-amber-500/50' : 'border-zinc-800'
+                isActive ? 'border-blue-500/50' : 'border-zinc-800'
               }`}
             >
               {/* Card header */}
@@ -217,15 +220,15 @@ export default function GaragePage() {
                 onClick={() => setActiveVehicleId(v.id)}
               >
                 <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                  isActive ? 'bg-amber-500/15' : 'bg-zinc-800'
+                  isActive ? 'bg-blue-500/15' : 'bg-zinc-800'
                 }`}>
-                  <Car size={20} className={isActive ? 'text-amber-500' : 'text-zinc-500'} />
+                  <Car size={20} className={isActive ? 'text-blue-500' : 'text-zinc-500'} />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="text-zinc-100 font-bold text-base">{v.year} {v.make} {v.model}</p>
                     {isActive && (
-                      <span className="text-xs font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded-lg">
+                      <span className="text-xs font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2 py-0.5 rounded-lg">
                         Active
                       </span>
                     )}
@@ -237,7 +240,7 @@ export default function GaragePage() {
                       <span className="text-zinc-300 text-sm font-semibold tabular-nums">{estOdo.toLocaleString()}</span>
                       <span className="text-zinc-600 text-xs">mi</span>
                       {isProjected && (
-                        <span className="text-xs text-amber-500/70 font-medium bg-amber-500/10 px-1.5 py-0.5 rounded-md">est</span>
+                        <span className="text-xs text-blue-500/70 font-medium bg-blue-500/10 px-1.5 py-0.5 rounded-md">est</span>
                       )}
                     </div>
                     {mpm !== FALLBACK_MPM && (
@@ -274,15 +277,15 @@ export default function GaragePage() {
                   )}
                   {dueSoon.length > 0 && (
                     <div className="flex items-start gap-2">
-                      <Clock size={14} className="text-amber-400 mt-0.5 shrink-0" />
+                      <Clock size={14} className="text-blue-400 mt-0.5 shrink-0" />
                       <div className="flex-1 min-w-0">
-                        <p className="text-amber-400 text-xs font-medium mb-1">Due Soon ({dueSoon.length})</p>
+                        <p className="text-blue-400 text-xs font-medium mb-1">Due Soon ({dueSoon.length})</p>
                         <div className="flex flex-wrap gap-1.5">
                           {dueSoon.map(s => (
-                            <span key={s.name} className="text-xs bg-amber-500/10 text-amber-300 border border-amber-500/20 rounded-lg px-2 py-0.5">
+                            <span key={s.name} className="text-xs bg-blue-500/10 text-blue-300 border border-blue-500/20 rounded-lg px-2 py-0.5">
                               {s.name}
                               {s.milesLeft != null && s.milesLeft > 0 && (
-                                <span className="text-amber-600/70 ml-1">{s.milesLeft.toLocaleString()} mi</span>
+                                <span className="text-blue-600/70 ml-1">{s.milesLeft.toLocaleString()} mi</span>
                               )}
                             </span>
                           ))}
@@ -341,7 +344,7 @@ export default function GaragePage() {
                   placeholder="2020"
                   value={addForm.year}
                   onChange={e => setAddForm(f => ({ ...f, year: e.target.value }))}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2.5 text-zinc-100 text-sm focus:outline-none focus:border-amber-500/70 transition-all"
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2.5 text-zinc-100 text-sm focus:outline-none focus:border-blue-500/70 transition-all"
                 />
               </div>
               <div>
@@ -351,7 +354,7 @@ export default function GaragePage() {
                   placeholder="Nissan"
                   value={addForm.make}
                   onChange={e => setAddForm(f => ({ ...f, make: e.target.value }))}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2.5 text-zinc-100 text-sm focus:outline-none focus:border-amber-500/70 transition-all"
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2.5 text-zinc-100 text-sm focus:outline-none focus:border-blue-500/70 transition-all"
                 />
               </div>
               <div>
@@ -361,7 +364,7 @@ export default function GaragePage() {
                   placeholder="Rogue"
                   value={addForm.model}
                   onChange={e => setAddForm(f => ({ ...f, model: e.target.value }))}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2.5 text-zinc-100 text-sm focus:outline-none focus:border-amber-500/70 transition-all"
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2.5 text-zinc-100 text-sm focus:outline-none focus:border-blue-500/70 transition-all"
                 />
               </div>
               <div>
@@ -371,7 +374,7 @@ export default function GaragePage() {
                   placeholder="SV"
                   value={addForm.trim}
                   onChange={e => setAddForm(f => ({ ...f, trim: e.target.value }))}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2.5 text-zinc-100 text-sm focus:outline-none focus:border-amber-500/70 transition-all"
+                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2.5 text-zinc-100 text-sm focus:outline-none focus:border-blue-500/70 transition-all"
                 />
               </div>
             </div>
@@ -382,7 +385,7 @@ export default function GaragePage() {
                 placeholder="50000"
                 value={addForm.odometer}
                 onChange={e => setAddForm(f => ({ ...f, odometer: e.target.value }))}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2.5 text-zinc-100 text-sm focus:outline-none focus:border-amber-500/70 transition-all"
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2.5 text-zinc-100 text-sm focus:outline-none focus:border-blue-500/70 transition-all"
               />
             </div>
             <div className="flex gap-3 pt-1">
@@ -395,7 +398,7 @@ export default function GaragePage() {
               <button
                 onClick={addVehicle}
                 disabled={addSaving || !addForm.year || !addForm.make || !addForm.model}
-                className="flex-1 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-zinc-950 font-bold rounded-2xl py-3 transition-colors"
+                className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-bold rounded-2xl py-3 transition-colors"
               >
                 {addSaving ? 'Adding…' : 'Add'}
               </button>

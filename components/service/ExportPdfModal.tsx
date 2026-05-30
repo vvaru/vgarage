@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState } from 'react'
 import { X, Download } from 'lucide-react'
@@ -332,7 +332,7 @@ export default function ExportPdfModal({ vehicle, logs, onClose }: Props) {
               <p className="text-zinc-500 text-xs">Shop</p>
             </div>
             <div className="flex-1 bg-zinc-800/60 rounded-xl px-3 py-2.5 text-center">
-              <p className="text-amber-400 font-bold">{receiptCount}</p>
+              <p className="text-blue-400 font-bold">{receiptCount}</p>
               <p className="text-zinc-500 text-xs">Verified</p>
             </div>
           </div>
@@ -348,7 +348,7 @@ export default function ExportPdfModal({ vehicle, logs, onClose }: Props) {
             receiptCount > 0 ? `Appendix: ${receiptCount} receipt image${receiptCount !== 1 ? 's' : ''}` : null,
           ].filter(Boolean).map(item => (
             <div key={item as string} className="flex items-center gap-2 text-zinc-400 text-xs">
-              <div className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+              <div className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
               {item}
             </div>
           ))}
@@ -356,7 +356,7 @@ export default function ExportPdfModal({ vehicle, logs, onClose }: Props) {
 
         {generating ? (
           <div className="flex items-center justify-center gap-3 py-4">
-            <div className="w-5 h-5 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+            <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
             <p className="text-zinc-400 text-sm">{progress}</p>
           </div>
         ) : (
@@ -365,7 +365,7 @@ export default function ExportPdfModal({ vehicle, logs, onClose }: Props) {
             <button
               onClick={generate}
               disabled={logs.length === 0}
-              className="flex-1 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-zinc-950 font-bold rounded-2xl py-3 transition-colors flex items-center justify-center gap-2"
+              className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-bold rounded-2xl py-3 transition-colors flex items-center justify-center gap-2"
             >
               <Download size={16} />
               Export PDF

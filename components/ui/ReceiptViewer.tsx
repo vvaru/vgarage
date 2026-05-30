@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
@@ -54,7 +54,7 @@ export default function ReceiptViewer({ path, className = '' }: Props) {
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center justify-end gap-1.5 px-3 py-2 border-t border-zinc-700/50 text-amber-400 text-xs font-medium hover:text-amber-300 transition-colors shrink-0"
+          className="flex items-center justify-end gap-1.5 px-3 py-2 border-t border-zinc-700/50 text-blue-400 text-xs font-medium hover:text-blue-300 transition-colors shrink-0"
         >
           <ExternalLink size={11} /> Open full size
         </a>

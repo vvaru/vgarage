@@ -1,3 +1,15 @@
 [build]
   command = "npm run build"
   publish = "out"
+
+# HTML files must always be fresh — never serve a cached version of the shell
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+# JS/CSS chunks include content hashes — safe to cache forever
+[[headers]]
+  for = "/_next/static/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

@@ -8,13 +8,17 @@ export default function Home() {
   const router = useRouter()
 
   useEffect(() => {
-    supabase.auth.getSession()
-      .then(({ data: { session } }) => {
-        router.replace(session ? '/dashboard' : '/login')
-      })
-      .catch(() => {
-        router.replace('/login')
-      })
+    const bail = setTimeout(() => router.replace('/login'), 5000)
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      clearTimeout(bail)
+      router.replace(session ? '/dashboard' : '/login')
+    })
+
+    return () => {
+      clearTimeout(bail)
+      subscription.unsubscribe()
+    }
   }, [router])
 
   return (

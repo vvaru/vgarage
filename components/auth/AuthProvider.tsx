@@ -52,24 +52,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [role, setRole] = useState<'admin' | 'user'>('user')
 
   useEffect(() => {
-    // Resolve the session first — setLoading(false) fires immediately once
-    // the session state is known. ensureProfile runs after, so a slow or
-    // failing user_profiles query never blocks the initial render.
-    supabase.auth.getSession()
-      .then(async ({ data: { session } }) => {
-        setSession(session)
-        setUser(session?.user ?? null)
-        setLoading(false)
-        if (session?.user) {
-          const r = await ensureProfile(session.user)
-          setRole(r)
-        }
-      })
-      .catch(() => {
-        setLoading(false)
-      })
+    // Hard bail — loading can never hang longer than 5 seconds
+    const bail = setTimeout(() => setLoading(false), 5000)
 
+    // INITIAL_SESSION fires immediately from localStorage without waiting for
+    // any token-refresh network call, so setLoading(false) fires right away.
+    // If the stored token is expired, TOKEN_REFRESHED or SIGNED_OUT fires
+    // silently in the background — no spinner involved.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      clearTimeout(bail)
       setSession(session)
       setUser(session?.user ?? null)
       if (!session?.user) setRole('user')
@@ -80,7 +71,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     })
 
-    return () => subscription.unsubscribe()
+    return () => {
+      clearTimeout(bail)
+      subscription.unsubscribe()
+    }
   }, [])
 
   return (

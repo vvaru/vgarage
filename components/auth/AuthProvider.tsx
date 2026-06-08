@@ -52,15 +52,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [role, setRole] = useState<'admin' | 'user'>('user')
 
   useEffect(() => {
+    // Resolve the session first — setLoading(false) fires immediately once
+    // the session state is known. ensureProfile runs after, so a slow or
+    // failing user_profiles query never blocks the initial render.
     supabase.auth.getSession()
       .then(async ({ data: { session } }) => {
         setSession(session)
         setUser(session?.user ?? null)
+        setLoading(false)
         if (session?.user) {
           const r = await ensureProfile(session.user)
           setRole(r)
         }
-        setLoading(false)
       })
       .catch(() => {
         setLoading(false)
@@ -69,13 +72,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setSession(session)
       setUser(session?.user ?? null)
+      if (!session?.user) setRole('user')
+      setLoading(false)
       if (session?.user) {
         const r = await ensureProfile(session.user)
         setRole(r)
-      } else {
-        setRole('user')
       }
-      setLoading(false)
     })
 
     return () => subscription.unsubscribe()

@@ -1,7 +1,6 @@
 ﻿'use client'
 
 import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { VehicleProvider, useVehicle } from '@/components/vehicle/VehicleContext'
 import BottomNav from '@/components/ui/BottomNav'
@@ -10,13 +9,12 @@ import VehicleSetupModal from '@/components/ui/VehicleSetupModal'
 function AppShell({ children }: { children: React.ReactNode }) {
   const { session, loading } = useAuth()
   const { vehicle, loading: vehicleLoading } = useVehicle()
-  const router = useRouter()
 
   useEffect(() => {
     if (!loading && !session) {
-      router.replace('/login')
+      window.location.replace('/login')
     }
-  }, [session, loading, router])
+  }, [session, loading])
 
   if (loading || !session) {
     return (

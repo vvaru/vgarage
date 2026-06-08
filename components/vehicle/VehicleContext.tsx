@@ -32,20 +32,23 @@ export function VehicleProvider({ children }: { children: React.ReactNode }) {
   const refresh = useCallback(async () => {
     if (!session) return
     setLoading(true)
-    const { data } = await supabase
-      .from('vehicles')
-      .select('*')
-      .eq('user_id', session.user.id)
-      .order('created_at', { ascending: true })
-    const list = data ?? []
-    setVehicles(list)
-    setActiveId(prev => {
-      if (prev && list.find(v => v.id === prev)) return prev
-      const stored = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null
-      if (stored && list.find(v => v.id === stored)) return stored
-      return list[0]?.id ?? null
-    })
-    setLoading(false)
+    try {
+      const { data } = await supabase
+        .from('vehicles')
+        .select('*')
+        .eq('user_id', session.user.id)
+        .order('created_at', { ascending: true })
+      const list = data ?? []
+      setVehicles(list)
+      setActiveId(prev => {
+        if (prev && list.find(v => v.id === prev)) return prev
+        const stored = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null
+        if (stored && list.find(v => v.id === stored)) return stored
+        return list[0]?.id ?? null
+      })
+    } finally {
+      setLoading(false)
+    }
   }, [session])
 
   useEffect(() => {

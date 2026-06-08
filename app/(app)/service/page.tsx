@@ -662,6 +662,7 @@ export default function ServicePage() {
                         <p className="text-zinc-100 font-semibold text-sm">{log.service_type}</p>
                         <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${log.record_type === 'repair' ? 'bg-orange-500/10 text-orange-400' : 'bg-blue-500/10 text-blue-400'}`}>{log.record_type === 'repair' ? 'Repair' : 'Maint.'}</span>
                         <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${isOwner ? 'bg-blue-500/15 text-blue-300' : 'bg-green-500/10 text-green-400'}`}>{isOwner ? '🔧 DIY' : '🏪 Shop'}</span>
+                        {!log.category_id && <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-orange-500/10 text-orange-400">No category</span>}
                       </div>
                       <div className="flex items-center gap-3 mt-1 flex-wrap">
                         <p className="text-zinc-500 text-xs">{log.odometer.toLocaleString()} mi</p>
@@ -965,6 +966,7 @@ export default function ServicePage() {
                 const typeCount = new Map<string, number>()
                 for (const log of group.logs) typeCount.set(log.service_type, (typeCount.get(log.service_type) ?? 0) + 1)
                 const hasDups = Array.from(typeCount.values()).some(v => v > 1)
+                const hasUncat = group.logs.some(l => !l.category_id)
                 return (
                   <button
                     key={group.key}
@@ -976,6 +978,7 @@ export default function ServicePage() {
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-1.5 min-w-0">
                         {hasDups && <AlertTriangle size={11} className="text-blue-500/80 shrink-0" />}
+                        {hasUncat && <span className="w-2 h-2 rounded-full bg-orange-500 shrink-0" title="Some services have no category" />}
                         <p className={`text-sm font-semibold truncate ${isSelected ? 'text-blue-400' : 'text-zinc-100'}`}>
                           {format(parseISO(group.date), 'MMM d, yyyy')}
                         </p>

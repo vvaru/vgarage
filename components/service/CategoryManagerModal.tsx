@@ -41,26 +41,29 @@ export default function CategoryManagerModal({ vehicle, onClose, onUpdated }: Pr
 
   const load = useCallback(async () => {
     setLoading(true)
-    const { data: cats } = await supabase
-      .from('service_categories')
-      .select('*')
-      .eq('vehicle_id', vehicle.id)
-      .order('name')
-    setCategories(cats ?? [])
-
-    if (cats?.length) {
-      const { data: prods } = await supabase
-        .from('service_category_products')
+    try {
+      const { data: cats } = await supabase
+        .from('service_categories')
         .select('*')
-        .in('category_id', cats.map(c => c.id))
-        .order('created_at')
-      const grouped: Record<string, ServiceCategoryProduct[]> = {}
-      for (const p of prods ?? []) {
-        grouped[p.category_id] = [...(grouped[p.category_id] ?? []), p]
+        .eq('vehicle_id', vehicle.id)
+        .order('name')
+      setCategories(cats ?? [])
+
+      if (cats?.length) {
+        const { data: prods } = await supabase
+          .from('service_category_products')
+          .select('*')
+          .in('category_id', cats.map(c => c.id))
+          .order('created_at')
+        const grouped: Record<string, ServiceCategoryProduct[]> = {}
+        for (const p of prods ?? []) {
+          grouped[p.category_id] = [...(grouped[p.category_id] ?? []), p]
+        }
+        setProducts(grouped)
       }
-      setProducts(grouped)
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }, [vehicle.id])
 
   useEffect(() => { load() }, [load])

@@ -30,6 +30,7 @@ export default function VehicleSetupModal() {
     setLoading(true)
     setError(null)
 
+    try {
     const odo = parseInt(odometer)
     const payload = {
       user_id: user.id,
@@ -51,7 +52,6 @@ export default function VehicleSetupModal() {
 
       if (uErr) {
         setError(uErr.message)
-        setLoading(false)
         return
       }
     } else {
@@ -63,7 +63,6 @@ export default function VehicleSetupModal() {
 
       if (vErr || !newVehicle) {
         setError(vErr?.message ?? 'Failed to create vehicle')
-        setLoading(false)
         return
       }
 
@@ -106,6 +105,11 @@ export default function VehicleSetupModal() {
     }
 
     await refresh()
+    } catch {
+      setError('Something went wrong. Please try again.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (

@@ -1,25 +1,15 @@
-﻿'use client'
+'use client'
 
 import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/components/auth/AuthProvider'
 
 export default function Home() {
-  const router = useRouter()
+  const { session, loading } = useAuth()
 
   useEffect(() => {
-    const bail = setTimeout(() => router.replace('/login'), 5000)
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      clearTimeout(bail)
-      router.replace(session ? '/dashboard' : '/login')
-    })
-
-    return () => {
-      clearTimeout(bail)
-      subscription.unsubscribe()
-    }
-  }, [router])
+    if (loading) return
+    window.location.replace(session ? '/dashboard' : '/login')
+  }, [session, loading])
 
   return (
     <div className="min-h-screen bg-zinc-950 flex items-center justify-center">

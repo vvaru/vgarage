@@ -52,13 +52,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [role, setRole] = useState<'admin' | 'user'>('user')
 
   useEffect(() => {
-    // Hard bail — loading can never hang longer than 5 seconds
+    // When the stored access token is expired, Supabase blocks INITIAL_SESSION
+    // until the refresh network request completes. If that request hangs the
+    // spinner never clears. Pre-clearing the expired entry lets Supabase fire
+    // INITIAL_SESSION with null immediately (no network call needed).
+    try {
+      const key = Object.keys(localStorage).find(
+        k => k.startsWith('sb-') && k.endsWith('-auth-token')
+      )
+      if (key) {
+        const stored = JSON.parse(localStorage.getItem(key) ?? '{}')
+        if (stored.expires_at && stored.expires_at < Math.floor(Date.now() / 1000)) {
+          localStorage.removeItem(key)
+        }
+      }
+    } catch {
+      // localStorage unavailable — bail timeout will handle it
+    }
+
     const bail = setTimeout(() => setLoading(false), 5000)
 
-    // INITIAL_SESSION fires immediately from localStorage without waiting for
-    // any token-refresh network call, so setLoading(false) fires right away.
-    // If the stored token is expired, TOKEN_REFRESHED or SIGNED_OUT fires
-    // silently in the background — no spinner involved.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       clearTimeout(bail)
       setSession(session)

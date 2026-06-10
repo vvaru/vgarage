@@ -9,6 +9,7 @@ import {
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
+import { useTabFocusRefresh } from '@/lib/useTabFocusRefresh'
 import type { FuelLog } from '@/lib/types'
 
 type Period = 'week' | 'month' | '3mo' | 'year' | 'all'
@@ -85,6 +86,7 @@ export default function FuelPage() {
   }, [vehicle])
 
   useEffect(() => { load() }, [load])
+  useTabFocusRefresh(load)
 
   function openAdd() {
     setForm({ ...EMPTY_FORM, odometer: vehicle ? String(vehicle.odometer) : '' })

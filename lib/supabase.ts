@@ -8,6 +8,7 @@ export const supabase = createClient(
       flowType: 'implicit',
       persistSession: true,
       detectSessionInUrl: true,
+      autoRefreshToken: true,
     },
     global: {
       // 10-second hard timeout on every request. Without this, a dropped

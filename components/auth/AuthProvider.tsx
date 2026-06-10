@@ -84,9 +84,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     })
 
+    // When the tab regains focus after being idle, the stored access token may
+    // have gone stale (browsers throttle the background auto-refresh timer).
+    // Re-check the session so the next read/write uses a fresh token instead of
+    // silently failing. getSession() refreshes the token if it's expired.
+    function onVisible() {
+      if (document.visibilityState !== 'visible') return
+      supabase.auth.getSession()
+        .then(({ data: { session } }) => {
+          setSession(session)
+          setUser(session?.user ?? null)
+          if (!session) window.location.replace('/login')
+        })
+        .catch(() => {})
+    }
+    document.addEventListener('visibilitychange', onVisible)
+
     return () => {
       clearTimeout(bail)
       subscription.unsubscribe()
+      document.removeEventListener('visibilitychange', onVisible)
     }
   }, [])
 

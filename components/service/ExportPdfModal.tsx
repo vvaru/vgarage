@@ -311,35 +311,35 @@ export default function ExportPdfModal({ vehicle, logs, onClose }: Props) {
 
   return (
     <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
-      <div className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-sm p-6">
+      <div className="bg-surface border border-border rounded-3xl w-full max-w-sm p-6">
         <div className="flex items-center justify-between mb-5">
-          <h3 className="font-bold text-zinc-100 text-lg">Export Car History</h3>
-          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300"><X size={20} /></button>
+          <h3 className="font-bold text-foreground text-lg">Export Car History</h3>
+          <button onClick={onClose} className="text-muted hover:text-foreground"><X size={20} /></button>
         </div>
 
         <div className="space-y-3 mb-6">
-          <div className="flex items-center justify-between bg-zinc-800/60 rounded-xl px-4 py-3">
-            <span className="text-zinc-400 text-sm">Total records</span>
-            <span className="text-zinc-100 font-semibold">{logs.length}</span>
+          <div className="flex items-center justify-between bg-surface-2/60 rounded-xl px-4 py-3">
+            <span className="text-muted text-sm">Total records</span>
+            <span className="text-foreground font-semibold">{logs.length}</span>
           </div>
           <div className="flex items-center gap-3">
-            <div className="flex-1 bg-zinc-800/60 rounded-xl px-3 py-2.5 text-center">
-              <p className="text-blue-300 font-bold">{logs.filter(l => l.performed_by !== 'shop').length}</p>
-              <p className="text-zinc-500 text-xs">DIY</p>
+            <div className="flex-1 bg-surface-2/60 rounded-xl px-3 py-2.5 text-center">
+              <p className="text-accent font-bold">{logs.filter(l => l.performed_by !== 'shop').length}</p>
+              <p className="text-muted text-xs">DIY</p>
             </div>
-            <div className="flex-1 bg-zinc-800/60 rounded-xl px-3 py-2.5 text-center">
-              <p className="text-green-400 font-bold">{logs.filter(l => l.performed_by === 'shop').length}</p>
-              <p className="text-zinc-500 text-xs">Shop</p>
+            <div className="flex-1 bg-surface-2/60 rounded-xl px-3 py-2.5 text-center">
+              <p className="text-success font-bold">{logs.filter(l => l.performed_by === 'shop').length}</p>
+              <p className="text-muted text-xs">Shop</p>
             </div>
-            <div className="flex-1 bg-zinc-800/60 rounded-xl px-3 py-2.5 text-center">
-              <p className="text-blue-400 font-bold">{receiptCount}</p>
-              <p className="text-zinc-500 text-xs">Verified</p>
+            <div className="flex-1 bg-surface-2/60 rounded-xl px-3 py-2.5 text-center">
+              <p className="text-accent font-bold">{receiptCount}</p>
+              <p className="text-muted text-xs">Verified</p>
             </div>
           </div>
         </div>
 
-        <div className="bg-zinc-800/40 border border-zinc-700/50 rounded-xl px-4 py-3 mb-5 space-y-1.5">
-          <p className="text-zinc-300 text-sm font-medium">Report includes:</p>
+        <div className="bg-surface-2/40 border border-border-strong/50 rounded-xl px-4 py-3 mb-5 space-y-1.5">
+          <p className="text-foreground text-sm font-medium">Report includes:</p>
           {[
             'Cover with summary & table of contents',
             'One page per maintenance type with interval averages',
@@ -347,8 +347,8 @@ export default function ExportPdfModal({ vehicle, logs, onClose }: Props) {
             'Verified column for receipted services',
             receiptCount > 0 ? `Appendix: ${receiptCount} receipt image${receiptCount !== 1 ? 's' : ''}` : null,
           ].filter(Boolean).map(item => (
-            <div key={item as string} className="flex items-center gap-2 text-zinc-400 text-xs">
-              <div className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
+            <div key={item as string} className="flex items-center gap-2 text-muted text-xs">
+              <div className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
               {item}
             </div>
           ))}
@@ -356,16 +356,16 @@ export default function ExportPdfModal({ vehicle, logs, onClose }: Props) {
 
         {generating ? (
           <div className="flex items-center justify-center gap-3 py-4">
-            <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-            <p className="text-zinc-400 text-sm">{progress}</p>
+            <div className="w-5 h-5 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+            <p className="text-muted text-sm">{progress}</p>
           </div>
         ) : (
           <div className="flex gap-3">
-            <button onClick={onClose} className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-medium rounded-2xl py-3 transition-colors">Cancel</button>
+            <button onClick={onClose} className="flex-1 bg-surface-2 hover:bg-surface-2 text-foreground font-medium rounded-2xl py-3 transition-colors">Cancel</button>
             <button
               onClick={generate}
               disabled={logs.length === 0}
-              className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-bold rounded-2xl py-3 transition-colors flex items-center justify-center gap-2"
+              className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-40 text-white font-bold rounded-2xl py-3 transition-colors flex items-center justify-center gap-2"
             >
               <Download size={16} />
               Export PDF

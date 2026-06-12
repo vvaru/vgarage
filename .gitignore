@@ -43,5 +43,8 @@ next-env.d.ts
 # puppeteer chrome download (not needed)
 /chrome/
 
+# local design mockups / screenshot tooling
+/design-mockups/
+
 # claude code
 .claude/

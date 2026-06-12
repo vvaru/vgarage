@@ -192,11 +192,11 @@ export default function ProductsPage() {
   const activeFilterName = categoryFilter ? categories.find(c => c.id === categoryFilter)?.name : null
 
   return (
-    <div className="bg-zinc-950 min-h-screen">
+    <div className="bg-background min-h-screen">
       {/* Header */}
-      <div className="px-4 pt-12 pb-4 lg:pt-6 border-b border-zinc-800/60">
+      <div className="max-w-6xl 2xl:max-w-7xl mx-auto px-4 lg:px-8 pt-10 lg:pt-8 pb-4">
         <div className="flex items-center justify-between">
-          <h1 className="text-xl font-bold text-zinc-100">Parts & Products</h1>
+          <h1 className="text-xl lg:text-2xl font-bold text-foreground">Parts & Products</h1>
           <div className="flex items-center gap-2">
             {/* Filter button */}
             {categories.length > 0 && (
@@ -205,8 +205,8 @@ export default function ProductsPage() {
                   onClick={() => setShowFilterPopup(v => !v)}
                   className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition-colors ${
                     categoryFilter
-                      ? 'bg-blue-500/15 text-blue-400 border-blue-500/30'
-                      : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:border-zinc-700'
+                      ? 'bg-accent/15 text-accent border-accent/30'
+                      : 'bg-surface text-muted border-border hover:border-border-strong'
                   }`}
                 >
                   <SlidersHorizontal size={13} />
@@ -214,23 +214,23 @@ export default function ProductsPage() {
                 </button>
 
                 {showFilterPopup && (
-                  <div className="absolute right-0 top-full mt-2 bg-zinc-900 border border-zinc-800 rounded-2xl shadow-xl z-30 w-52 py-2 overflow-hidden">
+                  <div className="absolute right-0 top-full mt-2 bg-surface border border-border rounded-2xl shadow-xl z-30 w-52 py-2 overflow-hidden">
                     <button
                       onClick={() => { setCategoryFilter(null); setShowFilterPopup(false) }}
-                      className={`w-full flex items-center justify-between px-4 py-2.5 text-sm transition-colors hover:bg-zinc-800 ${
-                        !categoryFilter ? 'text-blue-400' : 'text-zinc-400'
+                      className={`w-full flex items-center justify-between px-4 py-2.5 text-sm transition-colors hover:bg-surface-2 ${
+                        !categoryFilter ? 'text-accent' : 'text-muted'
                       }`}
                     >
                       All products
                       {!categoryFilter && <Check size={14} />}
                     </button>
-                    <div className="border-t border-zinc-800 my-1" />
+                    <div className="border-t border-border my-1" />
                     {categories.map(cat => (
                       <button
                         key={cat.id}
                         onClick={() => { setCategoryFilter(categoryFilter === cat.id ? null : cat.id); setShowFilterPopup(false) }}
-                        className={`w-full flex items-center justify-between px-4 py-2.5 text-sm transition-colors hover:bg-zinc-800 ${
-                          categoryFilter === cat.id ? 'text-blue-400' : 'text-zinc-400'
+                        className={`w-full flex items-center justify-between px-4 py-2.5 text-sm transition-colors hover:bg-surface-2 ${
+                          categoryFilter === cat.id ? 'text-accent' : 'text-muted'
                         }`}
                       >
                         <span className="truncate">{cat.name}</span>
@@ -244,7 +244,7 @@ export default function ProductsPage() {
 
             <button
               onClick={openAdd}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-2xl px-4 py-2 text-sm transition-colors shadow-lg shadow-blue-500/20"
+              className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white font-bold rounded-2xl px-4 py-2 text-sm transition-colors shadow-lg shadow-accent/20"
             >
               <Plus size={15} /> Add
             </button>
@@ -253,33 +253,33 @@ export default function ProductsPage() {
       </div>
 
       {/* Product grid */}
-      <div className="p-4 pb-24">
+      <div className="max-w-6xl 2xl:max-w-7xl mx-auto px-4 lg:px-8 pt-4 pb-28 lg:pb-12">
         {loading ? (
           <div className="flex items-center justify-center py-16">
-            <div className="w-7 h-7 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            <div className="w-7 h-7 border-2 border-accent border-t-transparent rounded-full animate-spin" />
           </div>
         ) : visible.length === 0 ? (
           <div className="text-center py-20">
-            <Package size={44} className="text-zinc-700 mx-auto mb-4" />
-            <p className="text-zinc-400 font-medium text-lg">{categoryFilter ? 'No products in this category' : 'No products yet'}</p>
-            <p className="text-zinc-600 text-sm mt-1">Add parts and products you use for your car</p>
+            <Package size={44} className="text-faint mx-auto mb-4" />
+            <p className="text-muted font-medium text-lg">{categoryFilter ? 'No products in this category' : 'No products yet'}</p>
+            <p className="text-faint text-sm mt-1">Add parts and products you use for your car</p>
             {!categoryFilter && (
-              <button onClick={openAdd} className="mt-5 text-blue-500 text-sm font-medium hover:text-blue-400 transition-colors">Add first product →</button>
+              <button onClick={openAdd} className="mt-5 text-accent text-sm font-medium hover:text-accent transition-colors">Add first product →</button>
             )}
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {visible.map(p => (
-              <div key={p.id} className="bg-zinc-900 border border-zinc-800 rounded-3xl p-5 flex flex-col gap-3">
+              <div key={p.id} className="bg-surface border border-border rounded-3xl p-5 flex flex-col gap-3">
                 {/* Top */}
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
-                    <p className="font-bold text-zinc-100 text-base leading-tight truncate">{p.name}</p>
-                    {p.brand && <p className="text-zinc-500 text-sm mt-0.5">{p.brand}</p>}
+                    <p className="font-bold text-foreground text-base leading-tight truncate">{p.name}</p>
+                    {p.brand && <p className="text-muted text-sm mt-0.5">{p.brand}</p>}
                   </div>
                   <div className="flex gap-1 shrink-0">
-                    <button onClick={() => openEdit(p)} className="w-7 h-7 rounded-lg bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-zinc-400 hover:text-zinc-200 transition-colors"><Pencil size={12} /></button>
-                    <button onClick={() => setDeleteId(p.id)} className="w-7 h-7 rounded-lg bg-zinc-800 hover:bg-red-500/15 flex items-center justify-center text-zinc-400 hover:text-red-400 transition-colors"><Trash2 size={12} /></button>
+                    <button onClick={() => openEdit(p)} className="w-7 h-7 rounded-lg bg-surface-2 hover:bg-surface-2 flex items-center justify-center text-muted hover:text-foreground transition-colors"><Pencil size={12} /></button>
+                    <button onClick={() => setDeleteId(p.id)} className="w-7 h-7 rounded-lg bg-surface-2 hover:bg-danger/15 flex items-center justify-center text-muted hover:text-danger transition-colors"><Trash2 size={12} /></button>
                   </div>
                 </div>
 
@@ -287,7 +287,7 @@ export default function ProductsPage() {
                 {p.categoryIds.length > 0 && (
                   <div className="flex flex-wrap gap-1.5">
                     {p.categoryIds.map(catId => (
-                      <span key={catId} className="flex items-center gap-1 bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-lg px-2 py-0.5 text-xs font-medium">
+                      <span key={catId} className="flex items-center gap-1 bg-accent/10 text-accent border border-accent/20 rounded-lg px-2 py-0.5 text-xs font-medium">
                         <Tag size={9} />{categoryName(catId)}
                       </span>
                     ))}
@@ -295,7 +295,7 @@ export default function ProductsPage() {
                 )}
 
                 {/* Notes */}
-                {p.notes && <p className="text-zinc-500 text-xs line-clamp-2">{p.notes}</p>}
+                {p.notes && <p className="text-muted text-xs line-clamp-2">{p.notes}</p>}
 
                 {/* Buy links */}
                 {p.links.length > 0 && (
@@ -306,7 +306,7 @@ export default function ProductsPage() {
                         href={l.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl py-2 text-sm transition-colors"
+                        className="flex items-center justify-center gap-2 bg-accent hover:bg-accent-hover text-white font-bold rounded-xl py-2 text-sm transition-colors"
                       >
                         <ExternalLink size={13} />{l.label}
                       </a>
@@ -315,7 +315,7 @@ export default function ProductsPage() {
                 )}
 
                 {p.links.length === 0 && (
-                  <p className="text-zinc-700 text-xs mt-auto pt-1">No buy links</p>
+                  <p className="text-faint text-xs mt-auto pt-1">No buy links</p>
                 )}
               </div>
             ))}
@@ -329,68 +329,68 @@ export default function ProductsPage() {
           className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4"
           onMouseDown={e => { if (e.target === e.currentTarget) tryCloseModal() }}
         >
-          <div className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-md max-h-[92vh] overflow-y-auto">
-            <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-zinc-800">
-              <h3 className="font-bold text-zinc-100 text-lg">{editProduct ? 'Edit Product' : 'Add Product'}</h3>
-              <button onClick={tryCloseModal} className="text-zinc-500 hover:text-zinc-300"><X size={20} /></button>
+          <div className="bg-surface border border-border rounded-3xl w-full max-w-md max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-border">
+              <h3 className="font-bold text-foreground text-lg">{editProduct ? 'Edit Product' : 'Add Product'}</h3>
+              <button onClick={tryCloseModal} className="text-muted hover:text-foreground"><X size={20} /></button>
             </div>
 
             <div className="p-6 space-y-5">
               {/* Name */}
               <div>
-                <label className="block text-sm font-medium text-zinc-400 mb-1.5">Product Name</label>
+                <label className="block text-sm font-medium text-muted mb-1.5">Product Name</label>
                 <input
                   type="text"
                   placeholder="e.g. Mobil 1 Full Synthetic 0W-20"
                   value={form.name}
                   onChange={e => patchForm({ name: e.target.value })}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500/70 transition-all"
+                  className="w-full bg-surface-2 border border-border-strong rounded-xl px-4 py-3 text-foreground placeholder-faint focus:outline-none focus:border-accent/70 transition-all"
                 />
               </div>
 
               {/* Brand */}
               <div>
-                <label className="block text-sm font-medium text-zinc-400 mb-1.5">Brand / Company</label>
+                <label className="block text-sm font-medium text-muted mb-1.5">Brand / Company</label>
                 <input
                   type="text"
                   placeholder="e.g. Mobil 1"
                   value={form.brand}
                   onChange={e => patchForm({ brand: e.target.value })}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500/70 transition-all"
+                  className="w-full bg-surface-2 border border-border-strong rounded-xl px-4 py-3 text-foreground placeholder-faint focus:outline-none focus:border-accent/70 transition-all"
                 />
               </div>
 
               {/* Notes */}
               <div>
-                <label className="block text-sm font-medium text-zinc-400 mb-1.5">Notes (optional)</label>
+                <label className="block text-sm font-medium text-muted mb-1.5">Notes (optional)</label>
                 <textarea
                   placeholder="Specs, part number, compatibility notes…"
                   value={form.notes}
                   onChange={e => patchForm({ notes: e.target.value })}
                   rows={2}
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500/70 transition-all resize-none"
+                  className="w-full bg-surface-2 border border-border-strong rounded-xl px-4 py-3 text-foreground placeholder-faint focus:outline-none focus:border-accent/70 transition-all resize-none"
                 />
               </div>
 
               {/* Category links — compact dropdown */}
               {categories.length > 0 && (
                 <div ref={categoryDropdownRef} className="relative">
-                  <label className="block text-sm font-medium text-zinc-400 mb-1.5">Link to Service Category</label>
+                  <label className="block text-sm font-medium text-muted mb-1.5">Link to Service Category</label>
                   <button
                     type="button"
                     onClick={() => setShowCategoryDropdown(v => !v)}
-                    className="w-full flex items-center justify-between bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-left transition-colors hover:border-zinc-600"
+                    className="w-full flex items-center justify-between bg-surface-2 border border-border-strong rounded-xl px-4 py-3 text-left transition-colors hover:border-border-strong"
                   >
-                    <span className={form.categoryIds.length > 0 ? 'text-zinc-100 text-sm' : 'text-zinc-600 text-sm'}>
+                    <span className={form.categoryIds.length > 0 ? 'text-foreground text-sm' : 'text-faint text-sm'}>
                       {form.categoryIds.length === 0
                         ? 'No category linked'
                         : form.categoryIds.map(id => categoryName(id)).join(', ')}
                     </span>
-                    <Tag size={14} className="text-zinc-500 shrink-0" />
+                    <Tag size={14} className="text-muted shrink-0" />
                   </button>
 
                   {showCategoryDropdown && (
-                    <div className="absolute top-full mt-1 left-0 right-0 bg-zinc-900 border border-zinc-700 rounded-xl shadow-xl z-20 overflow-hidden max-h-48 overflow-y-auto">
+                    <div className="absolute top-full mt-1 left-0 right-0 bg-surface border border-border-strong rounded-xl shadow-xl z-20 overflow-hidden max-h-48 overflow-y-auto">
                       {categories.map(cat => {
                         const selected = form.categoryIds.includes(cat.id)
                         return (
@@ -398,14 +398,14 @@ export default function ProductsPage() {
                             key={cat.id}
                             type="button"
                             onClick={() => toggleCategory(cat.id)}
-                            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-left transition-colors hover:bg-zinc-800"
+                            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-left transition-colors hover:bg-surface-2"
                           >
                             <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
-                              selected ? 'bg-blue-500 border-blue-500' : 'border-zinc-600'
+                              selected ? 'bg-accent border-accent' : 'border-border-strong'
                             }`}>
                               {selected && <Check size={10} className="text-white" />}
                             </span>
-                            <span className={selected ? 'text-zinc-100' : 'text-zinc-400'}>{cat.name}</span>
+                            <span className={selected ? 'text-foreground' : 'text-muted'}>{cat.name}</span>
                           </button>
                         )
                       })}
@@ -416,7 +416,7 @@ export default function ProductsPage() {
 
               {/* Buy links */}
               <div>
-                <label className="block text-sm font-medium text-zinc-400 mb-2">Buy Links</label>
+                <label className="block text-sm font-medium text-muted mb-2">Buy Links</label>
                 <div className="space-y-2">
                   {form.links.map((l, i) => (
                     <div key={i} className="flex gap-2">
@@ -425,20 +425,20 @@ export default function ProductsPage() {
                         placeholder="Label"
                         value={l.label}
                         onChange={e => updateLink(i, { label: e.target.value })}
-                        className="w-24 bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2.5 text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500/70 transition-all text-sm"
+                        className="w-24 bg-surface-2 border border-border-strong rounded-xl px-3 py-2.5 text-foreground placeholder-faint focus:outline-none focus:border-accent/70 transition-all text-sm"
                       />
                       <input
                         type="url"
                         placeholder="https://…"
                         value={l.url}
                         onChange={e => updateLink(i, { url: e.target.value })}
-                        className="flex-1 bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2.5 text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500/70 transition-all text-sm"
+                        className="flex-1 bg-surface-2 border border-border-strong rounded-xl px-3 py-2.5 text-foreground placeholder-faint focus:outline-none focus:border-accent/70 transition-all text-sm"
                       />
                       {form.links.length > 1 && (
                         <button
                           type="button"
                           onClick={() => patchForm({ links: form.links.filter((_, j) => j !== i) })}
-                          className="w-9 h-9 rounded-xl bg-zinc-800 flex items-center justify-center text-zinc-500 hover:text-red-400 transition-colors shrink-0"
+                          className="w-9 h-9 rounded-xl bg-surface-2 flex items-center justify-center text-muted hover:text-danger transition-colors shrink-0"
                         >
                           <X size={14} />
                         </button>
@@ -449,7 +449,7 @@ export default function ProductsPage() {
                 <button
                   type="button"
                   onClick={() => patchForm({ links: [...form.links, { label: 'Buy', url: '' }] })}
-                  className="mt-2 flex items-center gap-1.5 text-zinc-500 hover:text-blue-400 text-sm transition-colors"
+                  className="mt-2 flex items-center gap-1.5 text-muted hover:text-accent text-sm transition-colors"
                 >
                   <LinkIcon size={13} /> Add another link
                 </button>
@@ -457,11 +457,11 @@ export default function ProductsPage() {
             </div>
 
             <div className="flex gap-3 px-6 pb-6 pt-2">
-              <button onClick={tryCloseModal} className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-medium rounded-2xl py-3 transition-colors">Cancel</button>
+              <button onClick={tryCloseModal} className="flex-1 bg-surface-2 hover:bg-surface-2 text-foreground font-medium rounded-2xl py-3 transition-colors">Cancel</button>
               <button
                 onClick={handleSave}
                 disabled={saving || !form.name.trim()}
-                className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-bold rounded-2xl py-3 transition-colors"
+                className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-40 text-white font-bold rounded-2xl py-3 transition-colors"
               >
                 {saving ? 'Saving…' : editProduct ? 'Update' : 'Add Product'}
               </button>
@@ -476,12 +476,12 @@ export default function ProductsPage() {
           className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
           onMouseDown={e => { if (e.target === e.currentTarget) setDeleteId(null) }}
         >
-          <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 w-full max-w-xs text-center">
-            <p className="font-bold text-zinc-100 mb-2">Delete this product?</p>
-            <p className="text-zinc-500 text-sm mb-6">This will remove all its buy links too.</p>
+          <div className="bg-surface border border-border rounded-3xl p-6 w-full max-w-xs text-center">
+            <p className="font-bold text-foreground mb-2">Delete this product?</p>
+            <p className="text-muted text-sm mb-6">This will remove all its buy links too.</p>
             <div className="flex gap-3">
-              <button onClick={() => setDeleteId(null)} className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-medium rounded-2xl py-3 transition-colors">Cancel</button>
-              <button onClick={() => handleDelete(deleteId)} className="flex-1 bg-red-500 hover:bg-red-400 text-white font-bold rounded-2xl py-3 transition-colors">Delete</button>
+              <button onClick={() => setDeleteId(null)} className="flex-1 bg-surface-2 hover:bg-surface-2 text-foreground font-medium rounded-2xl py-3 transition-colors">Cancel</button>
+              <button onClick={() => handleDelete(deleteId)} className="flex-1 bg-danger hover:bg-danger text-white font-bold rounded-2xl py-3 transition-colors">Delete</button>
             </div>
           </div>
         </div>

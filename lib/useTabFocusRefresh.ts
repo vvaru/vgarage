@@ -1,31 +1,20 @@
 import { useEffect, useRef } from 'react'
 
 /**
- * Calls `onRefresh` when the tab regains visibility after being hidden for
- * longer than `minHiddenMs`. This recovers stale data and a stale Supabase
- * session after the tab has been backgrounded — without flashing a reload on
- * every quick tab switch.
+ * Re-runs `onRefresh` when the app reconnects after the tab was backgrounded.
+ *
+ * AuthProvider probes the connection on tab-return: if it's healthy it dispatches
+ * `vgarage:reconnected` (handled here), and if it's dead it hard-reloads. So this
+ * is the single, reliable signal to refetch page data — and crucially it clears
+ * any spinner left stuck by a request that was frozen while the tab was hidden.
  */
-export function useTabFocusRefresh(onRefresh: () => void, minHiddenMs = 20000) {
+export function useTabFocusRefresh(onRefresh: () => void) {
   const cb = useRef(onRefresh)
   cb.current = onRefresh
 
   useEffect(() => {
-    let hiddenAt: number | null = null
-
-    function handle() {
-      if (document.visibilityState === 'hidden') {
-        hiddenAt = Date.now()
-        return
-      }
-      // becoming visible
-      if (hiddenAt !== null && Date.now() - hiddenAt > minHiddenMs) {
-        cb.current()
-      }
-      hiddenAt = null
-    }
-
-    document.addEventListener('visibilitychange', handle)
-    return () => document.removeEventListener('visibilitychange', handle)
-  }, [minHiddenMs])
+    function handle() { cb.current() }
+    window.addEventListener('vgarage:reconnected', handle)
+    return () => window.removeEventListener('vgarage:reconnected', handle)
+  }, [])
 }

@@ -75,16 +75,16 @@ export default function ImageCropModal({ file, onConfirm, onCancel }: Props) {
 
   return (
     <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-[60] flex items-end sm:items-center justify-center p-4">
-      <div className="bg-zinc-900 border border-zinc-800 rounded-3xl w-full max-w-sm flex flex-col max-h-[90vh]">
+      <div className="bg-surface border border-border rounded-3xl w-full max-w-sm flex flex-col max-h-[90vh]">
         <div className="flex items-center justify-between px-5 pt-5 pb-3 shrink-0">
-          <h3 className="font-bold text-zinc-100">Crop Receipt</h3>
-          <button onClick={handleCancel} className="text-zinc-500 hover:text-zinc-300">
+          <h3 className="font-bold text-foreground">Crop Receipt</h3>
+          <button onClick={handleCancel} className="text-muted hover:text-foreground">
             <X size={20} />
           </button>
         </div>
 
         <div className="overflow-y-auto flex-1 px-4 pb-2">
-          <div className="flex items-center justify-center bg-zinc-950 rounded-xl overflow-hidden">
+          <div className="flex items-center justify-center bg-background rounded-xl overflow-hidden">
             <ReactCrop
               crop={crop}
               onChange={c => setCrop(c)}
@@ -100,23 +100,23 @@ export default function ImageCropModal({ file, onConfirm, onCancel }: Props) {
               />
             </ReactCrop>
           </div>
-          <p className="text-zinc-600 text-xs text-center mt-2 mb-1">Drag handles to adjust · Pinch to zoom on mobile</p>
+          <p className="text-faint text-xs text-center mt-2 mb-1">Drag handles to adjust · Pinch to zoom on mobile</p>
         </div>
 
         <div className="flex gap-3 px-5 pb-5 pt-3 shrink-0">
           <button
             onClick={handleCancel}
-            className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-medium rounded-2xl py-3 transition-colors"
+            className="flex-1 bg-surface-2 hover:bg-surface-2 text-foreground font-medium rounded-2xl py-3 transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={handleConfirm}
             disabled={processing || !completedCrop || completedCrop.width === 0}
-            className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-bold rounded-2xl py-3 transition-colors flex items-center justify-center gap-2"
+            className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-40 text-white font-bold rounded-2xl py-3 transition-colors flex items-center justify-center gap-2"
           >
             {processing
-              ? <div className="w-4 h-4 border-2 border-zinc-900 border-t-transparent rounded-full animate-spin" />
+              ? <div className="w-4 h-4 border-2 border-border border-t-transparent rounded-full animate-spin" />
               : <Check size={16} />
             }
             {processing ? 'Processing…' : 'Crop & Use'}

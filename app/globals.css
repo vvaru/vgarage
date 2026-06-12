@@ -1,5 +1,24 @@
 @import "tailwindcss";
 
+/* Single fixed dark theme (Style A). Tokens defined directly in @theme so
+   Tailwind generates bg-surface / text-accent / border-border etc. utilities. */
+@theme {
+  --color-background: #0a0a0c;
+  --color-surface: #161619;
+  --color-surface-2: #1f1f23;
+  --color-border: #27272b;
+  --color-border-strong: #3a3a40;
+  --color-foreground: #fafafa;
+  --color-muted: #a1a1aa;
+  --color-faint: #71717a;
+  --color-accent: #3b82f6;
+  --color-accent-hover: #60a5fa;
+  --color-accent-foreground: #ffffff;
+  --color-success: #22c55e;
+  --color-warn: #f97316;
+  --color-danger: #ef4444;
+}
+
 :root {
   color-scheme: dark;
 }
@@ -9,12 +28,12 @@
 }
 
 html {
-  background: #09090b;
+  background: #0a0a0c;
 }
 
 body {
-  background: #09090b;
-  color: #f4f4f5;
+  background: #0a0a0c;
+  color: #fafafa;
   font-family: var(--font-geist-sans, system-ui, -apple-system, sans-serif);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -44,6 +63,6 @@ input[type='number'] {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #3f3f46;
+  background: #3a3a40;
   border-radius: 2px;
 }

@@ -84,26 +84,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     })
 
-    // When the tab regains focus after being idle, the stored access token may
-    // have gone stale (browsers throttle the background auto-refresh timer).
-    // Re-check the session so the next read/write uses a fresh token instead of
-    // silently failing. getSession() refreshes the token if it's expired.
-    function onVisible() {
-      if (document.visibilityState !== 'visible') return
-      supabase.auth.getSession()
-        .then(({ data: { session } }) => {
-          setSession(session)
-          setUser(session?.user ?? null)
-          if (!session) window.location.replace('/login')
-        })
-        .catch(() => {})
+    // Recover from a stale connection when returning to a backgrounded tab.
+    // After being away a while, fire a quick health-check query. If it errors or
+    // times out — the "stuck loading" state — hard-reload to rebuild the client
+    // cleanly. This only runs on a hidden→visible transition, so it can't loop,
+    // and it only reloads when a query genuinely fails (not on every return).
+    let hiddenAt: number | null = null
+    function onVisibility() {
+      if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); return }
+      const awayMs = hiddenAt ? Date.now() - hiddenAt : 0
+      hiddenAt = null
+      if (awayMs < 5000) return
+
+      let settled = false
+      const finish = (broken: boolean) => {
+        if (settled) return
+        settled = true
+        clearTimeout(probeTimeout)
+        if (broken) {
+          // Connection is dead — hard reload to rebuild the client cleanly.
+          window.location.reload()
+        } else {
+          // Connection is healthy, but a request frozen during backgrounding may
+          // have left a page stuck on its loading spinner. Tell pages to re-fire
+          // their data load (a fresh query clears the stuck state), and refresh
+          // the auth session in the background.
+          window.dispatchEvent(new Event('vgarage:reconnected'))
+          supabase.auth.getSession()
+            .then(({ data: { session } }) => { setSession(session); setUser(session?.user ?? null) })
+            .catch(() => {})
+        }
+      }
+      const probeTimeout = setTimeout(() => finish(true), 5000)
+
+      supabase.from('vehicles').select('id').limit(1)
+        .then(({ error }) => finish(!!error), () => finish(true))
     }
-    document.addEventListener('visibilitychange', onVisible)
+    document.addEventListener('visibilitychange', onVisibility)
 
     return () => {
       clearTimeout(bail)
       subscription.unsubscribe()
-      document.removeEventListener('visibilitychange', onVisible)
+      document.removeEventListener('visibilitychange', onVisibility)
     }
   }, [])
 

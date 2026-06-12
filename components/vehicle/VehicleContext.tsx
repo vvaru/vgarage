@@ -61,6 +61,13 @@ export function VehicleProvider({ children }: { children: React.ReactNode }) {
     }
   }, [session, refresh])
 
+  // Re-fetch vehicles when the app reconnects after a backgrounded tab.
+  useEffect(() => {
+    function handle() { if (session) refresh() }
+    window.addEventListener('vgarage:reconnected', handle)
+    return () => window.removeEventListener('vgarage:reconnected', handle)
+  }, [session, refresh])
+
   function setActiveVehicleId(id: string) {
     setActiveId(id)
     if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEY, id)

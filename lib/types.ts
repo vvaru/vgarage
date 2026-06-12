@@ -94,9 +94,9 @@ export interface FuelLog {
   vehicle_id: string
   date: string
   odometer: number
-  gallons: number
-  price_per_gallon: number
-  total_cost: number
+  gallons: number | null
+  price_per_gallon: number | null
+  total_cost: number | null
   mpg: number | null
   created_at: string
 }

@@ -292,24 +292,24 @@ export default function AddServiceFlow({ vehicle, categories, historicalReadings
     <>
       {/* Backdrop */}
       <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-        <div className={`bg-zinc-900 border border-zinc-800 rounded-t-3xl sm:rounded-3xl w-full flex flex-col overflow-hidden ${isWide ? 'max-h-screen sm:max-h-[95vh] lg:max-w-6xl' : 'max-w-sm max-h-[92vh]'}`}>
+        <div className={`bg-surface border border-border rounded-t-3xl sm:rounded-3xl w-full flex flex-col overflow-hidden ${isWide ? 'max-h-screen sm:max-h-[95vh] lg:max-w-6xl' : 'max-w-sm max-h-[92vh]'}`}>
 
           {/* Header */}
-          <div className="flex items-center justify-between px-5 pt-5 pb-4 shrink-0 border-b border-zinc-800">
+          <div className="flex items-center justify-between px-5 pt-5 pb-4 shrink-0 border-b border-border">
             <div className="flex items-center gap-3">
               {step !== 'receipts' && (
-                <button onClick={() => setStep(step === 'items' ? 'count' : 'receipts')} className="text-zinc-500 hover:text-zinc-300 transition-colors">
+                <button onClick={() => setStep(step === 'items' ? 'count' : 'receipts')} className="text-muted hover:text-foreground transition-colors">
                   <ChevronLeft size={20} />
                 </button>
               )}
               <div>
-                <p className="text-zinc-500 text-xs">Step {step === 'receipts' ? 1 : step === 'count' ? 2 : 3} of 3</p>
-                <h3 className="font-bold text-zinc-100">
+                <p className="text-muted text-xs">Step {step === 'receipts' ? 1 : step === 'count' ? 2 : 3} of 3</p>
+                <h3 className="font-bold text-foreground">
                   {step === 'receipts' ? 'Attach Receipts' : step === 'count' ? 'Session details' : `Service ${activeItem + 1}${items.length > 1 ? ` of ${items.length}` : ''}`}
                 </h3>
               </div>
             </div>
-            <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300"><X size={20} /></button>
+            <button onClick={onClose} className="text-muted hover:text-foreground"><X size={20} /></button>
           </div>
 
           {/* ── Step 1: Receipts ─────────────────────────────────────────────── */}
@@ -322,7 +322,7 @@ export default function AddServiceFlow({ vehicle, categories, historicalReadings
                       {r.file.type === 'application/pdf' ? (
                         <iframe src={r.preview} title="PDF" className="w-full h-full rounded-xl pointer-events-none" />
                       ) : (
-                        <img src={r.preview} alt="" className="w-full h-full object-cover rounded-xl bg-zinc-800" />
+                        <img src={r.preview} alt="" className="w-full h-full object-cover rounded-xl bg-surface-2" />
                       )}
                       <button onClick={() => removeReceipt(i)} className="absolute top-1 right-1 w-5 h-5 bg-black/70 rounded-full flex items-center justify-center">
                         <X size={10} className="text-white" />
@@ -332,10 +332,10 @@ export default function AddServiceFlow({ vehicle, categories, historicalReadings
                 </div>
               )}
               <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={handleFileSelect} className="hidden" />
-              <button onClick={() => fileRef.current?.click()} className="flex items-center gap-2 w-full border-2 border-dashed border-zinc-700 hover:border-blue-500/40 rounded-xl px-4 py-3 text-zinc-500 hover:text-blue-400 text-sm transition-colors">
+              <button onClick={() => fileRef.current?.click()} className="flex items-center gap-2 w-full border-2 border-dashed border-border-strong hover:border-accent/40 rounded-xl px-4 py-3 text-muted hover:text-accent text-sm transition-colors">
                 <Plus size={15} /> Add Receipt (photo, scan, or PDF)
               </button>
-              <p className="text-zinc-600 text-xs text-center">You can add multiple receipts. Each service can reference one.</p>
+              <p className="text-faint text-xs text-center">You can add multiple receipts. Each service can reference one.</p>
             </div>
           )}
 
@@ -344,25 +344,25 @@ export default function AddServiceFlow({ vehicle, categories, historicalReadings
             <div className="overflow-y-auto flex-1 p-5 space-y-5">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-zinc-400 mb-1.5">Date</label>
+                  <label className="block text-sm font-medium text-muted mb-1.5">Date</label>
                   <input type="date" value={sessionDate} onChange={e => handleSessionDateChange(e.target.value)}
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-3 text-zinc-100 focus:outline-none focus:border-blue-500/70 transition-all" />
+                    className="w-full bg-surface-2 border border-border-strong rounded-xl px-3 py-3 text-foreground focus:outline-none focus:border-accent/70 transition-all" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-zinc-400 mb-1.5">Odometer (mi)</label>
+                  <label className="block text-sm font-medium text-muted mb-1.5">Odometer (mi)</label>
                   <input type="number" value={sessionOdo} onChange={e => setSessionOdo(e.target.value)} min="0"
-                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-3 text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500/70 transition-all" />
+                    className="w-full bg-surface-2 border border-border-strong rounded-xl px-3 py-3 text-foreground placeholder-faint focus:outline-none focus:border-accent/70 transition-all" />
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-zinc-400 mb-3">Services performed</label>
+                <label className="block text-sm font-medium text-muted mb-3">Services performed</label>
                 <div className="flex items-center gap-4">
-                  <Wrench size={18} className="text-blue-400" />
-                  <button onClick={() => setServiceCount(Math.max(1, serviceCount - 1))} className="w-9 h-9 bg-zinc-800 rounded-xl text-zinc-300 text-lg font-bold hover:bg-zinc-700 transition-colors">−</button>
-                  <span className="text-zinc-100 font-bold text-xl w-6 text-center">{serviceCount}</span>
-                  <button onClick={() => setServiceCount(serviceCount + 1)} className="w-9 h-9 bg-zinc-800 rounded-xl text-zinc-300 text-lg font-bold hover:bg-zinc-700 transition-colors">+</button>
+                  <Wrench size={18} className="text-accent" />
+                  <button onClick={() => setServiceCount(Math.max(1, serviceCount - 1))} className="w-9 h-9 bg-surface-2 rounded-xl text-foreground text-lg font-bold hover:bg-surface-2 transition-colors">−</button>
+                  <span className="text-foreground font-bold text-xl w-6 text-center">{serviceCount}</span>
+                  <button onClick={() => setServiceCount(serviceCount + 1)} className="w-9 h-9 bg-surface-2 rounded-xl text-foreground text-lg font-bold hover:bg-surface-2 transition-colors">+</button>
                 </div>
-                <p className="text-zinc-600 text-xs mt-2">Products used will be added within each service step.</p>
+                <p className="text-faint text-xs mt-2">Products used will be added within each service step.</p>
               </div>
             </div>
           )}
@@ -380,21 +380,21 @@ export default function AddServiceFlow({ vehicle, categories, historicalReadings
                     <div className="flex items-center gap-1.5 justify-center">
                       {items.map((_, i) => (
                         <button key={i} onClick={() => setActiveItem(i)}
-                          className={`rounded-full transition-all ${i === activeItem ? 'w-4 h-2 bg-blue-500' : 'w-2 h-2 bg-zinc-700'}`} />
+                          className={`rounded-full transition-all ${i === activeItem ? 'w-4 h-2 bg-accent' : 'w-2 h-2 bg-surface-2'}`} />
                       ))}
                     </div>
                   )}
 
                   {/* Maintenance/Repair */}
                   <div>
-                    <label className="block text-sm font-medium text-zinc-400 mb-2">Type</label>
+                    <label className="block text-sm font-medium text-muted mb-2">Type</label>
                     <div className="flex gap-2">
                       {(['maintenance', 'repair'] as const).map(t => (
                         <button key={t} type="button" onClick={() => updateItem(activeItem, { record_type: t, category_id: '', service_type: '' })}
                           className={`flex-1 py-2.5 rounded-xl text-sm font-semibold capitalize transition-colors ${
                             currentItem.record_type === t
-                              ? t === 'maintenance' ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40' : 'bg-orange-500/20 text-orange-300 border border-orange-500/40'
-                              : 'bg-zinc-800 text-zinc-500 border border-zinc-700'
+                              ? t === 'maintenance' ? 'bg-accent/20 text-accent border border-accent/40' : 'bg-warn/20 text-warn border border-warn/40'
+                              : 'bg-surface-2 text-muted border border-border-strong'
                           }`}>{t}</button>
                       ))}
                     </div>
@@ -403,54 +403,54 @@ export default function AddServiceFlow({ vehicle, categories, historicalReadings
                   {/* Category / description */}
                   {currentItem.record_type === 'maintenance' ? (
                     <div>
-                      <label className="block text-sm font-medium text-zinc-400 mb-1.5">Sub-category</label>
+                      <label className="block text-sm font-medium text-muted mb-1.5">Sub-category</label>
                       <select value={currentItem.category_id}
                         onChange={e => { const cat = maintenanceCats.find(c => c.id === e.target.value); updateItem(activeItem, { category_id: e.target.value, service_type: cat?.name ?? '', selectedProductIds: [] }) }}
-                        className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-zinc-100 focus:outline-none focus:border-blue-500/70 transition-all appearance-none">
+                        className="w-full bg-surface-2 border border-border-strong rounded-xl px-4 py-3 text-foreground focus:outline-none focus:border-accent/70 transition-all appearance-none">
                         <option value="">Select category…</option>
                         {maintenanceCats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                       </select>
                     </div>
                   ) : (
                     <div>
-                      <label className="block text-sm font-medium text-zinc-400 mb-1.5">Description</label>
+                      <label className="block text-sm font-medium text-muted mb-1.5">Description</label>
                       <input type="text" placeholder="e.g. Replaced front struts" value={currentItem.service_type}
                         onChange={e => updateItem(activeItem, { service_type: e.target.value })}
-                        className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500/70 transition-all" />
+                        className="w-full bg-surface-2 border border-border-strong rounded-xl px-4 py-3 text-foreground placeholder-faint focus:outline-none focus:border-accent/70 transition-all" />
                     </div>
                   )}
 
                   {/* Date + Odometer */}
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-sm font-medium text-zinc-400 mb-1.5">Date</label>
+                      <label className="block text-sm font-medium text-muted mb-1.5">Date</label>
                       <input type="date" value={currentItem.date} onChange={e => updateItem(activeItem, { date: e.target.value })}
-                        className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-3 text-zinc-100 focus:outline-none focus:border-blue-500/70 transition-all" />
+                        className="w-full bg-surface-2 border border-border-strong rounded-xl px-3 py-3 text-foreground focus:outline-none focus:border-accent/70 transition-all" />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-zinc-400 mb-1.5">Odometer</label>
+                      <label className="block text-sm font-medium text-muted mb-1.5">Odometer</label>
                       <input type="number" value={currentItem.odometer} onChange={e => updateItem(activeItem, { odometer: e.target.value })} min="0"
-                        className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-3 text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500/70 transition-all" />
+                        className="w-full bg-surface-2 border border-border-strong rounded-xl px-3 py-3 text-foreground placeholder-faint focus:outline-none focus:border-accent/70 transition-all" />
                     </div>
                   </div>
 
                   {/* Cost */}
                   <div>
-                    <label className="block text-sm font-medium text-zinc-400 mb-1.5">Cost ($)</label>
+                    <label className="block text-sm font-medium text-muted mb-1.5">Cost ($)</label>
                     <input type="number" placeholder="0.00" value={currentItem.cost} onChange={e => updateItem(activeItem, { cost: e.target.value })} min="0" step="0.01"
-                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500/70 transition-all" />
+                      className="w-full bg-surface-2 border border-border-strong rounded-xl px-4 py-3 text-foreground placeholder-faint focus:outline-none focus:border-accent/70 transition-all" />
                   </div>
 
                   {/* Performed by */}
                   <div>
-                    <label className="block text-sm font-medium text-zinc-400 mb-2">Performed by</label>
+                    <label className="block text-sm font-medium text-muted mb-2">Performed by</label>
                     <div className="flex gap-2">
                       {(['owner', 'shop'] as const).map(t => (
                         <button key={t} type="button" onClick={() => updateItem(activeItem, { performed_by: t })}
                           className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
                             currentItem.performed_by === t
-                              ? t === 'owner' ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40' : 'bg-green-500/20 text-green-300 border border-green-500/40'
-                              : 'bg-zinc-800 text-zinc-500 border border-zinc-700'
+                              ? t === 'owner' ? 'bg-accent/20 text-accent border border-accent/40' : 'bg-success/20 text-success border border-success/40'
+                              : 'bg-surface-2 text-muted border border-border-strong'
                           }`}>{t === 'owner' ? '🔧 Owner' : '🏪 Shop'}</button>
                       ))}
                     </div>
@@ -459,24 +459,24 @@ export default function AddServiceFlow({ vehicle, categories, historicalReadings
                   {currentItem.performed_by === 'shop' && (
                     <div className="space-y-3">
                       <input type="text" placeholder="Shop name" value={currentItem.shop_name} onChange={e => updateItem(activeItem, { shop_name: e.target.value })}
-                        className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500/70 transition-all" />
+                        className="w-full bg-surface-2 border border-border-strong rounded-xl px-4 py-3 text-foreground placeholder-faint focus:outline-none focus:border-accent/70 transition-all" />
                       <input type="text" placeholder="Location (optional)" value={currentItem.shop_location} onChange={e => updateItem(activeItem, { shop_location: e.target.value })}
-                        className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500/70 transition-all" />
+                        className="w-full bg-surface-2 border border-border-strong rounded-xl px-4 py-3 text-foreground placeholder-faint focus:outline-none focus:border-accent/70 transition-all" />
                     </div>
                   )}
 
                   {/* Notes */}
                   <div>
-                    <label className="block text-sm font-medium text-zinc-400 mb-1.5">Notes (optional)</label>
+                    <label className="block text-sm font-medium text-muted mb-1.5">Notes (optional)</label>
                     <textarea placeholder="Parts used, observations…" value={currentItem.notes} onChange={e => updateItem(activeItem, { notes: e.target.value })} rows={2}
-                      className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500/70 transition-all resize-none" />
+                      className="w-full bg-surface-2 border border-border-strong rounded-xl px-4 py-3 text-foreground placeholder-faint focus:outline-none focus:border-accent/70 transition-all resize-none" />
                   </div>
 
                   {/* ── Products section ─────────────────────────────────── */}
-                  <div className="border-t border-zinc-800 pt-4">
+                  <div className="border-t border-border pt-4">
                     <div className="flex items-center gap-2 mb-3">
-                      <Package size={14} className="text-zinc-500" />
-                      <p className="text-sm font-medium text-zinc-400">Parts / Products used</p>
+                      <Package size={14} className="text-muted" />
+                      <p className="text-sm font-medium text-muted">Parts / Products used</p>
                     </div>
 
                     {suggestedProducts.length > 0 ? (
@@ -486,25 +486,25 @@ export default function AddServiceFlow({ vehicle, categories, historicalReadings
                           return (
                             <button key={p.id} type="button" onClick={() => toggleProduct(activeItem, p.id)}
                               className={`w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors border ${
-                                selected ? 'bg-blue-500/10 border-blue-500/30' : 'bg-zinc-800/50 border-zinc-800 hover:border-zinc-700'
+                                selected ? 'bg-accent/10 border-accent/30' : 'bg-surface-2/50 border-border hover:border-border-strong'
                               }`}>
-                              <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${selected ? 'bg-blue-500 border-blue-500' : 'border-zinc-600'}`}>
+                              <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${selected ? 'bg-accent border-accent' : 'border-border-strong'}`}>
                                 {selected && <Check size={10} className="text-white" />}
                               </div>
                               <div className="flex-1 min-w-0">
-                                <p className={`text-sm font-medium truncate ${selected ? 'text-blue-300' : 'text-zinc-200'}`}>{p.name}</p>
-                                {p.brand && <p className="text-zinc-500 text-xs">{p.brand}</p>}
+                                <p className={`text-sm font-medium truncate ${selected ? 'text-accent' : 'text-foreground'}`}>{p.name}</p>
+                                {p.brand && <p className="text-muted text-xs">{p.brand}</p>}
                               </div>
                               {p.links[0] && (
                                 <a href={p.links[0].url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
-                                  className="text-zinc-600 hover:text-blue-400 shrink-0 transition-colors"><ExternalLink size={12} /></a>
+                                  className="text-faint hover:text-accent shrink-0 transition-colors"><ExternalLink size={12} /></a>
                               )}
                             </button>
                           )
                         })}
                       </div>
                     ) : (
-                      <p className="text-zinc-600 text-xs mb-3">
+                      <p className="text-faint text-xs mb-3">
                         {libraryProducts.length === 0
                           ? 'No products in library yet.'
                           : 'No products linked to this service category.'}
@@ -514,22 +514,22 @@ export default function AddServiceFlow({ vehicle, categories, historicalReadings
                     {/* Add new product */}
                     {!showAddProduct ? (
                       <button type="button" onClick={() => setShowAddProduct(true)}
-                        className="flex items-center gap-1.5 text-zinc-500 hover:text-blue-400 text-sm transition-colors">
+                        className="flex items-center gap-1.5 text-muted hover:text-accent text-sm transition-colors">
                         <Plus size={13} /> Add new product to library
                       </button>
                     ) : (
-                      <div className="bg-zinc-800/60 border border-zinc-700 rounded-xl p-3 space-y-2">
-                        <p className="text-xs font-semibold text-zinc-400">New product</p>
+                      <div className="bg-surface-2/60 border border-border-strong rounded-xl p-3 space-y-2">
+                        <p className="text-xs font-semibold text-muted">New product</p>
                         <input type="text" placeholder="Product name *" value={newProduct.name} onChange={e => setNewProduct(p => ({ ...p, name: e.target.value }))}
-                          className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500/70 text-sm transition-all" />
+                          className="w-full bg-surface border border-border-strong rounded-lg px-3 py-2 text-foreground placeholder-faint focus:outline-none focus:border-accent/70 text-sm transition-all" />
                         <input type="text" placeholder="Brand / Company" value={newProduct.brand} onChange={e => setNewProduct(p => ({ ...p, brand: e.target.value }))}
-                          className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500/70 text-sm transition-all" />
+                          className="w-full bg-surface border border-border-strong rounded-lg px-3 py-2 text-foreground placeholder-faint focus:outline-none focus:border-accent/70 text-sm transition-all" />
                         <input type="url" placeholder="Buy link (optional)" value={newProduct.url} onChange={e => setNewProduct(p => ({ ...p, url: e.target.value }))}
-                          className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500/70 text-sm transition-all" />
+                          className="w-full bg-surface border border-border-strong rounded-lg px-3 py-2 text-foreground placeholder-faint focus:outline-none focus:border-accent/70 text-sm transition-all" />
                         <div className="flex gap-2">
-                          <button type="button" onClick={() => setShowAddProduct(false)} className="flex-1 py-2 bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-xs font-medium rounded-lg transition-colors">Cancel</button>
+                          <button type="button" onClick={() => setShowAddProduct(false)} className="flex-1 py-2 bg-surface-2 hover:bg-faint text-foreground text-xs font-medium rounded-lg transition-colors">Cancel</button>
                           <button type="button" onClick={handleAddProductToLibrary} disabled={!newProduct.name.trim() || savingProduct}
-                            className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-xs font-bold rounded-lg transition-colors">
+                            className="flex-1 py-2 bg-accent hover:bg-accent-hover disabled:opacity-40 text-white text-xs font-bold rounded-lg transition-colors">
                             {savingProduct ? 'Adding…' : 'Add & Select'}
                           </button>
                         </div>
@@ -539,16 +539,16 @@ export default function AddServiceFlow({ vehicle, categories, historicalReadings
 
                   {/* Receipt picker (mobile only) */}
                   {receipts.length > 0 && (
-                    <div className="lg:hidden border-t border-zinc-800 pt-4">
-                      <label className="block text-sm font-medium text-zinc-400 mb-2">Receipt for this service</label>
+                    <div className="lg:hidden border-t border-border pt-4">
+                      <label className="block text-sm font-medium text-muted mb-2">Receipt for this service</label>
                       <div className="flex gap-2 overflow-x-auto scrollbar-hide">
                         <button onClick={() => updateItem(activeItem, { receiptIdx: null })}
                           className={`shrink-0 w-14 h-14 rounded-xl border-2 flex items-center justify-center text-xs transition-colors ${
-                            currentItem.receiptIdx === null ? 'border-blue-500 bg-blue-500/10 text-blue-400' : 'border-zinc-700 text-zinc-600'
+                            currentItem.receiptIdx === null ? 'border-accent bg-accent/10 text-accent' : 'border-border-strong text-faint'
                           }`}>None</button>
                         {receipts.map((r, i) => (
                           <button key={i} onClick={() => updateItem(activeItem, { receiptIdx: i })}
-                            className={`shrink-0 w-14 h-14 rounded-xl border-2 overflow-hidden transition-all ${currentItem.receiptIdx === i ? 'border-blue-500' : 'border-zinc-700'}`}>
+                            className={`shrink-0 w-14 h-14 rounded-xl border-2 overflow-hidden transition-all ${currentItem.receiptIdx === i ? 'border-accent' : 'border-border-strong'}`}>
                             {r.file.type === 'application/pdf'
                               ? <iframe src={r.preview} title="PDF" className="w-full h-full pointer-events-none" />
                               : <img src={r.preview} alt="" className="w-full h-full object-cover" />}
@@ -562,14 +562,14 @@ export default function AddServiceFlow({ vehicle, categories, historicalReadings
 
               {/* Receipt preview panel (desktop — takes remaining space) */}
               {receipts.length > 0 && (
-                <div className="hidden lg:flex flex-1 flex-col border-l border-zinc-800 overflow-hidden bg-zinc-950">
+                <div className="hidden lg:flex flex-1 flex-col border-l border-border overflow-hidden bg-background">
                   {/* Switcher */}
-                  <div className="flex items-center gap-2 px-4 py-3 border-b border-zinc-800 shrink-0 flex-wrap">
+                  <div className="flex items-center gap-2 px-4 py-3 border-b border-border shrink-0 flex-wrap">
                     {receipts.map((r, i) => (
                       <button key={i}
                         onClick={() => setPreviewReceiptIdx(i)}
                         className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-medium border transition-colors ${
-                          previewReceiptIdx === i ? 'bg-blue-500/15 text-blue-300 border-blue-500/30' : 'bg-zinc-800 text-zinc-500 border-zinc-700 hover:border-zinc-600'
+                          previewReceiptIdx === i ? 'bg-accent/15 text-accent border-accent/30' : 'bg-surface-2 text-muted border-border-strong hover:border-border-strong'
                         }`}>
                         <Image size={11} />Receipt {i + 1}
                       </button>
@@ -581,8 +581,8 @@ export default function AddServiceFlow({ vehicle, categories, historicalReadings
                       })}
                       className={`ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-colors ${
                         currentItem.receiptIdx === previewReceiptIdx
-                          ? 'bg-green-500/15 text-green-400 border-green-500/30'
-                          : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:border-zinc-600'
+                          ? 'bg-success/15 text-success border-success/30'
+                          : 'bg-surface-2 text-muted border-border-strong hover:border-border-strong'
                       }`}>
                       {currentItem.receiptIdx === previewReceiptIdx ? <Check size={11} /> : null}
                       {currentItem.receiptIdx === previewReceiptIdx ? 'Attached to this service' : 'Attach to this service'}
@@ -603,19 +603,19 @@ export default function AddServiceFlow({ vehicle, categories, historicalReadings
           )}
 
           {/* Footer */}
-          <div className="px-5 pb-5 pt-3 shrink-0 border-t border-zinc-800 flex gap-3">
+          <div className="px-5 pb-5 pt-3 shrink-0 border-t border-border flex gap-3">
             {step === 'receipts' && (
               <>
-                <button onClick={onClose} className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-medium rounded-2xl py-3 transition-colors">Cancel</button>
-                <button onClick={() => setStep('count')} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-2xl py-3 transition-colors flex items-center justify-center gap-2">
+                <button onClick={onClose} className="flex-1 bg-surface-2 hover:bg-surface-2 text-foreground font-medium rounded-2xl py-3 transition-colors">Cancel</button>
+                <button onClick={() => setStep('count')} className="flex-1 bg-accent hover:bg-accent-hover text-white font-bold rounded-2xl py-3 transition-colors flex items-center justify-center gap-2">
                   {receipts.length === 0 ? 'Skip' : 'Next'} <ChevronRight size={16} />
                 </button>
               </>
             )}
             {step === 'count' && (
               <>
-                <button onClick={() => setStep('receipts')} className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-medium rounded-2xl py-3 transition-colors">Back</button>
-                <button onClick={buildItems} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-2xl py-3 transition-colors flex items-center justify-center gap-2">
+                <button onClick={() => setStep('receipts')} className="flex-1 bg-surface-2 hover:bg-surface-2 text-foreground font-medium rounded-2xl py-3 transition-colors">Back</button>
+                <button onClick={buildItems} className="flex-1 bg-accent hover:bg-accent-hover text-white font-bold rounded-2xl py-3 transition-colors flex items-center justify-center gap-2">
                   Next <ChevronRight size={16} />
                 </button>
               </>
@@ -624,21 +624,21 @@ export default function AddServiceFlow({ vehicle, categories, historicalReadings
               <>
                 {activeItem < items.length - 1 ? (
                   <>
-                    <button onClick={() => setActiveItem(activeItem + 1)} className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-medium rounded-2xl py-3 transition-colors flex items-center justify-center gap-2">
+                    <button onClick={() => setActiveItem(activeItem + 1)} className="flex-1 bg-surface-2 hover:bg-surface-2 text-foreground font-medium rounded-2xl py-3 transition-colors flex items-center justify-center gap-2">
                       Next Service <ChevronRight size={16} />
                     </button>
-                    <button onClick={handleSave} disabled={saving} className="flex-1 bg-zinc-700 hover:bg-zinc-600 disabled:opacity-40 text-zinc-300 font-medium rounded-2xl py-3 transition-colors text-sm">
+                    <button onClick={handleSave} disabled={saving} className="flex-1 bg-surface-2 hover:bg-faint disabled:opacity-40 text-foreground font-medium rounded-2xl py-3 transition-colors text-sm">
                       {saving ? 'Saving…' : 'Save All'}
                     </button>
                   </>
                 ) : (
                   <>
                     {activeItem > 0 && (
-                      <button onClick={() => setActiveItem(activeItem - 1)} className="w-12 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-medium rounded-2xl py-3 transition-colors flex items-center justify-center">
+                      <button onClick={() => setActiveItem(activeItem - 1)} className="w-12 bg-surface-2 hover:bg-surface-2 text-foreground font-medium rounded-2xl py-3 transition-colors flex items-center justify-center">
                         <ChevronLeft size={18} />
                       </button>
                     )}
-                    <button onClick={handleSave} disabled={saving} className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-bold rounded-2xl py-3 transition-colors flex items-center justify-center gap-2">
+                    <button onClick={handleSave} disabled={saving} className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-40 text-white font-bold rounded-2xl py-3 transition-colors flex items-center justify-center gap-2">
                       {saving ? <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Check size={16} />}
                       {saving ? 'Saving…' : 'Save All'}
                     </button>

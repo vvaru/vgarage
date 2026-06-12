@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
@@ -44,21 +44,21 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-6">
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6">
       <div className="mb-10 text-center">
-        <div className="w-16 h-16 rounded-2xl bg-blue-500 flex items-center justify-center mx-auto mb-4 shadow-lg shadow-blue-500/20">
-          <svg className="w-9 h-9 text-zinc-950" viewBox="0 0 24 24" fill="currentColor">
+        <div className="w-16 h-16 rounded-2xl bg-accent flex items-center justify-center mx-auto mb-4 shadow-lg shadow-accent/25">
+          <svg className="w-9 h-9 text-accent-foreground" viewBox="0 0 24 24" fill="currentColor">
             <path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z" />
           </svg>
         </div>
-        <h1 className="text-3xl font-bold text-zinc-100 tracking-tight">vGarage</h1>
-        <p className="text-zinc-500 text-sm mt-1">Your car. Tracked.</p>
+        <h1 className="text-3xl font-bold text-foreground tracking-tight">vGarage</h1>
+        <p className="text-muted text-sm mt-1">Your car. Tracked.</p>
       </div>
 
       <div className="w-full max-w-sm">
         <button
           onClick={handleGoogle}
-          className="w-full flex items-center justify-center gap-3 bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/60 text-zinc-100 rounded-2xl px-4 py-3.5 font-medium transition-colors mb-5"
+          className="w-full flex items-center justify-center gap-3 bg-surface hover:bg-surface-2 border border-border text-foreground rounded-2xl px-4 py-3.5 font-medium transition-colors mb-5"
         >
           <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
             <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -70,9 +70,9 @@ export default function LoginPage() {
         </button>
 
         <div className="flex items-center gap-4 mb-5">
-          <div className="flex-1 h-px bg-zinc-800" />
-          <span className="text-zinc-600 text-sm">or</span>
-          <div className="flex-1 h-px bg-zinc-800" />
+          <div className="flex-1 h-px bg-border" />
+          <span className="text-faint text-sm">or</span>
+          <div className="flex-1 h-px bg-border" />
         </div>
 
         <form onSubmit={handleEmailAuth} className="space-y-3">
@@ -82,7 +82,7 @@ export default function LoginPage() {
             value={email}
             onChange={e => setEmail(e.target.value)}
             required
-            className="w-full bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-3.5 text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500/70 focus:ring-1 focus:ring-blue-500/30 transition-all"
+            className="w-full bg-surface border border-border rounded-2xl px-4 py-3.5 text-foreground placeholder-faint focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all"
           />
           <input
             type="password"
@@ -90,16 +90,16 @@ export default function LoginPage() {
             value={password}
             onChange={e => setPassword(e.target.value)}
             required
-            className="w-full bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-3.5 text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-blue-500/70 focus:ring-1 focus:ring-blue-500/30 transition-all"
+            className="w-full bg-surface border border-border rounded-2xl px-4 py-3.5 text-foreground placeholder-faint focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 transition-all"
           />
 
           {error && (
-            <p className="text-red-400 text-sm bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2">
+            <p className="text-danger text-sm bg-danger/10 border border-danger/20 rounded-xl px-3 py-2">
               {error}
             </p>
           )}
           {message && (
-            <p className="text-green-400 text-sm bg-green-500/10 border border-green-500/20 rounded-xl px-3 py-2">
+            <p className="text-success text-sm bg-success/10 border border-success/20 rounded-xl px-3 py-2">
               {message}
             </p>
           )}
@@ -107,7 +107,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-500 hover:bg-blue-400 disabled:opacity-50 disabled:cursor-not-allowed text-zinc-950 font-bold rounded-2xl px-4 py-3.5 transition-colors shadow-lg shadow-blue-500/20"
+            className="w-full bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-accent-foreground font-bold rounded-2xl px-4 py-3.5 transition-colors shadow-lg shadow-accent/25"
           >
             {loading ? 'Loading…' : isSignUp ? 'Create Account' : 'Sign In'}
           </button>
@@ -115,7 +115,7 @@ export default function LoginPage() {
 
         <button
           onClick={() => { setIsSignUp(!isSignUp); setError(null); setMessage(null) }}
-          className="w-full text-center text-zinc-500 text-sm mt-4 hover:text-zinc-300 transition-colors py-2"
+          className="w-full text-center text-muted text-sm mt-4 hover:text-foreground transition-colors py-2"
         >
           {isSignUp ? 'Already have an account? Sign in' : "Don't have an account? Sign up"}
         </button>

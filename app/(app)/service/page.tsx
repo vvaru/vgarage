@@ -216,19 +216,31 @@ export default function ServicePage() {
     }
   }, [logs]) // eslint-disable-line
 
-  // Auto-select first category when schedule tab loads
+  // Lock background scroll while a mobile detail sheet is open, so the page
+  // behind can't scroll into blank space on touch.
   useEffect(() => {
-    if (!loading && activeTab === 'schedule' && !selectedStatus) {
-      const maintCats = categories.filter(c => c.category_type === 'maintenance' && (c.interval_miles != null || c.interval_days != null))
-      if (maintCats.length > 0 && vehicle) {
-        const mpm = calcMilesPerMonth(logs)
-        const odo = projectedOdo(vehicle.odometer, logs, mpm)
-        const statuses = maintCats.map(c => buildCategoryStatus(c, logs, odo))
-        const first = statuses.find(s => s.isOverdue) ?? statuses.find(s => s.isDueSoon) ?? statuses[0]
-        if (first) setSelectedStatus(first)
-      }
+    if (selectedStatus || selectedGroup) {
+      const prev = document.body.style.overflow
+      document.body.style.overflow = 'hidden'
+      return () => { document.body.style.overflow = prev }
     }
-  }, [loading, activeTab]) // eslint-disable-line
+  }, [selectedStatus, selectedGroup])
+
+  // Mobile detail sheet: swipe down to dismiss.
+  const [sheetDragY, setSheetDragY] = useState(0)
+  const sheetScrollRef = useRef<HTMLDivElement>(null)
+  const sheetTouchStartY = useRef<number | null>(null)
+  function onSheetTouchStart(e: React.TouchEvent) { sheetTouchStartY.current = e.touches[0].clientY }
+  function onSheetTouchMove(e: React.TouchEvent) {
+    if (sheetTouchStartY.current == null) return
+    const dy = e.touches[0].clientY - sheetTouchStartY.current
+    if (dy > 0 && (sheetScrollRef.current?.scrollTop ?? 0) <= 0) setSheetDragY(dy)
+  }
+  function onSheetTouchEnd() {
+    if (sheetDragY > 110) setSelectedStatus(null)
+    setSheetDragY(0)
+    sheetTouchStartY.current = null
+  }
 
   function openEdit(log: ServiceLog) {
     setEditLog(log)
@@ -880,9 +892,18 @@ export default function ServicePage() {
           {/* Mobile: bottom sheet */}
           {selectedStatus && (
             <div className="lg:hidden fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-end" onClick={() => setSelectedStatus(null)}>
-              <div className="w-full bg-surface border-t border-border rounded-t-3xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-                <div className="sticky top-0 bg-surface/95 backdrop-blur-sm pt-4 pb-3 px-6 border-b border-border/60">
-                  <div className="w-12 h-1 bg-surface-2 rounded-full mx-auto mb-3" />
+              <div
+                ref={sheetScrollRef}
+                className="w-full bg-surface border-t border-border rounded-t-3xl max-h-[90vh] overflow-y-auto overscroll-contain"
+                onClick={e => e.stopPropagation()}
+                onTouchStart={onSheetTouchStart}
+                onTouchMove={onSheetTouchMove}
+                onTouchEnd={onSheetTouchEnd}
+                style={{ transform: sheetDragY ? `translateY(${sheetDragY}px)` : undefined, transition: sheetDragY ? 'none' : 'transform 0.25s ease' }}
+              >
+                <div className="sticky top-0 bg-surface/95 backdrop-blur-sm pt-3 pb-3 px-6 border-b border-border/60">
+                  <div className="w-12 h-1.5 bg-border-strong rounded-full mx-auto mb-1" />
+                  <p className="text-faint text-[11px] text-center">swipe down or tap outside to close</p>
                 </div>
                 <div className="px-6 py-5 pb-10">
                   {renderCategoryDetail(selectedStatus)}

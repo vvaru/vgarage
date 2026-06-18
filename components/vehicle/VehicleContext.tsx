@@ -11,6 +11,7 @@ interface VehicleContextType {
   vehicle: Vehicle | null
   vehicles: Vehicle[]
   loading: boolean
+  error: string | null
   refresh: () => Promise<void>
   setActiveVehicleId: (id: string) => void
 }
@@ -19,6 +20,7 @@ const VehicleContext = createContext<VehicleContextType>({
   vehicle: null,
   vehicles: [],
   loading: true,
+  error: null,
   refresh: async () => {},
   setActiveVehicleId: () => {},
 })
@@ -28,16 +30,29 @@ export function VehicleProvider({ children }: { children: React.ReactNode }) {
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     if (!session) return
     setLoading(true)
+    setError(null)
     try {
-      const { data } = await supabase
+      // Race the query against a hard timeout so a hung request can never leave
+      // the app stuck on a spinner — worst case we surface a timeout error.
+      const query = supabase
         .from('vehicles')
         .select('*')
         .eq('user_id', session.user.id)
         .order('created_at', { ascending: true })
+      const result = await Promise.race([
+        query,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Timed out reaching the database. Check your connection and retry.')), 12000)
+        ),
+      ])
+      const { data, error: qErr } = result as { data: Vehicle[] | null; error: { message: string } | null }
+      if (qErr) { setError(qErr.message); return }
+
       const list = data ?? []
       setVehicles(list)
       setActiveId(prev => {
@@ -46,6 +61,8 @@ export function VehicleProvider({ children }: { children: React.ReactNode }) {
         if (stored && list.find(v => v.id === stored)) return stored
         return list[0]?.id ?? null
       })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not reach the database.')
     } finally {
       setLoading(false)
     }
@@ -57,6 +74,7 @@ export function VehicleProvider({ children }: { children: React.ReactNode }) {
     } else {
       setVehicles([])
       setActiveId(null)
+      setError(null)
       setLoading(false)
     }
   }, [session, refresh])
@@ -76,7 +94,7 @@ export function VehicleProvider({ children }: { children: React.ReactNode }) {
   const vehicle = vehicles.find(v => v.id === activeId) ?? null
 
   return (
-    <VehicleContext.Provider value={{ vehicle, vehicles, loading, refresh, setActiveVehicleId }}>
+    <VehicleContext.Provider value={{ vehicle, vehicles, loading, error, refresh, setActiveVehicleId }}>
       {children}
     </VehicleContext.Provider>
   )

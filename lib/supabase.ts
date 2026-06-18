@@ -17,15 +17,21 @@ export const supabase = createClient(
       lock: <R>(_name: string, _acquireTimeout: number, fn: () => Promise<R>): Promise<R> => fn(),
     },
     global: {
-      // 10-second hard timeout on every request. Without this, a dropped
-      // connection can leave fetch() pending indefinitely — try/finally blocks
-      // only fire on thrown errors, not on a request that never resolves.
-      fetch: (url, options) => fetch(url, {
-        ...options,
-        signal: typeof AbortSignal.timeout === 'function'
-          ? AbortSignal.timeout(10_000)
-          : options?.signal,
-      }),
+      // Hard timeout on DATA requests so a dropped connection can't leave a fetch
+      // pending forever. Auth endpoints (token refresh, /auth/v1/*) are left
+      // untouched: aborting a refresh mid-flight can cascade into every query
+      // failing with "JWT expired" until a full reload.
+      fetch: (url, options) => {
+        const href = typeof url === 'string'
+          ? url
+          : url instanceof URL ? url.href
+          : url instanceof Request ? url.url
+          : ''
+        if (href.includes('/auth/v1/') || typeof AbortSignal.timeout !== 'function') {
+          return fetch(url, options)
+        }
+        return fetch(url, { ...options, signal: AbortSignal.timeout(15_000) })
+      },
     },
   }
 )

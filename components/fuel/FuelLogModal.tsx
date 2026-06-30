@@ -19,6 +19,14 @@ const num = (s: string): number | null => {
   return s.trim() !== '' && !isNaN(n) ? n : null
 }
 
+// A timeout/abort means the request may have reached the server even though the
+// response didn't come back — warn rather than invite a blind retry (duplicate).
+function saveError(raw: string): string {
+  if (/abort|timeout|timed out|failed to fetch|network/i.test(raw))
+    return 'Couldn’t confirm the save — it may have gone through. Check your fuel log before adding it again.'
+  return raw || 'Something went wrong. Please try again.'
+}
+
 export default function FuelLogModal({ vehicle, log, onClose, onSaved }: Props) {
   const { user } = useAuth()
   const isEdit = !!log
@@ -92,14 +100,14 @@ export default function FuelLogModal({ vehicle, log, onClose, onSaved }: Props) 
       const { error: dbErr } = isEdit
         ? await supabase.from('fuel_logs').update(payload).eq('id', log!.id)
         : await supabase.from('fuel_logs').insert({ user_id: user.id, vehicle_id: vehicle.id, ...payload })
-      if (dbErr) { setError(dbErr.message); return }
+      if (dbErr) { setError(saveError(dbErr.message)); return }
 
       if (odo > vehicle.odometer) {
         await supabase.from('vehicles').update({ odometer: odo }).eq('id', vehicle.id)
       }
       onSaved()
-    } catch {
-      setError('Something went wrong. Please try again.')
+    } catch (e) {
+      setError(saveError(e instanceof Error ? e.message : ''))
     } finally {
       setSaving(false)
     }

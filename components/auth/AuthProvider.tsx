@@ -70,28 +70,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     })
 
-    // On returning to a backgrounded tab, tell pages to re-fetch (each load
-    // retries once, and the aborting fetch discards any dead socket so the retry
-    // gets a fresh connection) and refresh the auth session. No reload needed.
-    function attemptRecover() {
-      window.dispatchEvent(new Event('vgarage:reconnected'))
-      supabase.auth.getSession()
-        .then(({ data: { session } }) => { setSession(session); setUser(session?.user ?? null) })
-        .catch(() => {})
-    }
-
+    // Returning to the tab after being away: the browser holds dead keep-alive
+    // sockets to Supabase and there's no way to force fresh ones from JS, so the
+    // next queries wedge. A reload is the only reliable way to get fresh
+    // connections — but ONLY on return after a real absence (not mid-use), and the
+    // refresh token keeps you signed in. Short switches just refresh data in place.
+    const RELOAD_AFTER_MS = 15000
     let hiddenAt: number | null = null
     function onVisibility() {
       if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); return }
       const awayMs = hiddenAt ? Date.now() - hiddenAt : 0
       hiddenAt = null
-      if (awayMs < 2500) return
-      attemptRecover()
+      if (awayMs < 3000) return
+      if (awayMs >= RELOAD_AFTER_MS) {
+        window.location.reload()
+      } else {
+        window.dispatchEvent(new Event('vgarage:reconnected'))
+        supabase.auth.getSession()
+          .then(({ data: { session } }) => { setSession(session); setUser(session?.user ?? null) })
+          .catch(() => {})
+      }
     }
-    // Mobile (esp. iOS Safari) often freezes the page and restores it from the
-    // bfcache on return, which visibilitychange may not cover — recover here too.
+    // Mobile (esp. iOS Safari) freezes the page and restores it from the bfcache
+    // on return — its connections are stale, so reload for a clean slate.
     function onPageShow(e: PageTransitionEvent) {
-      if (e.persisted) attemptRecover()
+      if (e.persisted) window.location.reload()
     }
     document.addEventListener('visibilitychange', onVisibility)
     window.addEventListener('pageshow', onPageShow)

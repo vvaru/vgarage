@@ -3,7 +3,6 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
-import { recoverStuck } from '@/lib/recover'
 
 const ADMIN_EMAIL = 'vinitvaru96@gmail.com'
 
@@ -71,32 +70,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     })
 
-    // Recover from a stale connection when returning to a backgrounded tab.
-    // After being away a while, fire a quick health-check query. If it errors or
-    // times out — the "stuck loading" state — hard-reload to rebuild the client
-    // cleanly. This only runs on a hidden→visible transition, so it can't loop,
-    // and it only reloads when a query genuinely fails (not on every return).
-    // Probe the connection after returning to the tab. Healthy → tell pages to
-    // re-fire their data load (clears a spinner left stuck by a request frozen
-    // during backgrounding) and refresh the session. Dead → hard reload.
+    // On returning to a backgrounded tab, tell pages to re-fetch (each load
+    // retries once, and the aborting fetch discards any dead socket so the retry
+    // gets a fresh connection) and refresh the auth session. No reload needed.
     function attemptRecover() {
-      let settled = false
-      const finish = (broken: boolean) => {
-        if (settled) return
-        settled = true
-        clearTimeout(probeTimeout)
-        if (broken) {
-          recoverStuck()
-        } else {
-          window.dispatchEvent(new Event('vgarage:reconnected'))
-          supabase.auth.getSession()
-            .then(({ data: { session } }) => { setSession(session); setUser(session?.user ?? null) })
-            .catch(() => {})
-        }
-      }
-      const probeTimeout = setTimeout(() => finish(true), 5000)
-      supabase.from('vehicles').select('id').limit(1)
-        .then(({ error }) => finish(!!error), () => finish(true))
+      window.dispatchEvent(new Event('vgarage:reconnected'))
+      supabase.auth.getSession()
+        .then(({ data: { session } }) => { setSession(session); setUser(session?.user ?? null) })
+        .catch(() => {})
     }
 
     let hiddenAt: number | null = null

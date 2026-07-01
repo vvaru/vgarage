@@ -16,7 +16,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
 import { useTabFocusRefresh } from '@/lib/useTabFocusRefresh'
-import { withTimeout, recoverStuck } from '@/lib/recover'
+import { withRetry } from '@/lib/recover'
 import type { ServiceLog, FuelLog, ServiceCategory, ServiceCategoryProduct } from '@/lib/types'
 
 const AddServiceFlow = dynamic(() => import('@/components/service/AddServiceFlow'), { ssr: false })
@@ -131,21 +131,19 @@ export default function DashboardPage() {
     if (!vehicle) return
     setLoading(true)
     try {
-      const [{ data: cats }, { data: svcLogs }, { data: fuelChart }, { data: fuelAll }, { data: prods }] = await withTimeout(Promise.all([
+      const [{ data: cats }, { data: svcLogs }, { data: fuelChart }, { data: fuelAll }, { data: prods }] = await withRetry(() => Promise.all([
         supabase.from('service_categories').select('*').eq('vehicle_id', vehicle.id).eq('category_type', 'maintenance').order('name'),
         supabase.from('service_logs').select('*').eq('vehicle_id', vehicle.id).order('date', { ascending: false }),
         supabase.from('fuel_logs').select('*').eq('vehicle_id', vehicle.id).order('date', { ascending: false }).limit(8),
         supabase.from('fuel_logs').select('id,date,odometer').eq('vehicle_id', vehicle.id).order('date', { ascending: true }),
         supabase.from('service_category_products').select('*').eq('vehicle_id', vehicle.id),
-      ]), 9000, 'dashboard')
+      ]))
       setCategories(cats ?? [])
       setServiceLogs(svcLogs ?? [])
       setFuelLogs(((fuelChart ?? []) as FuelLog[]).reverse())
       setAllFuelLogs((fuelAll ?? []) as FuelLog[])
       setProducts(prods ?? [])
-    } catch {
-      recoverStuck() // wedged query → auto-reload rebuilds the client
-    } finally {
+    } catch { /* both attempts failed — leave existing data, finally clears spinner */ } finally {
       setLoading(false)
     }
   }, [vehicle])

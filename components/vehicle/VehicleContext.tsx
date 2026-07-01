@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
-import { withTimeout, recoverStuck } from '@/lib/recover'
+import { withRetry } from '@/lib/recover'
 import type { Vehicle } from '@/lib/types'
 
 const STORAGE_KEY = 'vgarage_active_vehicle_id'
@@ -38,13 +38,12 @@ export function VehicleProvider({ children }: { children: React.ReactNode }) {
     setLoading(true)
     setError(null)
     try {
-      const query = supabase
+      const { data, error: qErr } = await withRetry(() => supabase
         .from('vehicles')
         .select('*')
         .eq('user_id', session.user.id)
-        .order('created_at', { ascending: true })
-      const { data, error: qErr } = await withTimeout(query, 8000, 'vehicles')
-      if (qErr) { if (!recoverStuck()) setError(qErr.message); return }
+        .order('created_at', { ascending: true }))
+      if (qErr) { setError(qErr.message); return }
 
       const list = (data ?? []) as Vehicle[]
       setVehicles(list)
@@ -55,9 +54,7 @@ export function VehicleProvider({ children }: { children: React.ReactNode }) {
         return list[0]?.id ?? null
       })
     } catch (e) {
-      // A wedged query means the client is stuck — auto-reload rebuilds it (the
-      // manual refresh, automated). Only surface an error if we just tried that.
-      if (!recoverStuck()) setError(e instanceof Error ? e.message : 'Could not reach the database.')
+      setError(e instanceof Error ? e.message : 'Could not reach the database.')
     } finally {
       setLoading(false)
     }

@@ -15,7 +15,7 @@ import dynamic from 'next/dynamic'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
-import { withRetry } from '@/lib/recover'
+import { withRetry, withTimeout } from '@/lib/recover'
 import type { ServiceLog, FuelLog, ServiceCategory, ServiceCategoryProduct } from '@/lib/types'
 
 const AddServiceFlow = dynamic(() => import('@/components/service/AddServiceFlow'), { ssr: false })
@@ -130,13 +130,13 @@ export default function DashboardPage() {
     if (!vehicle) return
     setLoading(true)
     try {
-      const [{ data: cats }, { data: svcLogs }, { data: fuelChart }, { data: fuelAll }, { data: prods }] = await withRetry(() => Promise.all([
+      const [{ data: cats }, { data: svcLogs }, { data: fuelChart }, { data: fuelAll }, { data: prods }] = await withRetry(() => withTimeout(Promise.all([
         supabase.from('service_categories').select('*').eq('vehicle_id', vehicle.id).eq('category_type', 'maintenance').order('name'),
         supabase.from('service_logs').select('*').eq('vehicle_id', vehicle.id).order('date', { ascending: false }),
         supabase.from('fuel_logs').select('*').eq('vehicle_id', vehicle.id).order('date', { ascending: false }).limit(8),
         supabase.from('fuel_logs').select('id,date,odometer').eq('vehicle_id', vehicle.id).order('date', { ascending: true }),
         supabase.from('service_category_products').select('*').eq('vehicle_id', vehicle.id),
-      ]))
+      ]), 8000))
       setCategories(cats ?? [])
       setServiceLogs(svcLogs ?? [])
       setFuelLogs(((fuelChart ?? []) as FuelLog[]).reverse())

@@ -9,7 +9,7 @@ import {
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
-import { withRetry } from '@/lib/recover'
+import { withRetry, withTimeout } from '@/lib/recover'
 import type { ServiceLog, ServiceCategory, ServiceCategoryProduct } from '@/lib/types'
 import dynamic from 'next/dynamic'
 
@@ -193,11 +193,11 @@ export default function ServicePage() {
     if (!vehicle) return
     setLoading(true)
     try {
-      const [{ data: logsData }, { data: catsData }, { data: prodsData }] = await withRetry(() => Promise.all([
+      const [{ data: logsData }, { data: catsData }, { data: prodsData }] = await withRetry(() => withTimeout(Promise.all([
         supabase.from('service_logs').select('*').eq('vehicle_id', vehicle.id).order('date', { ascending: false }),
         supabase.from('service_categories').select('*').eq('vehicle_id', vehicle.id).order('name'),
         supabase.from('service_category_products').select('*').eq('vehicle_id', vehicle.id),
-      ]))
+      ]), 8000))
       setLogs(logsData ?? [])
       setCategories(catsData ?? [])
       setProducts(prodsData ?? [])

@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
-import { withRetry } from '@/lib/recover'
+import { withRetry, withTimeout } from '@/lib/recover'
 import type { Vehicle } from '@/lib/types'
 
 const STORAGE_KEY = 'vgarage_active_vehicle_id'
@@ -38,11 +38,11 @@ export function VehicleProvider({ children }: { children: React.ReactNode }) {
     setLoading(true)
     setError(null)
     try {
-      const { data, error: qErr } = await withRetry(() => supabase
+      const { data, error: qErr } = await withRetry(() => withTimeout(supabase
         .from('vehicles')
         .select('*')
         .eq('user_id', session.user.id)
-        .order('created_at', { ascending: true }))
+        .order('created_at', { ascending: true }), 8000))
       if (qErr) { setError(qErr.message); return }
 
       const list = (data ?? []) as Vehicle[]

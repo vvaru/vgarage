@@ -8,7 +8,7 @@ import {
 } from 'recharts'
 import { supabase } from '@/lib/supabase'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
-import { withRetry } from '@/lib/recover'
+import { withRetry, withTimeout } from '@/lib/recover'
 import FuelLogModal from '@/components/fuel/FuelLogModal'
 import type { FuelLog } from '@/lib/types'
 
@@ -118,11 +118,11 @@ export default function FuelPage() {
     if (!vehicle) return
     setLoading(true)
     try {
-      const { data } = await withRetry(() => supabase
+      const { data } = await withRetry(() => withTimeout(supabase
         .from('fuel_logs')
         .select('*')
         .eq('vehicle_id', vehicle.id)
-        .order('date', { ascending: false }))
+        .order('date', { ascending: false }), 8000))
       setLogs(data ?? [])
     } catch { /* both attempts failed — leave existing data, finally clears spinner */ } finally {
       setLoading(false)

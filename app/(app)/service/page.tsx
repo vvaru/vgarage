@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
 import { useTabFocusRefresh } from '@/lib/useTabFocusRefresh'
+import { withTimeout, recoverStuck } from '@/lib/recover'
 import type { ServiceLog, ServiceCategory, ServiceCategoryProduct } from '@/lib/types'
 import dynamic from 'next/dynamic'
 
@@ -193,14 +194,16 @@ export default function ServicePage() {
     if (!vehicle) return
     setLoading(true)
     try {
-      const [{ data: logsData }, { data: catsData }, { data: prodsData }] = await Promise.all([
+      const [{ data: logsData }, { data: catsData }, { data: prodsData }] = await withTimeout(Promise.all([
         supabase.from('service_logs').select('*').eq('vehicle_id', vehicle.id).order('date', { ascending: false }),
         supabase.from('service_categories').select('*').eq('vehicle_id', vehicle.id).order('name'),
         supabase.from('service_category_products').select('*').eq('vehicle_id', vehicle.id),
-      ])
+      ]), 9000, 'service')
       setLogs(logsData ?? [])
       setCategories(catsData ?? [])
       setProducts(prodsData ?? [])
+    } catch {
+      recoverStuck() // wedged query → auto-reload rebuilds the client
     } finally {
       setLoading(false)
     }

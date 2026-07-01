@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
+import { recoverStuck } from '@/lib/recover'
 
 const ADMIN_EMAIL = 'vinitvaru96@gmail.com'
 
@@ -52,25 +53,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [role, setRole] = useState<'admin' | 'user'>('user')
 
   useEffect(() => {
-    // When the stored access token is expired, Supabase blocks INITIAL_SESSION
-    // until the refresh network request completes. If that request hangs the
-    // spinner never clears. Pre-clearing the expired entry lets Supabase fire
-    // INITIAL_SESSION with null immediately (no network call needed).
-    try {
-      const key = Object.keys(localStorage).find(
-        k => k.startsWith('sb-') && k.endsWith('-auth-token')
-      )
-      if (key) {
-        const stored = JSON.parse(localStorage.getItem(key) ?? '{}')
-        if (stored.expires_at && stored.expires_at < Math.floor(Date.now() / 1000)) {
-          localStorage.removeItem(key)
-        }
-      }
-    } catch {
-      // localStorage unavailable — bail timeout will handle it
-    }
-
-    const bail = setTimeout(() => setLoading(false), 5000)
+    // Safety net: never block the app shell longer than 8s waiting for the
+    // initial session. We do NOT pre-clear an expired token anymore — Supabase
+    // refreshes it with the still-valid refresh token, so a reload recovers the
+    // session instead of logging the user out.
+    const bail = setTimeout(() => setLoading(false), 8000)
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       clearTimeout(bail)
@@ -99,7 +86,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         settled = true
         clearTimeout(probeTimeout)
         if (broken) {
-          window.location.reload()
+          recoverStuck()
         } else {
           window.dispatchEvent(new Event('vgarage:reconnected'))
           supabase.auth.getSession()

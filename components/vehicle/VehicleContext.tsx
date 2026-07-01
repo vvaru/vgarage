@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
+import { withTimeout, recoverStuck } from '@/lib/recover'
 import type { Vehicle } from '@/lib/types'
 
 const STORAGE_KEY = 'vgarage_active_vehicle_id'
@@ -37,23 +38,15 @@ export function VehicleProvider({ children }: { children: React.ReactNode }) {
     setLoading(true)
     setError(null)
     try {
-      // Race the query against a hard timeout so a hung request can never leave
-      // the app stuck on a spinner — worst case we surface a timeout error.
       const query = supabase
         .from('vehicles')
         .select('*')
         .eq('user_id', session.user.id)
         .order('created_at', { ascending: true })
-      const result = await Promise.race([
-        query,
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('Timed out reaching the database. Check your connection and retry.')), 12000)
-        ),
-      ])
-      const { data, error: qErr } = result as { data: Vehicle[] | null; error: { message: string } | null }
-      if (qErr) { setError(qErr.message); return }
+      const { data, error: qErr } = await withTimeout(query, 8000, 'vehicles')
+      if (qErr) { if (!recoverStuck()) setError(qErr.message); return }
 
-      const list = data ?? []
+      const list = (data ?? []) as Vehicle[]
       setVehicles(list)
       setActiveId(prev => {
         if (prev && list.find(v => v.id === prev)) return prev
@@ -62,7 +55,9 @@ export function VehicleProvider({ children }: { children: React.ReactNode }) {
         return list[0]?.id ?? null
       })
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not reach the database.')
+      // A wedged query means the client is stuck — auto-reload rebuilds it (the
+      // manual refresh, automated). Only surface an error if we just tried that.
+      if (!recoverStuck()) setError(e instanceof Error ? e.message : 'Could not reach the database.')
     } finally {
       setLoading(false)
     }

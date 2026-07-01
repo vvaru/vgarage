@@ -9,6 +9,7 @@ import {
 import { supabase } from '@/lib/supabase'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
 import { useTabFocusRefresh } from '@/lib/useTabFocusRefresh'
+import { withTimeout, recoverStuck } from '@/lib/recover'
 import FuelLogModal from '@/components/fuel/FuelLogModal'
 import type { FuelLog } from '@/lib/types'
 
@@ -118,12 +119,14 @@ export default function FuelPage() {
     if (!vehicle) return
     setLoading(true)
     try {
-      const { data } = await supabase
+      const { data } = await withTimeout(supabase
         .from('fuel_logs')
         .select('*')
         .eq('vehicle_id', vehicle.id)
-        .order('date', { ascending: false })
+        .order('date', { ascending: false }), 9000, 'fuel')
       setLogs(data ?? [])
+    } catch {
+      recoverStuck() // wedged query → auto-reload rebuilds the client
     } finally {
       setLoading(false)
     }

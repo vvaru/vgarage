@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { format, differenceInDays, parseISO, addMonths, isSameMonth } from 'date-fns'
 import {
   Gauge, X, CircleAlert, TrendingUp, Settings, LogOut, RefreshCw,
@@ -16,6 +16,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
 import { withRetry, withTimeout } from '@/lib/recover'
+import { getCache, setCache } from '@/lib/cache'
 import type { ServiceLog, FuelLog, ServiceCategory, ServiceCategoryProduct } from '@/lib/types'
 
 const AddServiceFlow = dynamic(() => import('@/components/service/AddServiceFlow'), { ssr: false })
@@ -126,10 +127,11 @@ export default function DashboardPage() {
 
   const gridStroke = '#27272a'
 
+  const cacheFirstFor = useRef<string | null>(null)
   const load = useCallback(async () => {
     if (!vehicle) return
-    setLoading(true)
-    try {
+    const key = `dashboard:${vehicle.id}`
+    const fetchFresh = async () => {
       const [{ data: cats }, { data: svcLogs }, { data: fuelChart }, { data: fuelAll }, { data: prods }] = await withRetry(() => withTimeout(Promise.all([
         supabase.from('service_categories').select('*').eq('vehicle_id', vehicle.id).eq('category_type', 'maintenance').order('name'),
         supabase.from('service_logs').select('*').eq('vehicle_id', vehicle.id).order('date', { ascending: false }),
@@ -137,11 +139,44 @@ export default function DashboardPage() {
         supabase.from('fuel_logs').select('id,date,odometer').eq('vehicle_id', vehicle.id).order('date', { ascending: true }),
         supabase.from('service_category_products').select('*').eq('vehicle_id', vehicle.id),
       ]), 8000))
-      setCategories(cats ?? [])
-      setServiceLogs(svcLogs ?? [])
-      setFuelLogs(((fuelChart ?? []) as FuelLog[]).reverse())
-      setAllFuelLogs((fuelAll ?? []) as FuelLog[])
-      setProducts(prods ?? [])
+      const next = {
+        categories: (cats ?? []) as ServiceCategory[],
+        serviceLogs: (svcLogs ?? []) as ServiceLog[],
+        fuelLogs: ((fuelChart ?? []) as FuelLog[]).reverse(),
+        allFuelLogs: (fuelAll ?? []) as FuelLog[],
+        products: (prods ?? []) as ServiceCategoryProduct[],
+      }
+      setCategories(next.categories)
+      setServiceLogs(next.serviceLogs)
+      setFuelLogs(next.fuelLogs)
+      setAllFuelLogs(next.allFuelLogs)
+      setProducts(next.products)
+      setCache(key, next)
+    }
+    // First view of this vehicle's page (fresh mount / navigation / vehicle switch):
+    // if we already have the data cached, show it instantly and quietly re-check in
+    // the background. Later calls for the same vehicle (after a write) fetch fresh.
+    if (cacheFirstFor.current !== vehicle.id) {
+      cacheFirstFor.current = vehicle.id
+      const cached = getCache<{
+        categories: ServiceCategory[]; serviceLogs: ServiceLog[]
+        fuelLogs: FuelLog[]; allFuelLogs: FuelLog[]; products: ServiceCategoryProduct[]
+      }>(key)
+      if (cached) {
+        setCategories(cached.categories)
+        setServiceLogs(cached.serviceLogs)
+        setFuelLogs(cached.fuelLogs)
+        setAllFuelLogs(cached.allFuelLogs)
+        setProducts(cached.products)
+        setLoading(false)
+        fetchFresh().catch(() => { /* background re-check; keep showing cached */ })
+        return
+      }
+    }
+    // No cache yet, or an explicit reload after a write: fetch and show a spinner.
+    setLoading(true)
+    try {
+      await fetchFresh()
     } catch { /* both attempts failed — leave existing data, finally clears spinner */ } finally {
       setLoading(false)
     }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { format, parseISO, subDays, subMonths, subYears, getMonth } from 'date-fns'
 import { Plus, Trash2, Pencil, Fuel, TrendingUp } from 'lucide-react'
 import {
@@ -9,6 +9,7 @@ import {
 import { supabase } from '@/lib/supabase'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
 import { withRetry, withTimeout } from '@/lib/recover'
+import { getCache, setCache } from '@/lib/cache'
 import FuelLogModal from '@/components/fuel/FuelLogModal'
 import type { FuelLog } from '@/lib/types'
 
@@ -114,16 +115,37 @@ export default function FuelPage() {
     setManualInclude(prev => { const n = new Set(prev); n.delete(id); persist('vgarage_mpg_keep', n); return n })
   }
 
+  const cacheFirstFor = useRef<string | null>(null)
   const load = useCallback(async () => {
     if (!vehicle) return
-    setLoading(true)
-    try {
+    const key = `fuel:${vehicle.id}`
+    const fetchFresh = async () => {
       const { data } = await withRetry(() => withTimeout(supabase
         .from('fuel_logs')
         .select('*')
         .eq('vehicle_id', vehicle.id)
         .order('date', { ascending: false }), 8000))
-      setLogs(data ?? [])
+      const logs = data ?? []
+      setLogs(logs)
+      setCache(key, logs)
+    }
+    // First view of this vehicle's page (fresh mount / navigation / vehicle switch):
+    // if we already have the data cached, show it instantly and quietly re-check in
+    // the background. Later calls for the same vehicle (after a write) fetch fresh.
+    if (cacheFirstFor.current !== vehicle.id) {
+      cacheFirstFor.current = vehicle.id
+      const cached = getCache<FuelLog[]>(key)
+      if (cached) {
+        setLogs(cached)
+        setLoading(false)
+        fetchFresh().catch(() => { /* background re-check; keep showing cached */ })
+        return
+      }
+    }
+    // No cache yet, or an explicit reload after a write: fetch and show a spinner.
+    setLoading(true)
+    try {
+      await fetchFresh()
     } catch { /* both attempts failed — leave existing data, finally clears spinner */ } finally {
       setLoading(false)
     }

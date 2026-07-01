@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
 import { withRetry, withTimeout } from '@/lib/recover'
+import { getCache, setCache } from '@/lib/cache'
 import type { ServiceLog, ServiceCategory, ServiceCategoryProduct } from '@/lib/types'
 import dynamic from 'next/dynamic'
 
@@ -189,18 +190,45 @@ export default function ServicePage() {
   const [sortKey, setSortKey] = useState<SortKey>('date')
   const [typeFilter, setTypeFilter] = useState<string | null>(null)
 
+  const cacheFirstFor = useRef<string | null>(null)
   const load = useCallback(async () => {
     if (!vehicle) return
-    setLoading(true)
-    try {
+    const key = `service:${vehicle.id}`
+    const fetchFresh = async () => {
       const [{ data: logsData }, { data: catsData }, { data: prodsData }] = await withRetry(() => withTimeout(Promise.all([
         supabase.from('service_logs').select('*').eq('vehicle_id', vehicle.id).order('date', { ascending: false }),
         supabase.from('service_categories').select('*').eq('vehicle_id', vehicle.id).order('name'),
         supabase.from('service_category_products').select('*').eq('vehicle_id', vehicle.id),
       ]), 8000))
-      setLogs(logsData ?? [])
-      setCategories(catsData ?? [])
-      setProducts(prodsData ?? [])
+      const next = {
+        logs: logsData ?? [],
+        categories: catsData ?? [],
+        products: prodsData ?? [],
+      }
+      setLogs(next.logs)
+      setCategories(next.categories)
+      setProducts(next.products)
+      setCache(key, next)
+    }
+    // First view of this vehicle's page (fresh mount / navigation / vehicle switch):
+    // if we already have the data cached, show it instantly and quietly re-check in
+    // the background. Later calls for the same vehicle (after a write) fetch fresh.
+    if (cacheFirstFor.current !== vehicle.id) {
+      cacheFirstFor.current = vehicle.id
+      const cached = getCache<{ logs: ServiceLog[]; categories: ServiceCategory[]; products: ServiceCategoryProduct[] }>(key)
+      if (cached) {
+        setLogs(cached.logs)
+        setCategories(cached.categories)
+        setProducts(cached.products)
+        setLoading(false)
+        fetchFresh().catch(() => { /* background re-check; keep showing cached */ })
+        return
+      }
+    }
+    // No cache yet, or an explicit reload after a write: fetch and show a spinner.
+    setLoading(true)
+    try {
+      await fetchFresh()
     } catch { /* both attempts failed — leave existing data, finally clears spinner */ } finally {
       setLoading(false)
     }

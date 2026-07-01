@@ -158,6 +158,9 @@ export default function ServicePage() {
   const [categories, setCategories] = useState<ServiceCategory[]>([])
   const [products, setProducts] = useState<ServiceCategoryProduct[]>([])
   const [loading, setLoading] = useState(true)
+  // True only when a load failed with nothing to show — so we don't render the
+  // "no categories" empty state when the truth is "couldn't reach the server".
+  const [loadError, setLoadError] = useState(false)
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('schedule')
   const [selectedStatus, setSelectedStatus] = useState<CategoryWithStatus | null>(null)
@@ -209,6 +212,7 @@ export default function ServicePage() {
       setCategories(next.categories)
       setProducts(next.products)
       setCache(key, next)
+      setLoadError(false)
     }
     // First view of this vehicle's page (fresh mount / navigation / vehicle switch):
     // if we already have the data cached, show it instantly and quietly re-check in
@@ -221,6 +225,7 @@ export default function ServicePage() {
         setCategories(cached.categories)
         setProducts(cached.products)
         setLoading(false)
+        setLoadError(false)
         fetchFresh().catch(() => { /* background re-check; keep showing cached */ })
         return
       }
@@ -229,7 +234,11 @@ export default function ServicePage() {
     setLoading(true)
     try {
       await fetchFresh()
-    } catch { /* both attempts failed — leave existing data, finally clears spinner */ } finally {
+    } catch {
+      // Both attempts failed and we have nothing cached — flag it so the UI shows a
+      // "couldn't reach the server" retry instead of a misleading empty state.
+      setLoadError(true)
+    } finally {
       setLoading(false)
     }
   }, [vehicle])
@@ -805,6 +814,13 @@ export default function ServicePage() {
             {loading ? (
               <div className="flex items-center justify-center py-12">
                 <div className="w-7 h-7 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : loadError && categories.length === 0 ? (
+              <div className="text-center py-16 px-4">
+                <AlertTriangle size={36} className="text-faint mx-auto mb-3" />
+                <p className="text-muted font-medium">Couldn’t reach the server</p>
+                <p className="text-faint text-sm mt-1">Your data is safe — the connection just needs a moment.</p>
+                <button onClick={() => load()} className="mt-4 text-accent text-sm font-medium hover:text-accent transition-colors">Try again →</button>
               </div>
             ) : categories.length === 0 ? (
               <div className="text-center py-16 px-4">

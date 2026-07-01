@@ -15,7 +15,6 @@ import dynamic from 'next/dynamic'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
-import { useTabFocusRefresh } from '@/lib/useTabFocusRefresh'
 import { withRetry } from '@/lib/recover'
 import type { ServiceLog, FuelLog, ServiceCategory, ServiceCategoryProduct } from '@/lib/types'
 
@@ -149,7 +148,6 @@ export default function DashboardPage() {
   }, [vehicle])
 
   useEffect(() => { load() }, [load])
-  useTabFocusRefresh(load)
 
   async function saveOdometer() {
     if (!vehicle || !newOdo) return

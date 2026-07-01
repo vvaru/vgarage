@@ -70,40 +70,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     })
 
-    // Returning to the tab after being away: the browser holds dead keep-alive
-    // sockets to Supabase and there's no way to force fresh ones from JS, so the
-    // next queries wedge. A reload is the only reliable way to get fresh
-    // connections — but ONLY on return after a real absence (not mid-use), and the
-    // refresh token keeps you signed in. Short switches just refresh data in place.
-    const RELOAD_AFTER_MS = 15000
-    let hiddenAt: number | null = null
-    function onVisibility() {
-      if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); return }
-      const awayMs = hiddenAt ? Date.now() - hiddenAt : 0
-      hiddenAt = null
-      if (awayMs < 3000) return
-      if (awayMs >= RELOAD_AFTER_MS) {
-        window.location.reload()
-      } else {
-        window.dispatchEvent(new Event('vgarage:reconnected'))
-        supabase.auth.getSession()
-          .then(({ data: { session } }) => { setSession(session); setUser(session?.user ?? null) })
-          .catch(() => {})
-      }
-    }
-    // Mobile (esp. iOS Safari) freezes the page and restores it from the bfcache
-    // on return — its connections are stale, so reload for a clean slate.
-    function onPageShow(e: PageTransitionEvent) {
-      if (e.persisted) window.location.reload()
-    }
-    document.addEventListener('visibilitychange', onVisibility)
-    window.addEventListener('pageshow', onPageShow)
+    // Intentionally nothing on tab visibility/return: data stays static until you
+    // navigate or save. That means no idle connection to go stale — the network is
+    // only touched on demand, so returning to a long-idle tab never wedges/reloads.
 
     return () => {
       clearTimeout(bail)
       subscription.unsubscribe()
-      document.removeEventListener('visibilitychange', onVisibility)
-      window.removeEventListener('pageshow', onPageShow)
     }
   }, [])
 

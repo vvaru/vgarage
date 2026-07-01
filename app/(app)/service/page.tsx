@@ -9,7 +9,6 @@ import {
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
-import { useTabFocusRefresh } from '@/lib/useTabFocusRefresh'
 import { withRetry } from '@/lib/recover'
 import type { ServiceLog, ServiceCategory, ServiceCategoryProduct } from '@/lib/types'
 import dynamic from 'next/dynamic'
@@ -208,7 +207,6 @@ export default function ServicePage() {
   }, [vehicle])
 
   useEffect(() => { load() }, [load])
-  useTabFocusRefresh(load)
 
   useEffect(() => {
     if (selectedGroup) {

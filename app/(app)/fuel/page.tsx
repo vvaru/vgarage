@@ -8,7 +8,6 @@ import {
 } from 'recharts'
 import { supabase } from '@/lib/supabase'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
-import { useTabFocusRefresh } from '@/lib/useTabFocusRefresh'
 import { withRetry } from '@/lib/recover'
 import FuelLogModal from '@/components/fuel/FuelLogModal'
 import type { FuelLog } from '@/lib/types'
@@ -131,7 +130,6 @@ export default function FuelPage() {
   }, [vehicle])
 
   useEffect(() => { load() }, [load])
-  useTabFocusRefresh(load)
 
   async function handleDelete(id: string) {
     await supabase.from('fuel_logs').delete().eq('id', id)

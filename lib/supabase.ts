@@ -8,10 +8,14 @@ export const supabase = createClient(
       flowType: 'implicit',
       persistSession: true,
       detectSessionInUrl: true,
-      autoRefreshToken: true,
+      // No background token-refresh timer — nothing pings the server while the tab
+      // is idle, so there's no live connection to go stale. The token is instead
+      // refreshed on demand: __loadSession() refreshes an expired token the moment
+      // a query/write actually needs one (works even with this off — see auth-js),
+      // so opening a days-old tab and hitting Save just reconnects then.
+      autoRefreshToken: false,
       // No-op lock: empirically, removing this and using the default navigator
-      // lock hung the app on the initial post-login load. Safe for a single-tab
-      // PWA, and the abort+retry fetch below handles stale connections.
+      // lock hung the app on the initial post-login load. Safe for a single-tab PWA.
       lock: <R>(_name: string, _acquireTimeout: number, fn: () => Promise<R>): Promise<R> => fn(),
     },
     global: {

@@ -6,6 +6,7 @@ import { X, Fuel } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { withRetry, withTimeout } from '@/lib/recover'
+import { recomputeFuelMpg } from '@/lib/fuelMpg'
 import type { FuelLog, Vehicle } from '@/lib/types'
 
 interface Props {
@@ -124,6 +125,9 @@ export default function FuelLogModal({ vehicle, log, onClose, onSaved }: Props) 
         // Bumping the odometer is idempotent (sets an absolute value), so retry it too.
         await withRetry(() => withTimeout(supabase.from('vehicles').update({ odometer: odo }).eq('id', vehicle.id), 9000), 2, 800)
       }
+      // Recompute the MPG chain: this fill-up may sit before an existing one (e.g. a
+      // backfilled older entry), whose MPG must now be measured from this one.
+      await recomputeFuelMpg(vehicle.id)
       onSaved()
     } catch (e) {
       setError(saveError(e instanceof Error ? e.message : ''))

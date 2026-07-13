@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
 import { withRetry, withTimeout } from '@/lib/recover'
 import { getCache, setCache } from '@/lib/cache'
+import { recomputeFuelMpg } from '@/lib/fuelMpg'
 import FuelLogModal from '@/components/fuel/FuelLogModal'
 import type { FuelLog } from '@/lib/types'
 
@@ -154,8 +155,11 @@ export default function FuelPage() {
   useEffect(() => { load() }, [load])
 
   async function handleDelete(id: string) {
+    if (!vehicle) return
     await supabase.from('fuel_logs').delete().eq('id', id)
     setDeleteId(null)
+    // Removing a fill-up changes the "previous" for the one after it — recompute.
+    await recomputeFuelMpg(vehicle.id)
     await load()
   }
 

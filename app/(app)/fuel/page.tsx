@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { format, parseISO, subDays, subMonths, subYears, getMonth } from 'date-fns'
-import { Plus, Trash2, Pencil, Fuel, TrendingUp } from 'lucide-react'
+import { Plus, Trash2, Pencil, Fuel, TrendingUp, Leaf } from 'lucide-react'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
@@ -59,6 +59,20 @@ function median(arr: number[]): number {
   const s = [...arr].sort((a, b) => a - b)
   const m = Math.floor(s.length / 2)
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2
+}
+
+// Which OCCURRENCE of a season a date belongs to — e.g. a Jan 2026 fill-up belongs to
+// the winter that began Dec 2025 ("Winter-2025"). This lets each fill-up be judged
+// against the best MPG of its own ongoing season, not all past winters/summers.
+function seasonInstanceKey(dateStr: string): string {
+  const d = parseISO(dateStr)
+  const m = d.getMonth()
+  const y = d.getFullYear()
+  if (m === 11) return `Winter-${y}`       // Dec starts this winter
+  if (m <= 1) return `Winter-${y - 1}`     // Jan / Feb belong to the winter that started last Dec
+  if (m <= 4) return `Spring-${y}`
+  if (m <= 7) return `Summer-${y}`
+  return `Fall-${y}`                        // Sep / Oct / Nov
 }
 
 // Flags fills whose MPG is an implausible high outlier vs THIS vehicle's own
@@ -208,6 +222,29 @@ export default function FuelPage() {
 
   const hasSeasonalData = seasonalAvgs.some(s => s.avg != null)
 
+  // ── "If I'd driven conservatively" savings ─────────────────────────────────
+  // Target for each fill-up = the best MPG achieved in that fill-up's own season
+  // OCCURRENCE (this winter, this summer — not across years), ignoring outliers.
+  // Savings = what you paid × (1 − yourMPG / bestMPG): the fuel dollars you'd have
+  // saved covering the same miles at that better MPG. Benchmark spans all history
+  // (so it's stable); the total below is limited to the selected period.
+  const seasonBest = new Map<string, number>()
+  for (const l of logs) {
+    if (l.mpg == null || outlierIds.has(l.id)) continue
+    const k = seasonInstanceKey(l.date)
+    const v = Number(l.mpg)
+    const cur = seasonBest.get(k)
+    if (cur == null || v > cur) seasonBest.set(k, v)
+  }
+  const savingsFor = (l: FuelLog): number | null => {
+    if (l.mpg == null || outlierIds.has(l.id) || l.total_cost == null) return null
+    const best = seasonBest.get(seasonInstanceKey(l.date))
+    if (best == null || best <= 0) return null
+    const s = Number(l.total_cost) * (1 - Number(l.mpg) / best)
+    return s > 0 ? s : 0
+  }
+  const conservativeSavings = filteredLogs.reduce((sum, l) => sum + (savingsFor(l) ?? 0), 0)
+
   const stats = [
     { label: 'Avg MPG', value: avgMpg ? avgMpg.toFixed(1) : '—', accent: true },
     { label: 'Total Spent', value: `$${totalSpend.toFixed(0)}` },
@@ -273,6 +310,21 @@ export default function FuelPage() {
               ))}
             </div>
 
+            {/* Conservative-driving savings for the selected period */}
+            {conservativeSavings >= 0.005 && (
+              <div className="bg-surface border border-border rounded-2xl p-4 mb-4 flex items-center gap-4">
+                <div className="w-11 h-11 rounded-xl bg-success/10 flex items-center justify-center shrink-0">
+                  <Leaf size={20} className="text-success" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-2xl lg:text-3xl font-bold tracking-tight text-success">${conservativeSavings.toFixed(2)}</p>
+                  <p className="text-xs text-muted mt-0.5">
+                    Could’ve saved by matching your best MPG each season{period !== 'all' ? ` · ${PERIODS.find(p => p.key === period)?.label}` : ''}
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* MPG Trend + Seasonal: side by side on laptop */}
             <div className="grid lg:grid-cols-3 gap-4 mb-4">
               {chartData.length >= 2 && (
@@ -325,7 +377,9 @@ export default function FuelPage() {
               </div>
             ) : (
               <div className="grid lg:grid-cols-2 gap-3">
-                {filteredLogs.map((log, i) => (
+                {filteredLogs.map((log, i) => {
+                  const saved = savingsFor(log)
+                  return (
                   <div key={log.id} className="bg-surface border border-border rounded-2xl p-4 hover:border-border-strong transition-colors">
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0">
@@ -368,6 +422,11 @@ export default function FuelPage() {
                             {log.price_per_gallon != null && <span>${Number(log.price_per_gallon).toFixed(3)}/gal</span>}
                           </div>
                         )}
+                        {saved != null && (saved >= 0.005 ? (
+                          <p className="mt-1.5 text-xs font-medium text-success">Could’ve saved ${saved.toFixed(2)} driving efficiently</p>
+                        ) : (
+                          <p className="mt-1.5 text-xs text-faint">Best MPG this season</p>
+                        ))}
                       </div>
                       <div className="flex gap-1 shrink-0">
                         <button
@@ -387,7 +446,8 @@ export default function FuelPage() {
                       </div>
                     </div>
                   </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </>

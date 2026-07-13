@@ -5,6 +5,7 @@ import { format, parseISO, differenceInDays } from 'date-fns'
 import { X, Plus, Image, ChevronLeft, ChevronRight, Check, Wrench, Package, Tag, ExternalLink } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
+import { withRetry, withTimeout } from '@/lib/recover'
 import type { Vehicle, ServiceCategory, Product } from '@/lib/types'
 import dynamic from 'next/dynamic'
 
@@ -99,12 +100,18 @@ export default function AddServiceFlow({ vehicle, categories, historicalReadings
   const [items, setItems] = useState<ItemDraft[]>([])
   const [activeItem, setActiveItem] = useState(0)
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  // Stable ids so a retry after a failed save re-writes the SAME rows (upsert) —
+  // it can never create duplicates. Reset only after a clean, complete save.
+  const saveIds = useRef<{ sessionId: string; logIds: string[]; receiptPaths: string[] } | null>(null)
 
   // Library products
   const [libraryProducts, setLibraryProducts] = useState<ProductWithLinks[]>([])
   const [showAddProduct, setShowAddProduct] = useState(false)
   const [newProduct, setNewProduct] = useState<NewProductDraft>({ name: '', brand: '', url: '' })
   const [savingProduct, setSavingProduct] = useState(false)
+  const [productError, setProductError] = useState<string | null>(null)
+  const productId = useRef<string | null>(null)
 
   // Load product library on mount
   useEffect(() => {
@@ -187,38 +194,58 @@ export default function AddServiceFlow({ vehicle, categories, historicalReadings
   async function handleAddProductToLibrary() {
     if (!user || !newProduct.name.trim()) return
     setSavingProduct(true)
-    const { data: prod } = await supabase.from('products').insert({
-      user_id: user.id,
-      vehicle_id: vehicle.id,
-      name: newProduct.name.trim(),
-      brand: newProduct.brand.trim() || null,
-    }).select('id').single()
-    if (prod && newProduct.url.trim()) {
-      await supabase.from('product_links').insert({ product_id: prod.id, label: 'Buy', url: newProduct.url.trim() })
-    }
-    if (prod) {
-      // Link to current item's category
+    setProductError(null)
+    // Stable id so retrying re-writes the same product row instead of duplicating it.
+    if (!productId.current) productId.current = crypto.randomUUID()
+    const pid = productId.current
+    try {
+      const { error: pErr } = await withRetry(() => withTimeout(supabase.from('products').upsert({
+        id: pid,
+        user_id: user.id,
+        vehicle_id: vehicle.id,
+        name: newProduct.name.trim(),
+        brand: newProduct.brand.trim() || null,
+      }), 9000), 2, 800)
+      if (pErr) throw new Error(pErr.message)
+
+      if (newProduct.url.trim()) {
+        // delete-then-insert keeps the link set idempotent across retries
+        await withTimeout(supabase.from('product_links').delete().eq('product_id', pid), 9000)
+        await withRetry(() => withTimeout(supabase.from('product_links').insert({ product_id: pid, label: 'Buy', url: newProduct.url.trim() }), 9000), 2, 800)
+      }
+
       const catId = items[activeItem]?.category_id
       if (catId) {
-        try { await supabase.from('product_category_links').insert({ product_id: prod.id, category_id: catId }) } catch { }
+        try {
+          await withTimeout(supabase.from('product_category_links').delete().eq('product_id', pid).eq('category_id', catId), 9000)
+          await withTimeout(supabase.from('product_category_links').insert({ product_id: pid, category_id: catId }), 9000)
+        } catch { /* join table optional */ }
       }
+
       // Reload library and auto-select the new product
-      const [{ data: prods }, { data: links }, { data: catLinks }] = await Promise.all([
+      const [{ data: prods }, { data: links }, { data: catLinks }] = await withRetry(() => withTimeout(Promise.all([
         supabase.from('products').select('*').eq('vehicle_id', vehicle.id).order('name'),
         supabase.from('product_links').select('*'),
         supabase.from('product_category_links').select('*'),
-      ])
+      ]), 9000), 2, 800)
       const updated: ProductWithLinks[] = (prods ?? []).map(p => ({
         ...p,
         links: (links ?? []).filter(l => l.product_id === p.id),
         categoryIds: (catLinks ?? []).filter(cl => cl.product_id === p.id).map(cl => cl.category_id),
       }))
       setLibraryProducts(updated)
-      toggleProduct(activeItem, prod.id)
+      toggleProduct(activeItem, pid)
+
+      // Success — clear the form and free the id for the next product.
+      productId.current = null
+      setNewProduct({ name: '', brand: '', url: '' })
+      setShowAddProduct(false)
+    } catch {
+      // Keep the form and the id so tapping "Add" again re-writes the same product.
+      setProductError('Couldn’t reach the database — your entry is kept. Tap Add to try again.')
+    } finally {
+      setSavingProduct(false)
     }
-    setNewProduct({ name: '', brand: '', url: '' })
-    setShowAddProduct(false)
-    setSavingProduct(false)
   }
 
   const maintenanceCats = categories.filter(c => c.category_type === 'maintenance')
@@ -226,57 +253,85 @@ export default function AddServiceFlow({ vehicle, categories, historicalReadings
   async function handleSave() {
     if (!user) return
     setSaving(true)
-    const sessionId = crypto.randomUUID()
-
-    const uploadedPaths: (string | null)[] = await Promise.all(
-      receipts.map(async r => {
-        const ext = r.file.name.split('.').pop() ?? 'jpg'
-        const path = `${user.id}/${crypto.randomUUID()}.${ext}`
-        const { error } = await supabase.storage.from('receipts').upload(path, r.file)
-        return error ? null : path
-      })
-    )
-
-    for (const item of items) {
-      const cat = maintenanceCats.find(c => c.id === item.category_id)
-      const serviceType = item.record_type === 'maintenance'
-        ? (cat?.name ?? item.service_type.trim())
-        : item.service_type.trim()
-
-      const { data: logData } = await supabase.from('service_logs').insert({
-        user_id: user.id,
-        vehicle_id: vehicle.id,
-        session_id: sessionId,
-        service_type: serviceType || 'Service',
-        category_id: item.category_id || null,
-        record_type: item.record_type,
-        performed_by: item.performed_by,
-        shop_name: item.performed_by === 'shop' ? (item.shop_name.trim() || null) : null,
-        shop_location: item.performed_by === 'shop' ? (item.shop_location.trim() || null) : null,
-        receipt_url: item.receiptIdx != null ? (uploadedPaths[item.receiptIdx] ?? null) : null,
-        date: item.date,
-        odometer: parseInt(item.odometer) || vehicle.odometer,
-        cost: item.cost ? parseFloat(item.cost) : null,
-        notes: item.notes.trim() || null,
-      }).select('id').single()
-
-      // Link selected products to this service log
-      if (logData && item.selectedProductIds.length > 0) {
-        try {
-          await supabase.from('service_log_products').insert(
-            item.selectedProductIds.map(pid => ({ log_id: logData.id, product_id: pid }))
-          )
-        } catch { } // graceful if table doesn't exist
+    setError(null)
+    // Stable ids for this save so a retry re-writes the SAME rows (idempotent) —
+    // this is exactly what stops "it added one, then duplicated on retry".
+    if (!saveIds.current) {
+      saveIds.current = {
+        sessionId: crypto.randomUUID(),
+        logIds: items.map(() => crypto.randomUUID()),
+        receiptPaths: receipts.map(r => `${user.id}/${crypto.randomUUID()}.${r.file.name.split('.').pop() ?? 'jpg'}`),
       }
     }
+    const ids = saveIds.current
 
-    const maxOdo = Math.max(...items.map(i => parseInt(i.odometer) || 0))
-    if (maxOdo > vehicle.odometer) {
-      await supabase.from('vehicles').update({ odometer: maxOdo }).eq('id', vehicle.id)
+    try {
+      // Upload receipts to their stable paths (upsert overwrites on retry, so no
+      // orphaned duplicate files). Bigger timeout — images can be large.
+      const uploadedPaths: (string | null)[] = await Promise.all(
+        receipts.map(async (r, i) => {
+          const path = ids.receiptPaths[i]
+          const { error } = await withTimeout(
+            supabase.storage.from('receipts').upload(path, r.file, { upsert: true }),
+            20000
+          )
+          return error ? null : path
+        })
+      )
+
+      for (let idx = 0; idx < items.length; idx++) {
+        const item = items[idx]
+        const cat = maintenanceCats.find(c => c.id === item.category_id)
+        const serviceType = item.record_type === 'maintenance'
+          ? (cat?.name ?? item.service_type.trim())
+          : item.service_type.trim()
+        const logId = ids.logIds[idx]
+
+        const { error: logErr } = await withRetry(() => withTimeout(supabase.from('service_logs').upsert({
+          id: logId,
+          user_id: user.id,
+          vehicle_id: vehicle.id,
+          session_id: ids.sessionId,
+          service_type: serviceType || 'Service',
+          category_id: item.category_id || null,
+          record_type: item.record_type,
+          performed_by: item.performed_by,
+          shop_name: item.performed_by === 'shop' ? (item.shop_name.trim() || null) : null,
+          shop_location: item.performed_by === 'shop' ? (item.shop_location.trim() || null) : null,
+          receipt_url: item.receiptIdx != null ? (uploadedPaths[item.receiptIdx] ?? null) : null,
+          date: item.date,
+          odometer: parseInt(item.odometer) || vehicle.odometer,
+          cost: item.cost ? parseFloat(item.cost) : null,
+          notes: item.notes.trim() || null,
+        }), 9000), 2, 800)
+        if (logErr) throw new Error(logErr.message)
+
+        // Rewrite this log's product links idempotently (clear then re-add).
+        try {
+          await withTimeout(supabase.from('service_log_products').delete().eq('log_id', logId), 9000)
+          if (item.selectedProductIds.length > 0) {
+            await withRetry(() => withTimeout(supabase.from('service_log_products').insert(
+              item.selectedProductIds.map(pid => ({ log_id: logId, product_id: pid }))
+            ), 9000), 2, 800)
+          }
+        } catch { /* join table optional */ }
+      }
+
+      const maxOdo = Math.max(...items.map(i => parseInt(i.odometer) || 0))
+      if (maxOdo > vehicle.odometer) {
+        await withRetry(() => withTimeout(supabase.from('vehicles').update({ odometer: maxOdo }).eq('id', vehicle.id), 9000), 2, 800)
+      }
+
+      // Clean save — free the ids and hand back to the caller.
+      saveIds.current = null
+      onSaved()
+    } catch {
+      // Nothing is lost: the modal stays open with everything filled in, and the
+      // stable ids mean tapping Save again finishes the job without duplicating.
+      setError('Couldn’t reach the database — nothing was lost. Tap Save to try again.')
+    } finally {
+      setSaving(false)
     }
-
-    setSaving(false)
-    onSaved()
   }
 
   const currentItem = items[activeItem]
@@ -533,6 +588,7 @@ export default function AddServiceFlow({ vehicle, categories, historicalReadings
                             {savingProduct ? 'Adding…' : 'Add & Select'}
                           </button>
                         </div>
+                        {productError && <p className="text-danger text-xs">{productError}</p>}
                       </div>
                     )}
                   </div>
@@ -602,6 +658,11 @@ export default function AddServiceFlow({ vehicle, categories, historicalReadings
             </div>
           )}
 
+          {error && (
+            <div className="px-5 pt-3 shrink-0">
+              <p className="text-danger text-sm bg-danger/10 border border-danger/20 rounded-xl px-3 py-2">{error}</p>
+            </div>
+          )}
           {/* Footer */}
           <div className="px-5 pb-5 pt-3 shrink-0 border-t border-border flex gap-3">
             {step === 'receipts' && (

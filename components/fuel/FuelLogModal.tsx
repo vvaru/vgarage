@@ -21,14 +21,6 @@ const num = (s: string): number | null => {
   return s.trim() !== '' && !isNaN(n) ? n : null
 }
 
-// Each modal session writes to a fixed row id, so re-tapping Save just re-writes the
-// same row — never a duplicate. So on a stall we can safely tell the user to retry.
-function saveError(raw: string): string {
-  if (/abort|timeout|timed out|failed to fetch|network/i.test(raw))
-    return 'Couldn’t reach the server — your entry is still here. Tap Save to try again.'
-  return raw || 'Something went wrong. Please try again.'
-}
-
 export default function FuelLogModal({ vehicle, log, onClose, onSaved }: Props) {
   const { user } = useAuth()
   const isEdit = !!log
@@ -48,7 +40,7 @@ export default function FuelLogModal({ vehicle, log, onClose, onSaved }: Props) 
   // saved connection is dead; kicking a throwaway read now lets it reconnect while you
   // fill in the form, so Save is fast — often instant — by the time you tap it.
   useEffect(() => {
-    withTimeout(supabase.from('fuel_logs').select('id').eq('vehicle_id', vehicle.id).limit(1), 9000)
+    withTimeout(supabase.from('fuel_logs').select('id').eq('vehicle_id', vehicle.id).limit(1), 18000)
       .catch(() => { /* just warming the pipe; ignore the result */ })
   }, [vehicle.id])
 
@@ -99,7 +91,7 @@ export default function FuelLogModal({ vehicle, log, onClose, onSaved }: Props) 
           .lt('odometer', odo)
           .order('odometer', { ascending: false })
           .limit(1)
-          .maybeSingle(), 9000), 2, 800)
+          .maybeSingle(), 18000), 2, 800)
         mpg = prev && odo - prev.odometer > 0 ? (odo - prev.odometer) / G : null
       }
 
@@ -118,19 +110,21 @@ export default function FuelLogModal({ vehicle, log, onClose, onSaved }: Props) 
       // create a duplicate — so it's safe to just keep trying until it lands.
       const { error: dbErr } = await withRetry(() => withTimeout(isEdit
         ? supabase.from('fuel_logs').update(payload).eq('id', rowId)
-        : supabase.from('fuel_logs').upsert({ id: rowId, user_id: user.id, vehicle_id: vehicle.id, ...payload }), 9000), 2, 800)
-      if (dbErr) { setError(saveError(dbErr.message)); return }
+        : supabase.from('fuel_logs').upsert({ id: rowId, user_id: user.id, vehicle_id: vehicle.id, ...payload }), 18000), 2, 800)
+      if (dbErr) { setError(`Save failed (${dbErr.message}). Your entry is kept — tap Save to try again.`); return }
 
       if (odo > vehicle.odometer) {
         // Bumping the odometer is idempotent (sets an absolute value), so retry it too.
-        await withRetry(() => withTimeout(supabase.from('vehicles').update({ odometer: odo }).eq('id', vehicle.id), 9000), 2, 800)
+        await withRetry(() => withTimeout(supabase.from('vehicles').update({ odometer: odo }).eq('id', vehicle.id), 18000), 2, 800)
       }
       // Recompute the MPG chain: this fill-up may sit before an existing one (e.g. a
       // backfilled older entry), whose MPG must now be measured from this one.
       await recomputeFuelMpg(vehicle.id)
       onSaved()
     } catch (e) {
-      setError(saveError(e instanceof Error ? e.message : ''))
+      // Surface the real reason so we can tell a timeout apart from a DB error.
+      const reason = e instanceof Error ? e.message : String(e)
+      setError(`Couldn’t save (${reason}). Your entry is kept — tap Save to try again.`)
     } finally {
       setSaving(false)
     }

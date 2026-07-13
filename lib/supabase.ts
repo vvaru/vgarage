@@ -19,13 +19,17 @@ export const supabase = createClient(
       lock: <R>(_name: string, _acquireTimeout: number, fn: () => Promise<R>): Promise<R> => fn(),
     },
     global: {
-      // Abort a request pending longer than 8s. Aborting (not just racing a timer)
-      // is the point: after the tab idles the browser can reuse a dead keep-alive
-      // socket where the request is sent but no response returns. Aborting discards
-      // that socket so the retry (withRetry) opens a fresh connection and succeeds.
+      // Safety-net timeout only. This must be LONGER than the browser's own dead-
+      // connection detection: after the tab idles, the browser holds a dead HTTP/2
+      // connection and only *it* can notice and replace it (JS can't force a new
+      // one). An overly aggressive abort (we had 8s) fires first, cancels the request
+      // before the browser gives up on the dead connection, and every retry reuses
+      // that same dead connection — so nothing ever recovers without a full reload.
+      // 20s gives the browser room to drop the dead connection so the retry lands on
+      // a fresh one. Normal requests still return in well under a second.
       fetch: (url, options) => {
         if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
-          return fetch(url, { ...options, signal: AbortSignal.timeout(8_000) })
+          return fetch(url, { ...options, signal: AbortSignal.timeout(20_000) })
         }
         return fetch(url, options)
       },

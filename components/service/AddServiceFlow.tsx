@@ -240,9 +240,10 @@ export default function AddServiceFlow({ vehicle, categories, historicalReadings
       productId.current = null
       setNewProduct({ name: '', brand: '', url: '' })
       setShowAddProduct(false)
-    } catch {
+    } catch (e) {
       // Keep the form and the id so tapping "Add" again re-writes the same product.
-      setProductError('Couldn’t reach the database — your entry is kept. Tap Add to try again.')
+      const reason = e instanceof Error ? e.message : String(e)
+      setProductError(`Couldn’t add (${reason}). Your entry is kept — tap Add to try again.`)
     } finally {
       setSavingProduct(false)
     }
@@ -325,10 +326,12 @@ export default function AddServiceFlow({ vehicle, categories, historicalReadings
       // Clean save — free the ids and hand back to the caller.
       saveIds.current = null
       onSaved()
-    } catch {
+    } catch (e) {
       // Nothing is lost: the modal stays open with everything filled in, and the
       // stable ids mean tapping Save again finishes the job without duplicating.
-      setError('Couldn’t reach the database — nothing was lost. Tap Save to try again.')
+      // Reason is surfaced so we can tell a timeout apart from a real DB error.
+      const reason = e instanceof Error ? e.message : String(e)
+      setError(`Couldn’t save (${reason}). Nothing was lost — tap Save to try again.`)
     } finally {
       setSaving(false)
     }

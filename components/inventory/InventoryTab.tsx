@@ -1,16 +1,21 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { format, parseISO } from 'date-fns'
 import { Plus, Package, Receipt as ReceiptIcon, Image as ImageIcon, AlertTriangle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { computeStock, lotBalances, fmtQty } from '@/lib/inventory'
+import { getCache, setCache } from '@/lib/cache'
 import type { Product, Receipt, ReceiptItem, InventoryAdjustment, ServiceProductUsage } from '@/lib/types'
 import ReceiptModal, { PastReceipt } from './ReceiptModal'
 
 type ProductU = Product & { unit?: string }
 interface PastLog { id: string; date: string; service_type: string; receipt_url: string }
+interface Snapshot {
+  products: ProductU[]; receipts: Receipt[]; items: ReceiptItem[]
+  usage: ServiceProductUsage[]; adjustments: InventoryAdjustment[]; pastLogs: PastLog[]; tablesReady: boolean
+}
 
 export default function InventoryTab() {
   const { user } = useAuth()
@@ -24,40 +29,64 @@ export default function InventoryTab() {
   const [pastLogs, setPastLogs] = useState<PastLog[]>([])
   const [modal, setModal] = useState<{ past: PastReceipt | null } | null>(null)
 
+  const cacheFirstFor = useRef<string | null>(null)
   const load = useCallback(async () => {
     if (!user) return
-    setLoading(true)
-    try {
-      const { data: prods } = await supabase.from('products').select('*').eq('user_id', user.id).order('name')
-      setProducts((prods ?? []) as ProductU[])
+    const uid = user.id
+    const key = `inventory:${uid}`
 
-      const rq = await supabase.from('receipts').select('*').eq('user_id', user.id).order('date', { ascending: false })
+    const apply = (s: Snapshot) => {
+      setProducts(s.products); setReceipts(s.receipts); setItems(s.items)
+      setUsage(s.usage); setAdjustments(s.adjustments); setPastLogs(s.pastLogs)
+      setTablesReady(s.tablesReady)
+    }
+
+    const fetchFresh = async () => {
+      const { data: prods } = await supabase.from('products').select('*').eq('user_id', uid).order('name')
+      let ready = true
+      let rec: Receipt[] = [], its: ReceiptItem[] = [], use: ServiceProductUsage[] = [], adj: InventoryAdjustment[] = []
+      const rq = await supabase.from('receipts').select('*').eq('user_id', uid).order('date', { ascending: false })
       if (rq.error) {
-        setTablesReady(false)
+        ready = false
       } else {
-        setTablesReady(true)
-        setReceipts((rq.data ?? []) as Receipt[])
+        rec = (rq.data ?? []) as Receipt[]
         const [itemsQ, usageQ, adjQ] = await Promise.all([
           supabase.from('receipt_items').select('*'),
           supabase.from('service_product_usage').select('*'),
           supabase.from('inventory_adjustments').select('*'),
         ])
-        setItems((itemsQ.data ?? []) as ReceiptItem[])
-        setUsage((usageQ.data ?? []) as ServiceProductUsage[])
-        setAdjustments((adjQ.data ?? []) as InventoryAdjustment[])
+        its = (itemsQ.data ?? []) as ReceiptItem[]
+        use = (usageQ.data ?? []) as ServiceProductUsage[]
+        adj = (adjQ.data ?? []) as InventoryAdjustment[]
       }
-
       const { data: pl } = await supabase
         .from('service_logs')
         .select('id,date,service_type,receipt_url')
-        .eq('user_id', user.id)
+        .eq('user_id', uid)
         .not('receipt_url', 'is', null)
         .order('date', { ascending: false })
-      setPastLogs((pl ?? []) as PastLog[])
-    } finally {
+      const snap: Snapshot = {
+        products: (prods ?? []) as ProductU[], receipts: rec, items: its,
+        usage: use, adjustments: adj, pastLogs: (pl ?? []) as PastLog[], tablesReady: ready,
+      }
+      setCache(key, snap)
+      apply(snap)
+    }
+
+    // First view of this session: show cached data instantly and revalidate quietly.
+    // Returning to a backgrounded browser tab won't flip to a blocking spinner.
+    if (cacheFirstFor.current !== uid) {
+      cacheFirstFor.current = uid
+      const cached = getCache<Snapshot>(key)
+      if (cached) { apply(cached); setLoading(false); fetchFresh().catch(() => {}); return }
+    }
+    if (getCache(key) === undefined) setLoading(true) // spinner only when there's nothing to show
+    try {
+      await fetchFresh()
+    } catch { /* keep showing what we have */ } finally {
       setLoading(false)
     }
-  }, [user])
+  }, [user?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { load() }, [load])
 

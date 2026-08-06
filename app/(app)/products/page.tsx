@@ -5,6 +5,7 @@ import { ExternalLink, Plus, Pencil, Trash2, X, Package, Link as LinkIcon, Tag, 
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
+import InventoryTab from '@/components/inventory/InventoryTab'
 import type { Product, ProductLink, ServiceCategory } from '@/lib/types'
 
 interface ProductWithLinks extends Product {
@@ -26,6 +27,7 @@ export default function ProductsPage() {
   const { user } = useAuth()
   const { vehicle } = useVehicle()
 
+  const [tab, setTab] = useState<'inventory' | 'catalog'>('inventory')
   const [products, setProducts] = useState<ProductWithLinks[]>([])
   const [categories, setCategories] = useState<ServiceCategory[]>([])
   const [loading, setLoading] = useState(true)
@@ -196,10 +198,10 @@ export default function ProductsPage() {
       {/* Header */}
       <div className="max-w-6xl 2xl:max-w-7xl mx-auto px-4 lg:px-8 pt-10 lg:pt-8 pb-4">
         <div className="flex items-center justify-between">
-          <h1 className="text-xl lg:text-2xl font-bold text-foreground">Parts & Products</h1>
+          <h1 className="text-xl lg:text-2xl font-bold text-foreground">Parts & Inventory</h1>
           <div className="flex items-center gap-2">
             {/* Filter button */}
-            {categories.length > 0 && (
+            {tab === 'catalog' && categories.length > 0 && (
               <div ref={filterRef} className="relative">
                 <button
                   onClick={() => setShowFilterPopup(v => !v)}
@@ -242,17 +244,41 @@ export default function ProductsPage() {
               </div>
             )}
 
-            <button
-              onClick={openAdd}
-              className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white font-bold rounded-2xl px-4 py-2 text-sm transition-colors shadow-lg shadow-accent/20"
-            >
-              <Plus size={15} /> Add
-            </button>
+            {tab === 'catalog' && (
+              <button
+                onClick={openAdd}
+                className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white font-bold rounded-2xl px-4 py-2 text-sm transition-colors shadow-lg shadow-accent/20"
+              >
+                <Plus size={15} /> Add
+              </button>
+            )}
           </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex gap-2 mt-4">
+          {(['inventory', 'catalog'] as const).map(t => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors capitalize ${
+                tab === t ? 'bg-accent text-white' : 'bg-surface-2 text-muted hover:text-foreground'
+              }`}
+            >
+              {t}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Product grid */}
+      {tab === 'inventory' && (
+        <div className="max-w-6xl 2xl:max-w-7xl mx-auto px-4 lg:px-8 pt-4 pb-28 lg:pb-12">
+          <InventoryTab />
+        </div>
+      )}
+
+      {/* Product grid (Catalog) */}
+      {tab === 'catalog' && (
       <div className="max-w-6xl 2xl:max-w-7xl mx-auto px-4 lg:px-8 pt-4 pb-28 lg:pb-12">
         {loading ? (
           <div className="flex items-center justify-center py-16">
@@ -322,6 +348,7 @@ export default function ProductsPage() {
           </div>
         )}
       </div>
+      )}
 
       {/* ── Add / Edit Modal ── */}
       {showModal && (

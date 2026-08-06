@@ -108,6 +108,7 @@ export interface Product {
   name: string
   brand: string | null
   notes: string | null
+  unit?: string            // inventory unit (gal, qt, each…); added with the inventory feature
   created_at: string
 }
 
@@ -121,6 +122,49 @@ export interface ProductLink {
 export interface ProductCategoryLink {
   product_id: string
   category_id: string
+}
+
+// ── Inventory & receipts ────────────────────────────────────────────────────
+export interface Receipt {
+  id: string
+  user_id: string
+  date: string | null
+  store: string | null
+  image_path: string | null
+  total_cost: number | null
+  note: string | null
+  created_at: string
+}
+
+// A receipt line item == an inventory lot. Remaining balance is derived from usage.
+export interface ReceiptItem {
+  id: string
+  receipt_id: string
+  product_id: string
+  qty: number
+  unit_cost: number | null
+  created_at: string
+}
+
+export interface InventoryAdjustment {
+  id: string
+  user_id: string
+  product_id: string
+  qty_delta: number        // + adds stock (opening/lot), − removes (used before tracking, spillage)
+  unit_cost: number | null
+  note: string | null
+  date: string | null
+  created_at: string
+}
+
+export interface ServiceProductUsage {
+  id: string
+  log_id: string
+  product_id: string
+  receipt_item_id: string | null   // which lot it drew from (null = un-lotted/manual)
+  qty: number
+  unit_cost: number | null
+  created_at: string
 }
 
 export interface ServiceReminder {

@@ -21,6 +21,12 @@ const num = (s: string): number | null => {
   return s.trim() !== '' && !isNaN(n) ? n : null
 }
 
+// Fuel math is Total = Price × Gallons. We track the two most-recently-edited fields
+// as the inputs; the remaining one is the computed field — so ANY field can be typed
+// and ANY field can auto-fill (not just gallons).
+type Field = 'T' | 'P' | 'G'
+const FIELDS: Field[] = ['T', 'P', 'G']
+
 export default function FuelLogModal({ vehicle, log, onClose, onSaved }: Props) {
   const { user } = useAuth()
   const isEdit = !!log
@@ -32,6 +38,9 @@ export default function FuelLogModal({ vehicle, log, onClose, onSaved }: Props) 
   const [gallons, setGallons] = useState(log?.gallons != null ? String(log.gallons) : '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // The two fields you most recently edited (most-recent first, max 2) — those are
+  // the inputs; the third is what auto-fills.
+  const [recent, setRecent] = useState<Field[]>([])
   // A stable row id for this modal session so any retry (or re-tap of Save) re-writes
   // the SAME row instead of creating a duplicate — this is what makes auto-retry safe.
   const [rowId] = useState(() => (isEdit ? log!.id : crypto.randomUUID()))
@@ -44,23 +53,34 @@ export default function FuelLogModal({ vehicle, log, onClose, onSaved }: Props) 
       .catch(() => { /* just warming the pipe; ignore the result */ })
   }, [vehicle.id])
 
-  // total = gallons × price. Editing any two auto-fills the third (gallons by default).
-  function onTotal(v: string) {
-    setTotalCost(v)
-    const T = num(v), P = num(pricePerGallon)
-    if (T != null && P != null && P > 0) setGallons((T / P).toFixed(3))
-  }
-  function onPrice(v: string) {
-    setPricePerGallon(v)
-    const P = num(v), T = num(totalCost), G = num(gallons)
-    if (T != null && P != null && P > 0) setGallons((T / P).toFixed(3))
-    else if (G != null && P != null) setTotalCost((G * P).toFixed(2))
-  }
-  function onGallons(v: string) {
-    setGallons(v)
-    const G = num(v), P = num(pricePerGallon), T = num(totalCost)
-    if (G != null && P != null) setTotalCost((G * P).toFixed(2))
-    else if (G != null && G > 0 && T != null) setPricePerGallon((T / G).toFixed(3))
+  // Editing any field recomputes whichever of the other two you touched least recently,
+  // using Total = Price × Gallons. So typing gallons fills Total/Price just like typing
+  // total fills gallons — nothing is hard-wired to "gallons is the output".
+  function applyField(field: Field, v: string) {
+    const setter = field === 'T' ? setTotalCost : field === 'P' ? setPricePerGallon : setGallons
+    setter(v)
+
+    const vals: Record<Field, number | null> = {
+      T: field === 'T' ? num(v) : num(totalCost),
+      P: field === 'P' ? num(v) : num(pricePerGallon),
+      G: field === 'G' ? num(v) : num(gallons),
+    }
+
+    // Inputs = the field just edited + the previously most-recent one. With no history
+    // yet, keep the natural pair so typing total/price fills gallons and typing gallons
+    // fills total.
+    let partner = recent.find(f => f !== field)
+    if (!partner) {
+      const defaultOutput: Field = field === 'G' ? 'T' : 'G'
+      partner = FIELDS.find(f => f !== field && f !== defaultOutput)!
+    }
+    const output = FIELDS.find(f => f !== field && f !== partner)!
+
+    if (output === 'T' && vals.P != null && vals.G != null) setTotalCost((vals.P * vals.G).toFixed(2))
+    else if (output === 'P' && vals.T != null && vals.G != null && vals.G > 0) setPricePerGallon((vals.T / vals.G).toFixed(3))
+    else if (output === 'G' && vals.T != null && vals.P != null && vals.P > 0) setGallons((vals.T / vals.P).toFixed(3))
+
+    setRecent([field, ...recent.filter(f => f !== field)].slice(0, 2))
   }
 
   const canSave = !!date && (odometer.trim() !== '' || gallons.trim() !== '' || pricePerGallon.trim() !== '' || totalCost.trim() !== '')
@@ -161,7 +181,7 @@ export default function FuelLogModal({ vehicle, log, onClose, onSaved }: Props) 
               <label className="block text-xs font-medium text-muted mb-1.5">Total cost</label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-faint text-sm">$</span>
-                <input type="number" inputMode="decimal" step="0.01" placeholder="—" value={totalCost} onChange={e => onTotal(e.target.value)}
+                <input type="number" inputMode="decimal" step="0.01" placeholder="—" value={totalCost} onChange={e => applyField('T', e.target.value)}
                   className={`${inputCls} pl-6 font-semibold tabular-nums`} />
               </div>
             </div>
@@ -169,7 +189,7 @@ export default function FuelLogModal({ vehicle, log, onClose, onSaved }: Props) 
               <label className="block text-xs font-medium text-muted mb-1.5">Price / gal</label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-faint text-sm">$</span>
-                <input type="number" inputMode="decimal" step="0.001" placeholder="—" value={pricePerGallon} onChange={e => onPrice(e.target.value)}
+                <input type="number" inputMode="decimal" step="0.001" placeholder="—" value={pricePerGallon} onChange={e => applyField('P', e.target.value)}
                   className={`${inputCls} pl-6 font-semibold tabular-nums`} />
               </div>
             </div>
@@ -178,8 +198,8 @@ export default function FuelLogModal({ vehicle, log, onClose, onSaved }: Props) 
           {/* Gallons auto-calculates from the two above (still editable) */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-muted mb-1.5">Gallons <span className="text-faint font-normal">· auto</span></label>
-              <input type="number" inputMode="decimal" step="0.001" placeholder="—" value={gallons} onChange={e => onGallons(e.target.value)}
+              <label className="block text-xs font-medium text-muted mb-1.5">Gallons</label>
+              <input type="number" inputMode="decimal" step="0.001" placeholder="—" value={gallons} onChange={e => applyField('G', e.target.value)}
                 className={`${inputCls} font-semibold tabular-nums`} />
             </div>
             <div>

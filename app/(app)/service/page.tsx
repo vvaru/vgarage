@@ -252,6 +252,20 @@ export default function ServicePage() {
     }
   }, [logs]) // eslint-disable-line
 
+  // Deep link from a receipt in the inventory tab: /service?log=<id> opens that
+  // record's group. Runs once, so it never fights the user's later navigation.
+  const deepLinked = useRef(false)
+  useEffect(() => {
+    if (deepLinked.current || logs.length === 0) return
+    const id = new URLSearchParams(window.location.search).get('log')
+    if (!id) return
+    const group = groupLogs(logs).find(g => g.logs.some(l => l.id === id))
+    if (!group) return
+    deepLinked.current = true
+    setActiveTab('history')
+    setSelectedGroup(group)
+  }, [logs])
+
   // Lock background scroll while a mobile detail sheet is open, so the page
   // behind can't scroll into blank space on touch.
   useEffect(() => {

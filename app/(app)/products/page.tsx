@@ -47,11 +47,13 @@ export default function ProductsPage() {
   const categoryDropdownRef = useRef<HTMLDivElement>(null)
 
   const load = useCallback(async () => {
-    if (!vehicle) return
+    if (!vehicle || !user) return
     setLoading(true)
     try {
       const [{ data: prods }, { data: links }, { data: catLinks }, { data: cats }] = await Promise.all([
-        supabase.from('products').select('*').eq('vehicle_id', vehicle.id).order('name'),
+        // Garage-wide: products bought on a receipt are created with vehicle_id
+        // NULL, so scoping this to the vehicle hid them from the catalog entirely.
+        supabase.from('products').select('*').eq('user_id', user!.id).order('name'),
         supabase.from('product_links').select('*'),
         supabase.from('product_category_links').select('*'),
         supabase.from('service_categories').select('*').eq('vehicle_id', vehicle.id).order('name'),
@@ -66,7 +68,7 @@ export default function ProductsPage() {
     } finally {
       setLoading(false)
     }
-  }, [vehicle])
+  }, [vehicle, user?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { load() }, [load])
 
@@ -135,7 +137,7 @@ export default function ProductsPage() {
 
     const payload = {
       user_id: user.id,
-      vehicle_id: vehicle.id,
+      vehicle_id: null,     // garage-wide, matching the inventory model
       name: form.name.trim(),
       brand: form.brand.trim() || null,
       unit: form.unit.trim() || guessUnit(form.name),

@@ -133,6 +133,7 @@ export interface Receipt {
   image_path: string | null
   total_cost: number | null
   note: string | null
+  no_products?: boolean    // confirmed labour/services only — nothing to stock
   created_at: string
 }
 

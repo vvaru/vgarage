@@ -25,6 +25,11 @@ CREATE TABLE IF NOT EXISTS receipts (
   created_at  timestamptz DEFAULT now()
 );
 
+-- Explicitly "this receipt is labour/services only". Distinguishes a receipt the
+-- user has confirmed carries no stock from one they simply haven't filled in yet,
+-- so the former stops nagging in "past receipts to import".
+ALTER TABLE receipts ADD COLUMN IF NOT EXISTS no_products boolean NOT NULL DEFAULT false;
+
 -- ── Receipt line items = inventory LOTS (remaining balance derived from usage) ─
 CREATE TABLE IF NOT EXISTS receipt_items (
   id          uuid DEFAULT gen_random_uuid() PRIMARY KEY,

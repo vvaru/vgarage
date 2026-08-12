@@ -113,11 +113,12 @@ export default function AddServiceFlow({ vehicle, categories, historicalReadings
   const [productError, setProductError] = useState<string | null>(null)
   const productId = useRef<string | null>(null)
 
-  // Load product library on mount
+  // Load product library on mount. Garage-wide (user_id, not vehicle_id) so
+  // products created from a purchase receipt are selectable here too.
   useEffect(() => {
-    if (!vehicle) return
+    if (!vehicle || !user) return
     Promise.all([
-      supabase.from('products').select('*').eq('vehicle_id', vehicle.id).order('name'),
+      supabase.from('products').select('*').eq('user_id', user.id).order('name'),
       supabase.from('product_links').select('*'),
       supabase.from('product_category_links').select('*'),
     ]).then(([{ data: prods }, { data: links }, { data: catLinks }]) => {
@@ -128,7 +129,7 @@ export default function AddServiceFlow({ vehicle, categories, historicalReadings
         categoryIds: (catLinks ?? []).filter(cl => cl.product_id === p.id).map(cl => cl.category_id),
       })))
     }).catch(() => {}) // graceful if tables don't exist yet
-  }, [vehicle])
+  }, [vehicle, user?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Receipts step ──────────────────────────────────────────────────────────
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
@@ -202,7 +203,7 @@ export default function AddServiceFlow({ vehicle, categories, historicalReadings
       const { error: pErr } = await withRetry(() => withTimeout(supabase.from('products').upsert({
         id: pid,
         user_id: user.id,
-        vehicle_id: vehicle.id,
+        vehicle_id: null,   // garage-wide, matching the inventory model
         name: newProduct.name.trim(),
         brand: newProduct.brand.trim() || null,
       }), 9000), 2, 800)
@@ -224,7 +225,7 @@ export default function AddServiceFlow({ vehicle, categories, historicalReadings
 
       // Reload library and auto-select the new product
       const [{ data: prods }, { data: links }, { data: catLinks }] = await withRetry(() => withTimeout(Promise.all([
-        supabase.from('products').select('*').eq('vehicle_id', vehicle.id).order('name'),
+        supabase.from('products').select('*').eq('user_id', user.id).order('name'),
         supabase.from('product_links').select('*'),
         supabase.from('product_category_links').select('*'),
       ]), 9000), 2, 800)

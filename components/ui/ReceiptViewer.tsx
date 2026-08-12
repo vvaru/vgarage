@@ -7,9 +7,11 @@ import { ImageOff, ExternalLink, Loader2 } from 'lucide-react'
 interface Props {
   path: string
   className?: string
+  /** Size the PDF to its container instead of demanding 300px — for small panes. */
+  fit?: boolean
 }
 
-export default function ReceiptViewer({ path, className = '' }: Props) {
+export default function ReceiptViewer({ path, className = '', fit = false }: Props) {
   const [url, setUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const isPdf = path.toLowerCase().endsWith('.pdf')
@@ -48,7 +50,7 @@ export default function ReceiptViewer({ path, className = '' }: Props) {
         <iframe
           src={`${url}#toolbar=0&navpanes=0`}
           title="PDF Receipt"
-          className="w-full flex-1 min-h-[300px]"
+          className={`w-full flex-1 ${fit ? 'min-h-0' : 'min-h-[300px]'}`}
         />
         <a
           href={url}

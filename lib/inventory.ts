@@ -1,71 +1,223 @@
-import type { Product, ReceiptItem, InventoryAdjustment, ServiceProductUsage } from '@/lib/types'
+import type { Product, Receipt, ReceiptItem, InventoryAdjustment, ServiceProductUsage } from '@/lib/types'
+import { fmtQty } from '@/lib/units'
+
+export { fmtQty }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stock is derived, never stored. Two kinds of row add stock and two kinds
+// consume it, so both sides are normalised into Lots and Draws and then matched
+// oldest-lot-first. Everything the UI shows — on hand, used, $ left, per-lot
+// remaining — falls out of that single allocation, so the numbers cannot
+// disagree with each other the way they did when each was computed separately.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Stock arriving: a receipt line item, or a positive manual adjustment
+// (receipt-less opening stock).
+export interface Lot {
+  id: string                       // receipt_item.id, or `adj:<adjustment.id>`
+  kind: 'receipt' | 'adjustment'
+  sourceId: string                 // receipt.id, or adjustment.id
+  productId: string
+  date: string | null
+  qty: number
+  unitCost: number | null
+}
+
+// Stock leaving: a service usage, or a negative adjustment (used before
+// tracking, spillage, correction).
+export interface Draw {
+  id: string
+  kind: 'service' | 'adjustment'
+  sourceId: string                 // service_logs.id, or adjustment.id
+  productId: string
+  date: string | null
+  qty: number                      // always positive
+  lotId: string | null             // lot the usage already named, if any
+  note: string | null
+}
+
+export interface LotBalance {
+  lot: Lot
+  used: number
+  remaining: number
+}
+
+// Which lot a draw actually came from. lotId null = drawn beyond known stock.
+export interface Allocation {
+  draw: Draw
+  lotId: string | null
+  qty: number
+}
 
 export interface ProductStock {
   product: Product
-  purchased: number   // Σ receipt line quantities
-  adjusted: number    // Σ manual adjustments (signed)
-  used: number        // Σ service usage
-  onHand: number      // purchased + adjusted − used
-  value: number       // Σ remaining-per-lot × unit price (approx; lots only)
+  unit: string
+  purchased: number       // Σ lot quantities
+  usedInService: number   // Σ service usage
+  adjustedOut: number     // Σ |negative adjustments|
+  consumed: number        // usedInService + adjustedOut — what "used" means on a card
+  onHand: number          // purchased − consumed
+  value: number           // Σ remaining-per-lot × that lot's unit cost
+  lots: LotBalance[]      // oldest first
+  allocations: Allocation[]
 }
 
-// Per-lot (receipt line) used + remaining, from the usage allocations.
-export function lotBalances(
-  items: ReceiptItem[],
-  usage: ServiceProductUsage[],
-): Map<string, { used: number; remaining: number }> {
-  const usedByLot = new Map<string, number>()
-  for (const u of usage) {
-    if (u.receipt_item_id) usedByLot.set(u.receipt_item_id, (usedByLot.get(u.receipt_item_id) ?? 0) + Number(u.qty))
-  }
-  const out = new Map<string, { used: number; remaining: number }>()
-  for (const it of items) {
-    const used = usedByLot.get(it.id) ?? 0
-    out.set(it.id, { used, remaining: Number(it.qty) - used })
+// Oldest first; unknown dates sort last so they never jump the queue.
+const byDate = (a: { date: string | null }, b: { date: string | null }): number => {
+  if (a.date === b.date) return 0
+  if (!a.date) return 1
+  if (!b.date) return -1
+  return a.date < b.date ? -1 : 1
+}
+
+const n = (v: number | string | null): number | null => (v == null ? null : Number(v))
+
+function groupBy<T>(rows: T[], key: (row: T) => string): Map<string, T[]> {
+  const out = new Map<string, T[]>()
+  for (const row of rows) {
+    const k = key(row)
+    const bucket = out.get(k)
+    if (bucket) bucket.push(row)
+    else out.set(k, [row])
   }
   return out
 }
 
-// Roll receipts, usage, and adjustments up into per-product stock.
+export function buildLots(receipts: Receipt[], items: ReceiptItem[], adjustments: InventoryAdjustment[]): Lot[] {
+  const receiptDate = new Map(receipts.map(r => [r.id, r.date]))
+  const lots: Lot[] = items.map(it => ({
+    id: it.id,
+    kind: 'receipt',
+    sourceId: it.receipt_id,
+    productId: it.product_id,
+    date: receiptDate.get(it.receipt_id) ?? null,
+    qty: Number(it.qty),
+    unitCost: n(it.unit_cost),
+  }))
+  for (const a of adjustments) {
+    const delta = Number(a.qty_delta)
+    if (delta <= 0) continue
+    lots.push({
+      id: `adj:${a.id}`, kind: 'adjustment', sourceId: a.id, productId: a.product_id,
+      date: a.date, qty: delta, unitCost: n(a.unit_cost),
+    })
+  }
+  return lots.sort(byDate)
+}
+
+export function buildDraws(
+  usage: ServiceProductUsage[],
+  adjustments: InventoryAdjustment[],
+  logDate: (logId: string) => string | null,
+): Draw[] {
+  const draws: Draw[] = usage.map(u => ({
+    id: u.id, kind: 'service', sourceId: u.log_id, productId: u.product_id,
+    date: logDate(u.log_id), qty: Number(u.qty), lotId: u.receipt_item_id, note: null,
+  }))
+  for (const a of adjustments) {
+    const delta = Number(a.qty_delta)
+    if (delta >= 0) continue
+    draws.push({
+      id: a.id, kind: 'adjustment', sourceId: a.id, productId: a.product_id,
+      date: a.date, qty: -delta, lotId: null, note: a.note,
+    })
+  }
+  return draws.sort(byDate)
+}
+
+// Match one product's draws against its lots, oldest lot first.
+export function allocate(lots: Lot[], draws: Draw[]): { balances: LotBalance[]; allocations: Allocation[] } {
+  const ordered = [...lots].sort(byDate)
+  const queue = [...draws].sort(byDate)
+  const balances = new Map<string, LotBalance>(ordered.map(lot => [lot.id, { lot, used: 0, remaining: lot.qty }]))
+  const allocations: Allocation[] = []
+
+  const take = (lotId: string, want: number): number => {
+    const b = balances.get(lotId)
+    if (!b || b.remaining <= 0) return 0
+    const got = Math.min(want, b.remaining)
+    b.used += got
+    b.remaining -= got
+    return got
+  }
+
+  // Pass 1 — honour lots a usage already recorded, so saved history never moves.
+  const pinned = new Set<string>()
+  for (const d of queue) {
+    if (!d.lotId || !balances.has(d.lotId)) continue
+    pinned.add(d.id)
+    const got = take(d.lotId, d.qty)
+    if (got > 0) allocations.push({ draw: d, lotId: d.lotId, qty: got })
+    if (got < d.qty) allocations.push({ draw: d, lotId: null, qty: d.qty - got })
+  }
+
+  // Pass 2 — everything else (including negative adjustments) draws FIFO.
+  let cursor = 0
+  for (const d of queue) {
+    if (pinned.has(d.id)) continue
+    let need = d.qty
+    while (need > 0 && cursor < ordered.length) {
+      const b = balances.get(ordered[cursor].id)!
+      if (b.remaining <= 0) { cursor++; continue }
+      const got = take(b.lot.id, need)
+      allocations.push({ draw: d, lotId: b.lot.id, qty: got })
+      need -= got
+    }
+    if (need > 0) allocations.push({ draw: d, lotId: null, qty: need })
+  }
+
+  return { balances: ordered.map(l => balances.get(l.id)!), allocations }
+}
+
 export function computeStock(
   products: Product[],
+  receipts: Receipt[],
   items: ReceiptItem[],
   usage: ServiceProductUsage[],
   adjustments: InventoryAdjustment[],
+  logDate: (logId: string) => string | null = () => null,
 ): Map<string, ProductStock> {
-  const productById = new Map(products.map(p => [p.id, p]))
-  const byProduct = new Map<string, ProductStock>()
-  const ensure = (id: string): ProductStock | null => {
-    const p = productById.get(id)
-    if (!p) return null
-    if (!byProduct.has(id)) byProduct.set(id, { product: p, purchased: 0, adjusted: 0, used: 0, onHand: 0, value: 0 })
-    return byProduct.get(id)!
-  }
+  const lotsByProduct = groupBy(buildLots(receipts, items, adjustments), l => l.productId)
+  const drawsByProduct = groupBy(buildDraws(usage, adjustments, logDate), d => d.productId)
 
-  const lots = lotBalances(items, usage)
+  const out = new Map<string, ProductStock>()
+  for (const product of products) {
+    const lots = lotsByProduct.get(product.id) ?? []
+    const draws = drawsByProduct.get(product.id) ?? []
+    if (lots.length === 0 && draws.length === 0) continue
 
-  for (const it of items) {
-    const s = ensure(it.product_id); if (!s) continue
-    s.purchased += Number(it.qty)
-    const bal = lots.get(it.id)
-    s.value += Math.max(0, bal?.remaining ?? 0) * (Number(it.unit_cost) || 0)
+    const { balances, allocations } = allocate(lots, draws)
+    const purchased = lots.reduce((s, l) => s + l.qty, 0)
+    const usedInService = draws.filter(d => d.kind === 'service').reduce((s, d) => s + d.qty, 0)
+    const adjustedOut = draws.filter(d => d.kind === 'adjustment').reduce((s, d) => s + d.qty, 0)
+    const consumed = usedInService + adjustedOut
+
+    out.set(product.id, {
+      product,
+      unit: (product as Product & { unit?: string }).unit ?? 'each',
+      purchased,
+      usedInService,
+      adjustedOut,
+      consumed,
+      onHand: purchased - consumed,
+      value: balances.reduce((s, b) => s + Math.max(0, b.remaining) * (b.lot.unitCost ?? 0), 0),
+      lots: balances,
+      allocations,
+    })
   }
-  for (const u of usage) {
-    const s = ensure(u.product_id); if (!s) continue
-    s.used += Number(u.qty)
-  }
-  for (const a of adjustments) {
-    const s = ensure(a.product_id); if (!s) continue
-    s.adjusted += Number(a.qty_delta)
-    if (Number(a.qty_delta) > 0 && a.unit_cost != null) s.value += Number(a.qty_delta) * Number(a.unit_cost)
-  }
-  for (const s of byProduct.values()) s.onHand = s.purchased + s.adjusted - s.used
-  return byProduct
+  return out
 }
 
-// A tidy amount label, e.g. "11 gal" or "2 each".
-export function fmtQty(n: number, unit: string): string {
-  const rounded = Math.round(n * 1000) / 1000
-  const num = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(rounded < 10 ? 2 : 1)
-  return `${num} ${unit}`
+// Per-lot balances keyed by receipt_item id, for the receipts list.
+export function lotBalancesByItem(stock: Map<string, ProductStock>): Map<string, LotBalance> {
+  const out = new Map<string, LotBalance>()
+  for (const s of stock.values()) {
+    for (const b of s.lots) if (b.lot.kind === 'receipt') out.set(b.lot.id, b)
+  }
+  return out
+}
+
+// Oldest lot with stock left — what a "Use this" action should draw from first.
+export function nextLot(stock: ProductStock): LotBalance | null {
+  return stock.lots.find(b => b.remaining > 0) ?? null
 }

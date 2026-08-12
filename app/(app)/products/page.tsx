@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
 import InventoryTab from '@/components/inventory/InventoryTab'
+import { UNIT_GROUPS, guessUnit, fmtQty } from '@/lib/units'
 import type { Product, ProductLink, ServiceCategory } from '@/lib/types'
 
 interface ProductWithLinks extends Product {
@@ -18,6 +19,7 @@ interface LinkDraft { label: string; url: string }
 const EMPTY_FORM = {
   name: '',
   brand: '',
+  unit: '',            // blank = follow the name-based guess until edited by hand
   notes: '',
   categoryIds: [] as string[],
   links: [{ label: 'Buy', url: '' }] as LinkDraft[],
@@ -104,6 +106,7 @@ export default function ProductsPage() {
     setForm({
       name: p.name,
       brand: p.brand ?? '',
+      unit: (p as ProductWithLinks & { unit?: string }).unit ?? '',
       notes: p.notes ?? '',
       categoryIds: p.categoryIds,
       links: p.links.length > 0
@@ -135,6 +138,7 @@ export default function ProductsPage() {
       vehicle_id: vehicle.id,
       name: form.name.trim(),
       brand: form.brand.trim() || null,
+      unit: form.unit.trim() || guessUnit(form.name),
       notes: form.notes.trim() || null,
     }
 
@@ -385,6 +389,25 @@ export default function ProductsPage() {
                   onChange={e => patchForm({ brand: e.target.value })}
                   className="w-full bg-surface-2 border border-border-strong rounded-xl px-4 py-3 text-foreground placeholder-faint focus:outline-none focus:border-accent/70 transition-all"
                 />
+              </div>
+
+              {/* Unit — how inventory counts this thing */}
+              <div>
+                <label className="block text-sm font-medium text-muted mb-1.5">Counted in</label>
+                <select
+                  value={form.unit || guessUnit(form.name)}
+                  onChange={e => patchForm({ unit: e.target.value })}
+                  className="w-full bg-surface-2 border border-border-strong rounded-xl px-4 py-3 text-foreground focus:outline-none focus:border-accent/70 transition-all"
+                >
+                  {UNIT_GROUPS.map(g => (
+                    <optgroup key={g.label} label={g.label}>
+                      {g.units.map(u => <option key={u} value={u}>{u === 'each' ? 'each (just a count)' : u}</option>)}
+                    </optgroup>
+                  ))}
+                </select>
+                <p className="text-faint text-xs mt-1.5">
+                  Inventory will read “{fmtQty(3, form.unit || guessUnit(form.name))} left”.
+                </p>
               </div>
 
               {/* Notes */}

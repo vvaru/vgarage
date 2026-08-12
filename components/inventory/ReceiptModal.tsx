@@ -1,19 +1,19 @@
 'use client'
 
-import { useState, useRef } from 'react'
-import { format } from 'date-fns'
-import { X, Plus, Trash2, Receipt as ReceiptIcon } from 'lucide-react'
+import { useState, useRef, useEffect } from 'react'
+import { format, parseISO } from 'date-fns'
+import { X, Plus, Trash2, Receipt as ReceiptIcon, ChevronUp, ChevronDown, Image as ImageIcon } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { withRetry, withTimeout } from '@/lib/recover'
+import ReceiptViewer from '@/components/ui/ReceiptViewer'
+import { UNIT_GROUPS, guessUnit, fmtQty } from '@/lib/units'
 import type { Product } from '@/lib/types'
 
 const num = (s: string): number | null => {
   const n = parseFloat(s)
   return s.trim() !== '' && !isNaN(n) ? n : null
 }
-
-const UNITS = ['gal', 'qt', 'L', 'oz', 'each', 'pair', 'set', 'bottle', 'box']
 
 // A past service receipt being pulled into inventory (image already in storage).
 export interface PastReceipt {
@@ -29,13 +29,15 @@ interface LineDraft {
   newName: string
   newBrand: string
   unit: string
+  unitTouched: boolean // once set by hand, stop guessing from the name
   qty: string
   unitPrice: string
   leftNow: string     // how much is still on hand now (for backfilling past usage)
 }
 
 const emptyLine = (): LineDraft => ({
-  key: crypto.randomUUID(), productId: '', newName: '', newBrand: '', unit: 'each', qty: '', unitPrice: '', leftNow: '',
+  key: crypto.randomUUID(), productId: '', newName: '', newBrand: '',
+  unit: 'each', unitTouched: false, qty: '', unitPrice: '', leftNow: '',
 })
 
 interface Props {
@@ -56,10 +58,20 @@ export default function ReceiptModal({ products, past, onClose, onSaved }: Props
   const [lines, setLines] = useState<LineDraft[]>([emptyLine()])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showPreview, setShowPreview] = useState(true)   // mobile collapse only
   const saveIds = useRef<{ receiptId: string; lines: { itemId: string; productId: string }[] } | null>(null)
+
+  // ReceiptViewer sniffs the stored path itself, so this only covers a fresh pick.
+  const previewIsPdf = imageFile?.type === 'application/pdf'
+
+  useEffect(() => () => { if (imagePreview) URL.revokeObjectURL(imagePreview) }, [imagePreview])
 
   function patchLine(key: string, patch: Partial<LineDraft>) {
     setLines(prev => prev.map(l => l.key === key ? { ...l, ...patch } : l))
+  }
+  // Typing a product name pre-picks a sensible unit until the user overrides it.
+  function patchNewName(l: LineDraft, newName: string) {
+    patchLine(l.key, l.unitTouched ? { newName } : { newName, unit: guessUnit(newName) })
   }
   function onPickProduct(key: string, productId: string) {
     const p = products.find(x => x.id === productId)
@@ -150,8 +162,8 @@ export default function ReceiptModal({ products, past, onClose, onSaved }: Props
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="bg-surface border border-border rounded-3xl w-full max-w-lg max-h-[92vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-border">
+      <div className="bg-surface border border-border rounded-3xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden">
+        <div className="shrink-0 flex items-center justify-between px-6 pt-6 pb-4 border-b border-border">
           <div className="flex items-center gap-2">
             <div className="w-9 h-9 rounded-xl bg-accent/10 flex items-center justify-center"><ReceiptIcon size={17} className="text-accent" /></div>
             <h3 className="font-bold text-foreground text-lg">{past ? 'Complete receipt details' : 'Add receipt'}</h3>
@@ -159,105 +171,149 @@ export default function ReceiptModal({ products, past, onClose, onSaved }: Props
           <button onClick={onClose} className="text-muted hover:text-foreground"><X size={20} /></button>
         </div>
 
-        <div className="p-6 space-y-5">
-          {/* Date + store */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-muted mb-1.5">Date</label>
-              <input type="date" value={date} onChange={e => setDate(e.target.value)} className={inputCls} />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-muted mb-1.5">Store (optional)</label>
-              <input type="text" placeholder="e.g. Costco" value={store} onChange={e => setStore(e.target.value)} className={inputCls} />
-            </div>
-          </div>
-
-          {/* Image */}
-          <div>
-            <label className="block text-xs font-medium text-muted mb-1.5">Receipt image</label>
-            {past ? (
-              <p className="text-faint text-xs">Using the receipt image already on this service record.</p>
-            ) : imagePreview ? (
-              <div className="flex items-center gap-3">
-                <img src={imagePreview} alt="" className="w-16 h-16 rounded-xl object-cover border border-border" />
-                <button onClick={() => { setImageFile(null); setImagePreview(null) }} className="text-danger text-sm">Remove</button>
+        <div className="flex-1 min-h-0 flex flex-col lg:flex-row">
+          {/* Receipt preview — read it while you type the details in. Always
+              present (as a drop target when empty) so the dialog never resizes
+              under the cursor the moment an image is attached. */}
+          <aside className="shrink-0 flex flex-col lg:w-[42%] border-b lg:border-b-0 lg:border-r border-border bg-surface-2/30">
+            <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-border/60">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-foreground truncate">
+                  {past ? past.label : imageFile?.name ?? 'Receipt image'}
+                </p>
+                {past?.date ? (
+                  <p className="text-[11px] text-faint">{format(parseISO(past.date), 'MMM d, yyyy')}</p>
+                ) : !imageFile ? (
+                  <p className="text-[11px] text-faint">Optional — attach one to read while you type</p>
+                ) : null}
               </div>
-            ) : (
-              <button onClick={() => fileRef.current?.click()} className="flex items-center gap-2 text-muted hover:text-accent text-sm">
-                <Plus size={14} /> Attach image (optional)
-              </button>
-            )}
-            <input ref={fileRef} type="file" accept="image/*,application/pdf" hidden onChange={pickImage} />
-          </div>
+              <div className="flex items-center gap-3 shrink-0">
+                {!past && imagePreview && (
+                  <button onClick={() => { setImageFile(null); setImagePreview(null) }} className="text-danger text-xs font-medium">Remove</button>
+                )}
+                <button onClick={() => setShowPreview(v => !v)} className="lg:hidden text-muted hover:text-foreground" title={showPreview ? 'Hide receipt' : 'Show receipt'}>
+                  {showPreview ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                </button>
+              </div>
+            </div>
+            <div className={`${showPreview ? 'block' : 'hidden'} lg:block p-3 h-64 lg:h-auto lg:flex-1 lg:min-h-0`}>
+              {past ? (
+                <ReceiptViewer path={past.imagePath} className="w-full h-full" fit />
+              ) : !imagePreview ? (
+                <button onClick={() => fileRef.current?.click()}
+                  className="w-full h-full rounded-xl border border-dashed border-border-strong flex flex-col items-center justify-center gap-1.5 text-muted hover:text-accent hover:border-accent/50 transition-colors">
+                  <ImageIcon size={22} />
+                  <span className="text-sm font-medium">Attach receipt</span>
+                  <span className="text-[11px] text-faint">Image or PDF</span>
+                </button>
+              ) : previewIsPdf ? (
+                <iframe src={`${imagePreview}#toolbar=0&navpanes=0`} title="Receipt PDF" className="w-full h-full rounded-xl border border-border-strong/50 bg-surface" />
+              ) : (
+                <a href={imagePreview} target="_blank" rel="noopener noreferrer" title="Click to open full size"
+                  className="block w-full h-full bg-surface-2 rounded-xl overflow-hidden hover:opacity-90 transition-opacity">
+                  <img src={imagePreview} alt="Receipt" className="w-full h-full object-contain" />
+                </a>
+              )}
+            </div>
+          </aside>
 
-          {/* Line items */}
-          <div>
-            <label className="block text-xs font-medium text-muted mb-2">What was on this receipt</label>
-            <div className="space-y-3">
-              {lines.map(l => {
-                const isNew = !l.productId
-                const qtyN = num(l.qty)
-                return (
-                  <div key={l.key} className="bg-surface-2/50 border border-border rounded-2xl p-3 space-y-2">
-                    <div className="flex gap-2">
-                      <select value={l.productId} onChange={e => onPickProduct(l.key, e.target.value)} className={`${inputCls} flex-1`}>
-                        <option value="">+ New product…</option>
-                        {products.map(p => <option key={p.id} value={p.id}>{p.name}{p.brand ? ` — ${p.brand}` : ''}</option>)}
-                      </select>
-                      {lines.length > 1 && (
-                        <button onClick={() => setLines(prev => prev.filter(x => x.key !== l.key))} className="w-9 h-9 shrink-0 rounded-xl bg-surface-2 flex items-center justify-center text-muted hover:text-danger transition-colors"><Trash2 size={14} /></button>
-                      )}
-                    </div>
-                    {isNew && (
-                      <div className="grid grid-cols-2 gap-2">
-                        <input type="text" placeholder="Product name *" value={l.newName} onChange={e => patchLine(l.key, { newName: e.target.value })} className={inputCls} />
-                        <input type="text" placeholder="Brand" value={l.newBrand} onChange={e => patchLine(l.key, { newBrand: e.target.value })} className={inputCls} />
-                      </div>
-                    )}
-                    <div className="grid grid-cols-3 gap-2">
-                      <div>
-                        <label className="block text-[10px] uppercase tracking-wide text-faint mb-1">Amount</label>
-                        <input type="number" inputMode="decimal" placeholder="0" value={l.qty} onChange={e => patchLine(l.key, { qty: e.target.value })} className={inputCls} />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] uppercase tracking-wide text-faint mb-1">Unit</label>
-                        {isNew ? (
-                          <select value={l.unit} onChange={e => patchLine(l.key, { unit: e.target.value })} className={inputCls}>
-                            {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
-                          </select>
-                        ) : (
-                          <input type="text" value={l.unit} disabled className={`${inputCls} opacity-60`} />
+          <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-5">
+            {/* Date + store */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-muted mb-1.5">Date</label>
+                <input type="date" value={date} onChange={e => setDate(e.target.value)} className={inputCls} />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-muted mb-1.5">Store (optional)</label>
+                <input type="text" placeholder="e.g. Costco" value={store} onChange={e => setStore(e.target.value)} className={inputCls} />
+              </div>
+            </div>
+
+            {/* The image is attached from the preview pane on the left. */}
+            <input ref={fileRef} type="file" accept="image/*,application/pdf" hidden onChange={pickImage} />
+
+            {/* Line items */}
+            <div>
+              <label className="block text-xs font-medium text-muted mb-2">What was on this receipt</label>
+              <div className="space-y-3">
+                {lines.map(l => {
+                  const isNew = !l.productId
+                  const qtyN = num(l.qty)
+                  return (
+                    <div key={l.key} className="bg-surface-2/50 border border-border rounded-2xl p-3 space-y-2">
+                      <div className="flex gap-2">
+                        <select value={l.productId} onChange={e => onPickProduct(l.key, e.target.value)} className={`${inputCls} flex-1`}>
+                          <option value="">+ New product…</option>
+                          {products.map(p => <option key={p.id} value={p.id}>{p.name}{p.brand ? ` — ${p.brand}` : ''}</option>)}
+                        </select>
+                        {lines.length > 1 && (
+                          <button onClick={() => setLines(prev => prev.filter(x => x.key !== l.key))} className="w-9 h-9 shrink-0 rounded-xl bg-surface-2 flex items-center justify-center text-muted hover:text-danger transition-colors"><Trash2 size={14} /></button>
                         )}
                       </div>
-                      <div>
-                        <label className="block text-[10px] uppercase tracking-wide text-faint mb-1">$ / unit</label>
-                        <input type="number" inputMode="decimal" placeholder="0.00" value={l.unitPrice} onChange={e => patchLine(l.key, { unitPrice: e.target.value })} className={inputCls} />
+                      {isNew && (
+                        <div className="grid grid-cols-2 gap-2">
+                          <input type="text" placeholder="Product name *" value={l.newName} onChange={e => patchNewName(l, e.target.value)} className={inputCls} />
+                          <input type="text" placeholder="Brand" value={l.newBrand} onChange={e => patchLine(l.key, { newBrand: e.target.value })} className={inputCls} />
+                        </div>
+                      )}
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <label className="block text-[10px] uppercase tracking-wide text-faint mb-1">Amount</label>
+                          <input type="number" inputMode="decimal" placeholder="0" value={l.qty} onChange={e => patchLine(l.key, { qty: e.target.value })} className={inputCls} />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] uppercase tracking-wide text-faint mb-1">Unit</label>
+                          {isNew ? (
+                            <select value={l.unit} onChange={e => patchLine(l.key, { unit: e.target.value, unitTouched: true })} className={inputCls}>
+                              {UNIT_GROUPS.map(g => (
+                                <optgroup key={g.label} label={g.label}>
+                                  {g.units.map(u => <option key={u} value={u}>{u}</option>)}
+                                </optgroup>
+                              ))}
+                            </select>
+                          ) : (
+                            <input type="text" value={l.unit} disabled className={`${inputCls} opacity-60`} />
+                          )}
+                        </div>
+                        <div>
+                          <label className="block text-[10px] uppercase tracking-wide text-faint mb-1">$ / unit</label>
+                          <input type="number" inputMode="decimal" placeholder="0.00" value={l.unitPrice} onChange={e => patchLine(l.key, { unitPrice: e.target.value })} className={inputCls} />
+                        </div>
                       </div>
+                      {past && qtyN != null && (
+                        <div>
+                          <label className="block text-[10px] uppercase tracking-wide text-faint mb-1">How much is left now? (optional)</label>
+                          <input type="number" inputMode="decimal" placeholder={`${qtyN} = none used yet`} value={l.leftNow} onChange={e => patchLine(l.key, { leftNow: e.target.value })} className={inputCls} />
+                          {num(l.leftNow) != null && num(l.leftNow)! < qtyN && (
+                            <p className="text-faint text-[10px] mt-1">
+                              Records {fmtQty(qtyN - num(l.leftNow)!, l.unit)} as used before tracking started.
+                            </p>
+                          )}
+                        </div>
+                      )}
                     </div>
-                    {past && qtyN != null && (
-                      <div>
-                        <label className="block text-[10px] uppercase tracking-wide text-faint mb-1">How much is left now? (optional)</label>
-                        <input type="number" inputMode="decimal" placeholder={`${qtyN} = none used yet`} value={l.leftNow} onChange={e => patchLine(l.key, { leftNow: e.target.value })} className={inputCls} />
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
+                  )
+                })}
+              </div>
+              <button onClick={() => setLines(prev => [...prev, emptyLine()])} className="mt-2 flex items-center gap-1.5 text-muted hover:text-accent text-sm transition-colors">
+                <Plus size={13} /> Add another product
+              </button>
             </div>
-            <button onClick={() => setLines(prev => [...prev, emptyLine()])} className="mt-2 flex items-center gap-1.5 text-muted hover:text-accent text-sm transition-colors">
-              <Plus size={13} /> Add another product
-            </button>
-          </div>
 
-          {total > 0 && <p className="text-muted text-sm">Receipt total: <span className="text-foreground font-semibold">${total.toFixed(2)}</span></p>}
-          {error && <p className="text-danger text-sm bg-danger/10 border border-danger/20 rounded-xl px-3 py-2">{error}</p>}
+            {total > 0 && <p className="text-muted text-sm">Receipt total: <span className="text-foreground font-semibold">${total.toFixed(2)}</span></p>}
+          </div>
         </div>
 
-        <div className="flex gap-3 px-6 pb-6 pt-2">
-          <button onClick={onClose} className="flex-1 bg-surface-2 hover:bg-border text-foreground font-medium rounded-2xl py-3 transition-colors">Cancel</button>
-          <button onClick={handleSave} disabled={!canSave || saving} className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-40 text-white font-bold rounded-2xl py-3 transition-colors">
-            {saving ? 'Saving…' : past ? 'Save details' : 'Add receipt'}
-          </button>
+        {/* Footer stays put so a save error is never scrolled out of view */}
+        <div className="shrink-0 border-t border-border px-6 py-4 space-y-3">
+          {error && <p className="text-danger text-sm bg-danger/10 border border-danger/20 rounded-xl px-3 py-2">{error}</p>}
+          <div className="flex gap-3">
+            <button onClick={onClose} className="flex-1 bg-surface-2 hover:bg-border text-foreground font-medium rounded-2xl py-3 transition-colors">Cancel</button>
+            <button onClick={handleSave} disabled={!canSave || saving} className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-40 text-white font-bold rounded-2xl py-3 transition-colors">
+              {saving ? 'Saving…' : past ? 'Save details' : 'Add receipt'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

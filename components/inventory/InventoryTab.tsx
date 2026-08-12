@@ -5,7 +5,8 @@ import { format, parseISO } from 'date-fns'
 import { Plus, Package, Receipt as ReceiptIcon, Image as ImageIcon, AlertTriangle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
-import { computeStock, lotBalances, fmtQty } from '@/lib/inventory'
+import { computeStock, lotBalancesByItem } from '@/lib/inventory'
+import { fmtQty, fmtNum } from '@/lib/units'
 import { getCache, setCache } from '@/lib/cache'
 import type { Product, Receipt, ReceiptItem, InventoryAdjustment, ServiceProductUsage } from '@/lib/types'
 import ReceiptModal, { PastReceipt } from './ReceiptModal'
@@ -14,7 +15,8 @@ type ProductU = Product & { unit?: string }
 interface PastLog { id: string; date: string; service_type: string; receipt_url: string }
 interface Snapshot {
   products: ProductU[]; receipts: Receipt[]; items: ReceiptItem[]
-  usage: ServiceProductUsage[]; adjustments: InventoryAdjustment[]; pastLogs: PastLog[]; tablesReady: boolean
+  usage: ServiceProductUsage[]; adjustments: InventoryAdjustment[]; pastLogs: PastLog[]
+  logDates: Record<string, string>; tablesReady: boolean
 }
 
 export default function InventoryTab() {
@@ -27,6 +29,7 @@ export default function InventoryTab() {
   const [usage, setUsage] = useState<ServiceProductUsage[]>([])
   const [adjustments, setAdjustments] = useState<InventoryAdjustment[]>([])
   const [pastLogs, setPastLogs] = useState<PastLog[]>([])
+  const [logDates, setLogDates] = useState<Record<string, string>>({})
   const [modal, setModal] = useState<{ past: PastReceipt | null } | null>(null)
 
   const cacheFirstFor = useRef<string | null>(null)
@@ -38,7 +41,7 @@ export default function InventoryTab() {
     const apply = (s: Snapshot) => {
       setProducts(s.products); setReceipts(s.receipts); setItems(s.items)
       setUsage(s.usage); setAdjustments(s.adjustments); setPastLogs(s.pastLogs)
-      setTablesReady(s.tablesReady)
+      setLogDates(s.logDates ?? {}); setTablesReady(s.tablesReady)
     }
 
     const fetchFresh = async () => {
@@ -59,15 +62,20 @@ export default function InventoryTab() {
         use = (usageQ.data ?? []) as ServiceProductUsage[]
         adj = (adjQ.data ?? []) as InventoryAdjustment[]
       }
+      // All logs, not just the ones carrying an image: usage rows can point at any
+      // service, and FIFO order depends on those dates.
       const { data: pl } = await supabase
         .from('service_logs')
         .select('id,date,service_type,receipt_url')
         .eq('user_id', uid)
-        .not('receipt_url', 'is', null)
         .order('date', { ascending: false })
+      const allLogs = (pl ?? []) as PastLog[]
       const snap: Snapshot = {
         products: (prods ?? []) as ProductU[], receipts: rec, items: its,
-        usage: use, adjustments: adj, pastLogs: (pl ?? []) as PastLog[], tablesReady: ready,
+        usage: use, adjustments: adj,
+        pastLogs: allLogs.filter(l => l.receipt_url),
+        logDates: Object.fromEntries(allLogs.map(l => [l.id, l.date])),
+        tablesReady: ready,
       }
       setCache(key, snap)
       apply(snap)
@@ -90,8 +98,11 @@ export default function InventoryTab() {
 
   useEffect(() => { load() }, [load])
 
-  const stock = useMemo(() => computeStock(products, items, usage, adjustments), [products, items, usage, adjustments])
-  const lots = useMemo(() => lotBalances(items, usage), [items, usage])
+  const stock = useMemo(
+    () => computeStock(products, receipts, items, usage, adjustments, id => logDates[id] ?? null),
+    [products, receipts, items, usage, adjustments, logDates],
+  )
+  const lots = useMemo(() => lotBalancesByItem(stock), [stock])
   const productName = (id: string) => products.find(p => p.id === id)?.name ?? 'Unknown product'
   const productUnit = (id: string) => products.find(p => p.id === id)?.unit ?? 'each'
 
@@ -99,7 +110,7 @@ export default function InventoryTab() {
   const importedImages = useMemo(() => new Set(receipts.map(r => r.image_path).filter(Boolean)), [receipts])
   const pending = pastLogs.filter(pl => !importedImages.has(pl.receipt_url))
 
-  const tracked = [...stock.values()].filter(s => s.purchased > 0 || s.adjusted !== 0 || s.used > 0)
+  const tracked = [...stock.values()].filter(s => s.purchased > 0 || s.consumed > 0)
 
   async function viewImage(path: string) {
     const { data } = await supabase.storage.from('receipts').createSignedUrl(path, 120)
@@ -138,17 +149,28 @@ export default function InventoryTab() {
           <h3 className="text-sm font-bold text-foreground mb-3">On hand</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {tracked.map(s => {
-              const unit = (s.product as ProductU).unit ?? 'each'
-              const totalIn = s.purchased + Math.max(0, s.adjusted)
+              const empty = s.onHand <= 0
+              const lotCount = s.lots.filter(b => b.remaining > 0).length
               return (
                 <div key={s.product.id} className="bg-surface border border-border rounded-2xl p-4">
                   <p className="font-bold text-foreground truncate">{s.product.name}</p>
                   {s.product.brand && <p className="text-muted text-xs">{s.product.brand}</p>}
-                  <p className="text-2xl font-bold text-accent mt-2">{fmtQty(Math.max(0, s.onHand), unit)}</p>
-                  <p className="text-faint text-xs mt-0.5">
-                    {fmtQty(s.used, unit)} used{totalIn > 0 ? ` of ${fmtQty(totalIn, unit)}` : ''}
-                    {s.value > 0 ? ` · $${s.value.toFixed(2)} left` : ''}
+                  <p className={`text-2xl font-bold mt-2 ${empty ? 'text-faint' : 'text-accent'}`}>
+                    {empty ? 'None left' : fmtQty(s.onHand, s.unit)}
                   </p>
+                  <p className="text-faint text-xs mt-0.5">
+                    {s.consumed > 0
+                      ? `${fmtNum(s.consumed)} of ${fmtNum(s.purchased)} used`
+                      : `${fmtQty(s.purchased, s.unit)} bought · none used yet`}
+                    {s.value > 0 && ` · $${s.value.toFixed(2)} left`}
+                  </p>
+                  {/* Where the consumption came from, so a card is never unexplained. */}
+                  {s.adjustedOut > 0 && s.usedInService === 0 && (
+                    <p className="text-faint text-[11px] mt-1.5">Used before tracking started</p>
+                  )}
+                  {lotCount > 1 && (
+                    <p className="text-faint text-[11px] mt-1.5">Across {lotCount} lots</p>
+                  )}
                 </div>
               )
             })}
@@ -205,11 +227,14 @@ export default function InventoryTab() {
                     {rItems.map(it => {
                       const bal = lots.get(it.id)
                       const unit = productUnit(it.product_id)
+                      const remaining = bal?.remaining ?? Number(it.qty)
                       return (
                         <div key={it.id} className="flex items-center justify-between py-1.5 text-sm">
                           <span className="text-foreground truncate">{productName(it.product_id)}</span>
-                          <span className="text-faint text-xs shrink-0">
-                            {fmtQty(bal?.remaining ?? Number(it.qty), unit)} left of {fmtQty(Number(it.qty), unit)}
+                          <span className={`text-xs shrink-0 ${remaining <= 0 ? 'text-faint/70' : 'text-faint'}`}>
+                            {remaining <= 0
+                              ? `all ${fmtQty(Number(it.qty), unit)} used`
+                              : `${fmtNum(remaining)} of ${fmtQty(Number(it.qty), unit)} left`}
                           </span>
                         </div>
                       )

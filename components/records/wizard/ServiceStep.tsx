@@ -7,7 +7,7 @@ import ServiceFilterPanel from '@/components/service/ServiceFilterPanel'
 import { applyServiceFilter, EMPTY_FILTER, isFilterActive, type ServiceFilterState } from '@/lib/serviceFilter'
 import { fmtQty, fmtNum } from '@/lib/units'
 import {
-  splitMember, suggestExisting,
+  splitMember, suggestExisting, drawsCost,
   type AvailableProduct, type ReceiptDraft, type ServiceGroup, type TagRef,
 } from '@/lib/recordDraft'
 import type { ServiceLog } from '@/lib/types'
@@ -76,8 +76,12 @@ export default function ServiceStep({ groups, setGroups, receipts, available, lo
       {groups.map(g => {
         const suggestion = g.linkedLogId ? null : suggestExisting(g, logs)
         const linked = g.linkedLogId ? logs.find(l => l.id === g.linkedLogId) : null
-        const saving = g.performedBy === 'owner' && num(g.shopEquivalent) != null
-          ? Math.max(0, num(g.shopEquivalent)! - (num(g.cost) ?? 0)) : null
+        const isDiy = g.performedBy === 'owner'
+        // DIY jobs are never charged — what they cost is what the parts cost.
+        const partsCost = drawsCost(g.draws, available)
+        const effectiveCost = isDiy ? partsCost : (num(g.cost) ?? 0)
+        const saving = isDiy && num(g.shopEquivalent) != null
+          ? Math.max(0, num(g.shopEquivalent)! - effectiveCost) : null
 
         return (
           <div key={g.key} className="bg-surface border border-border rounded-2xl p-4 space-y-3">
@@ -143,18 +147,35 @@ export default function ServiceStep({ groups, setGroups, receipts, available, lo
                     <input type="number" inputMode="numeric" placeholder="miles" value={g.odometer} onChange={e => patch(g.key, { odometer: e.target.value })} className={inputCls} />
                   </div>
                   <div>
-                    <label className="block text-[10px] uppercase tracking-wide text-faint mb-1">Total cost</label>
-                    <input type="number" inputMode="decimal" placeholder="0.00" value={g.cost} onChange={e => patch(g.key, { cost: e.target.value })} className={inputCls} />
+                    <label className="block text-[10px] uppercase tracking-wide text-faint mb-1">
+                      {isDiy ? 'Parts cost' : 'Charged'}
+                    </label>
+                    {isDiy ? (
+                      <div className="w-full bg-surface-2/40 border border-border rounded-xl px-3 py-2.5 text-sm">
+                        <span className={partsCost > 0 ? 'text-foreground font-semibold' : 'text-faint'}>
+                          ${partsCost.toFixed(2)}
+                        </span>
+                        <span className="text-faint text-[11px] ml-1.5">
+                          {partsCost > 0 ? 'from parts used' : 'add parts below'}
+                        </span>
+                      </div>
+                    ) : (
+                      <input type="number" inputMode="decimal" placeholder="0.00" value={g.cost} onChange={e => patch(g.key, { cost: e.target.value })} className={inputCls} />
+                    )}
                   </div>
                 </div>
               </>
             )}
 
-            {g.performedBy === 'owner' && (
+            {isDiy && (
               <div>
                 <label className="block text-[10px] uppercase tracking-wide text-faint mb-1">What a shop would have charged (optional)</label>
                 <input type="number" inputMode="decimal" placeholder="0.00" value={g.shopEquivalent} onChange={e => patch(g.key, { shopEquivalent: e.target.value })} className={inputCls} />
-                {saving != null && <p className="text-success text-[11px] mt-1">Saved ${saving.toFixed(2)} doing it yourself.</p>}
+                {saving != null && (
+                  <p className="text-success text-[11px] mt-1">
+                    Saved ${saving.toFixed(2)} doing it yourself{partsCost > 0 ? ` — $${partsCost.toFixed(2)} in parts vs $${num(g.shopEquivalent)!.toFixed(2)}` : ''}.
+                  </p>
+                )}
               </div>
             )}
 

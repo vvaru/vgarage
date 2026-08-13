@@ -170,7 +170,7 @@ export default function ReceiptStep({ draft, products, categories, stock, locked
         <div>
           <div className="flex items-center gap-1.5 mb-2">
             <Wrench size={13} className="text-muted" />
-            <label className="text-xs font-medium text-muted">Services on this receipt</label>
+            <label className="text-xs font-medium text-muted">Services this receipt relates to</label>
           </div>
           <div className="space-y-3">
             {draft.tags.map(t => (
@@ -194,10 +194,19 @@ export default function ReceiptStep({ draft, products, categories, stock, locked
                   </select>
                   <input type="text" placeholder="or type a name" value={t.customName} onChange={e => patchTag(t.key, { customName: e.target.value })} className={inputCls} />
                 </div>
-                <div>
-                  <label className="block text-[10px] uppercase tracking-wide text-faint mb-1">Charged on this receipt</label>
-                  <input type="number" inputMode="decimal" placeholder="0.00" value={t.amount} onChange={e => patchTag(t.key, { amount: e.target.value })} className={inputCls} />
-                </div>
+                {/* Only shop work is billed here. DIY has no line on the receipt —
+                    the receipt gets attached to your job, not the other way round. */}
+                {t.performedBy === 'shop' ? (
+                  <div>
+                    <label className="block text-[10px] uppercase tracking-wide text-faint mb-1">Charged on this receipt</label>
+                    <input type="number" inputMode="decimal" placeholder="0.00" value={t.amount} onChange={e => patchTag(t.key, { amount: e.target.value })} className={inputCls} />
+                  </div>
+                ) : (
+                  <p className="text-faint text-[11px]">
+                    Your own work — nothing was charged for it. This receipt gets attached to the job,
+                    and its cost comes from the parts you used.
+                  </p>
+                )}
               </div>
             ))}
           </div>
@@ -205,7 +214,8 @@ export default function ReceiptStep({ draft, products, categories, stock, locked
             <Plus size={13} /> Add a service
           </button>
           <p className="text-faint text-[11px] mt-2">
-            Just what the receipt says it was. Odometer, notes and products used come next.
+            Shop work is billed on the receipt. DIY work isn’t — the receipt just links to it.
+            Odometer, notes and products used come next.
           </p>
         </div>
 

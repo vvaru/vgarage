@@ -180,6 +180,17 @@ export interface AvailableProduct {
   unit: string
   onHand: number         // committed stock + anything added in this batch
   incoming: number       // the part that isn't written yet
+  unitCost: number | null // oldest available lot's price — what FIFO will draw first
+}
+
+/** Estimated parts cost of a set of draws, for the live figure on a DIY record. */
+export function drawsCost(draws: { productKey: string; qty: string }[], available: AvailableProduct[]): number {
+  const priced = new Map(available.map(a => [a.key, a.unitCost ?? 0]))
+  return draws.reduce((sum, d) => {
+    const qty = parseFloat(d.qty)
+    if (!qty || qty <= 0) return sum
+    return sum + qty * (priced.get(d.productKey) ?? 0)
+  }, 0)
 }
 
 /**
@@ -199,6 +210,7 @@ export function availableProducts(
     out.set(s.product.id, {
       key: s.product.id, productId: s.product.id, name: s.product.name,
       unit: s.unit, onHand: s.onHand, incoming: 0,
+      unitCost: s.lots.find(b => b.remaining > 0)?.lot.unitCost ?? null,
     })
   }
 
@@ -207,21 +219,25 @@ export function availableProducts(
     for (const l of r.lines) {
       const qty = parseFloat(l.qty)
       if (!qty || qty <= 0) continue
+      const price = parseFloat(l.unitPrice)
+      const unitCost = isNaN(price) ? null : price
       if (l.productId) {
         const existing = out.get(l.productId)
         if (existing) {
           existing.onHand += qty
           existing.incoming += qty
+          // Nothing committed to draw from, so this batch's price is the price.
+          if (existing.unitCost == null) existing.unitCost = unitCost
         } else {
           out.set(l.productId, {
             key: l.productId, productId: l.productId, name: productName(l.productId),
-            unit: productUnit(l.productId), onHand: qty, incoming: qty,
+            unit: productUnit(l.productId), onHand: qty, incoming: qty, unitCost,
           })
         }
       } else if (l.newName.trim()) {
         out.set(`draft:${l.key}`, {
           key: `draft:${l.key}`, productId: null, name: l.newName.trim(),
-          unit: l.unit, onHand: qty, incoming: qty,
+          unit: l.unit, onHand: qty, incoming: qty, unitCost,
         })
       }
     }

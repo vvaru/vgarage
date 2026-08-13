@@ -191,39 +191,11 @@ export default function RecordWizard({
       for (const g of groups) {
         const logId = ids.logs[g.key]
         const cat = categories.find(c => c.id === g.categoryId)
-        const fields = {
-          service_type: (cat?.name ?? g.customName ?? g.label).trim() || 'Service',
-          category_id: g.categoryId || null,
-          record_type: cat?.category_type ?? 'maintenance',
-          performed_by: g.performedBy === 'shop' ? 'shop' : 'owner',
-          shop_name: g.performedBy === 'shop'
-            ? (receipts.find(r => r.key === g.members[0]?.receiptKey)?.store.trim() || null)
-            : null,
-          date: g.date,
-          odometer: num(g.odometer) ?? vehicle.odometer,
-          cost: num(g.cost),
-          shop_equivalent_cost: g.performedBy === 'owner' ? num(g.shopEquivalent) : null,
-          notes: g.notes.trim() || null,
-        }
+        const isDiy = g.performedBy !== 'shop'
 
-        if (g.linkedLogId) {
-          const { error: uErr } = await withRetry(() => withTimeout(
-            supabase.from('service_logs').update(fields).eq('id', logId), 9000), 2, 800)
-          if (uErr) throw new Error(uErr.message)
-        } else {
-          const { error: lErr } = await withRetry(() => withTimeout(supabase.from('service_logs').upsert({
-            id: logId, user_id: user.id, vehicle_id: vehicle.id, ...fields,
-          }), 9000), 2, 800)
-          if (lErr) throw new Error(lErr.message)
-        }
-
-        // Attach every receipt that fed this service.
-        for (const receiptKey of new Set(g.members.map(m => m.receiptKey))) {
-          await withTimeout(supabase.from('service_log_receipts')
-            .upsert({ log_id: logId, receipt_id: ids.receipts[receiptKey] }), 9000)
-        }
-
-        // Draw stock FIFO across committed lots plus the ones just written.
+        // Plan the stock draws first: a DIY job isn't charged for, so what it
+        // cost IS what its parts cost, priced off the lots FIFO actually takes.
+        const plans: { pid: string; plan: { lot: LotBalance; qty: number }[]; short: number }[] = []
         for (const d of g.draws) {
           const want = num(d.qty)
           if (want == null || want <= 0) continue
@@ -241,8 +213,51 @@ export default function RecordWizard({
             if (!y) return -1
             return x < y ? -1 : 1
           })
-
           const { plan, short } = planDraw(all, want)
+          plans.push({ pid, plan, short })
+        }
+        const partsCost = plans.reduce(
+          (s, p) => s + p.plan.reduce((t, x) => t + x.qty * (x.lot.lot.unitCost ?? 0), 0), 0)
+
+        const fields = {
+          service_type: (cat?.name ?? g.customName ?? g.label).trim() || 'Service',
+          category_id: g.categoryId || null,
+          record_type: cat?.category_type ?? 'maintenance',
+          performed_by: isDiy ? 'owner' : 'shop',
+          shop_name: isDiy
+            ? null
+            : (receipts.find(r => r.key === g.members[0]?.receiptKey)?.store.trim() || null),
+          date: g.date,
+          odometer: num(g.odometer) ?? vehicle.odometer,
+          // No draws means we know nothing about what it cost — not that it was free.
+          cost: isDiy ? (plans.length > 0 ? Math.round(partsCost * 100) / 100 : null) : num(g.cost),
+          shop_equivalent_cost: isDiy ? num(g.shopEquivalent) : null,
+          notes: g.notes.trim() || null,
+        }
+
+        if (g.linkedLogId) {
+          // Attaching a receipt to an existing DIY job with no parts picked must
+          // not blank out a cost that record already had.
+          const patch: Record<string, unknown> = { ...fields }
+          if (isDiy && plans.length === 0) delete patch.cost
+          const { error: uErr } = await withRetry(() => withTimeout(
+            supabase.from('service_logs').update(patch).eq('id', logId), 9000), 2, 800)
+          if (uErr) throw new Error(uErr.message)
+        } else {
+          const { error: lErr } = await withRetry(() => withTimeout(supabase.from('service_logs').upsert({
+            id: logId, user_id: user.id, vehicle_id: vehicle.id, ...fields,
+          }), 9000), 2, 800)
+          if (lErr) throw new Error(lErr.message)
+        }
+
+        // Attach every receipt that fed this service.
+        for (const receiptKey of new Set(g.members.map(m => m.receiptKey))) {
+          await withTimeout(supabase.from('service_log_receipts')
+            .upsert({ log_id: logId, receipt_id: ids.receipts[receiptKey] }), 9000)
+        }
+
+        // Write the draws planned above.
+        for (const { pid, plan, short } of plans) {
           for (const p of plan) {
             const { error: uErr } = await withRetry(() => withTimeout(supabase.from('service_product_usage').upsert({
               id: crypto.randomUUID(), log_id: logId, product_id: pid,

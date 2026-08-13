@@ -315,6 +315,14 @@ export default function ProductsPage() {
                   </div>
                 </div>
 
+                {/* Products created from a receipt arrive bare — make that findable */}
+                {p.categoryIds.length === 0 && p.links.length === 0 && (
+                  <button onClick={() => openEdit(p)}
+                    className="self-start bg-warn/10 text-warn border border-warn/20 rounded-lg px-2 py-0.5 text-xs font-medium hover:bg-warn/20 transition-colors">
+                    Add details
+                  </button>
+                )}
+
                 {/* Category tags */}
                 {p.categoryIds.length > 0 && (
                   <div className="flex flex-wrap gap-1.5">

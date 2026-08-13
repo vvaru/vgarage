@@ -1,7 +1,7 @@
 'use client'
 
-import { useRef } from 'react'
-import { Plus, Trash2, Image as ImageIcon, Package, Wrench } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { Plus, Trash2, Image as ImageIcon, Package, Wrench, ChevronDown, ChevronRight, Link as LinkIcon } from 'lucide-react'
 import ReceiptViewer from '@/components/ui/ReceiptViewer'
 import { UNIT_GROUPS, guessUnit, fmtQty } from '@/lib/units'
 import { emptyLine, emptyTag, type LineDraft, type ReceiptDraft, type ServiceTag } from '@/lib/recordDraft'
@@ -28,6 +28,12 @@ const inputCls = 'w-full bg-surface-2 border border-border-strong rounded-xl px-
 
 export default function ReceiptStep({ draft, products, categories, stock, lockedItemIds, onPatch }: Props) {
   const fileRef = useRef<HTMLInputElement>(null)
+  const [openDetails, setOpenDetails] = useState<Set<string>>(new Set())
+  const toggleDetails = (key: string) => setOpenDetails(prev => {
+    const next = new Set(prev)
+    if (next.has(key)) next.delete(key); else next.add(key)
+    return next
+  })
 
   const patchLine = (key: string, patch: Partial<LineDraft>) =>
     onPatch({ lines: draft.lines.map(l => l.key === key ? { ...l, ...patch } : l) })
@@ -156,6 +162,55 @@ export default function ReceiptStep({ draft, products, categories, stock, locked
                       </div>
                     </div>
                     {s && <p className="text-faint text-[11px]">Currently {fmtQty(s.onHand, s.unit)} on hand.</p>}
+
+                    {/* Catalogue detail for a product being created. Folded away —
+                        a receipt shouldn't demand a buy link before it'll save. */}
+                    {isNew && l.newName.trim() && (
+                      <div className="pt-1">
+                        <button onClick={() => toggleDetails(l.key)}
+                          className="flex items-center gap-1 text-faint hover:text-accent text-[11px] transition-colors">
+                          {openDetails.has(l.key) ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                          Catalogue details {openDetails.has(l.key) ? '' : '(optional)'}
+                        </button>
+                        {openDetails.has(l.key) && (
+                          <div className="mt-2 space-y-2">
+                            <div className="relative">
+                              <LinkIcon size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint pointer-events-none" />
+                              <input type="url" placeholder="Where to buy it again" value={l.newBuyUrl}
+                                onChange={e => patchLine(l.key, { newBuyUrl: e.target.value })}
+                                className={`${inputCls} pl-9`} />
+                            </div>
+                            <textarea rows={2} placeholder="Part number, specs, fitment notes…" value={l.newNotes}
+                              onChange={e => patchLine(l.key, { newNotes: e.target.value })}
+                              className={`${inputCls} resize-none`} />
+                            {categories.length > 0 && (
+                              <div>
+                                <p className="text-[10px] uppercase tracking-wide text-faint mb-1.5">Used for</p>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {categories.map(c => {
+                                    const on = l.newCategoryIds.includes(c.id)
+                                    return (
+                                      <button key={c.id}
+                                        onClick={() => patchLine(l.key, {
+                                          newCategoryIds: on
+                                            ? l.newCategoryIds.filter(x => x !== c.id)
+                                            : [...l.newCategoryIds, c.id],
+                                        })}
+                                        className={`px-2 py-1 rounded-lg text-[11px] font-medium border transition-colors ${
+                                          on ? 'bg-accent/15 text-accent border-accent/30' : 'bg-surface-2 text-muted border-border-strong'
+                                        }`}>{c.name}</button>
+                                    )
+                                  })}
+                                </div>
+                                <p className="text-faint text-[10px] mt-1.5">
+                                  Left blank, the service you use it in tags it for you.
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )
               })}

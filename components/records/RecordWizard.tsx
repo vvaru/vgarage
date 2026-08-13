@@ -128,6 +128,7 @@ export default function RecordWizard({
       // Lots created in this save, so product draws can be allocated against them.
       const freshLots = new Map<string, Lot[]>()
       const draftLineToProduct = new Map<string, string>()   // `draft:<lineKey>` → real product id
+      const categoryLinks = new Set<string>()                // `<productId>|<categoryId>`, deduped
 
       // ── 1. Receipts, their products and their lots ───────────────────────
       for (const r of receipts) {
@@ -164,9 +165,20 @@ export default function RecordWizard({
             const { error: pErr } = await withRetry(() => withTimeout(supabase.from('products').upsert({
               id: pid, user_id: user.id, vehicle_id: null,
               name: l.newName.trim(), brand: l.newBrand.trim() || null, unit: l.unit || 'each',
+              notes: l.newNotes.trim() || null,
             }), 9000), 2, 800)
             if (pErr) throw new Error(pErr.message)
             draftLineToProduct.set(`draft:${l.key}`, pid)
+
+            // Catalogue extras — best-effort, never worth failing a receipt over.
+            if (l.newBuyUrl.trim()) {
+              try {
+                await withTimeout(supabase.from('product_links').delete().eq('product_id', pid), 9000)
+                await withTimeout(supabase.from('product_links')
+                  .insert({ product_id: pid, label: 'Buy', url: l.newBuyUrl.trim() }), 9000)
+              } catch { /* the product still exists without a link */ }
+            }
+            for (const catId of l.newCategoryIds) categoryLinks.add(`${pid}|${catId}`)
           } else {
             const currentUnit = products.find(p => p.id === pid)?.unit ?? 'each'
             if (currentUnit !== l.unit) {
@@ -256,6 +268,12 @@ export default function RecordWizard({
             .upsert({ log_id: logId, receipt_id: ids.receipts[receiptKey] }), 9000)
         }
 
+        // Using a product in a categorised service says what it's for, so the
+        // catalogue tag comes free rather than being asked for on the receipt.
+        if (g.categoryId) {
+          for (const { pid } of plans) categoryLinks.add(`${pid}|${g.categoryId}`)
+        }
+
         // Write the draws planned above.
         for (const { pid, plan, short } of plans) {
           for (const p of plan) {
@@ -280,6 +298,18 @@ export default function RecordWizard({
         if (!r.originLogId) continue
         await withTimeout(supabase.from('service_log_receipts')
           .upsert({ log_id: r.originLogId, receipt_id: ids.receipts[r.key] }), 9000)
+      }
+
+      // ── 4. Catalogue category tags, chosen or inferred ───────────────────
+      for (const pair of categoryLinks) {
+        const [product_id, category_id] = pair.split('|')
+        try {
+          const { data: dupe } = await withTimeout(supabase.from('product_category_links')
+            .select('product_id').eq('product_id', product_id).eq('category_id', category_id).limit(1), 9000)
+          if (!dupe || dupe.length === 0) {
+            await withTimeout(supabase.from('product_category_links').insert({ product_id, category_id }), 9000)
+          }
+        } catch { /* a missing tag is not worth failing the save for */ }
       }
 
       saveIds.current = null

@@ -22,11 +22,17 @@ export interface LineDraft {
   unitTouched: boolean
   qty: string
   unitPrice: string
+  // Catalogue detail for a product being created here. All optional — a receipt
+  // shouldn't demand them, and the service it's used in fills the category in.
+  newNotes: string
+  newBuyUrl: string
+  newCategoryIds: string[]
 }
 
 export const emptyLine = (): LineDraft => ({
   key: crypto.randomUUID(), itemId: null, productId: '', newName: '', newBrand: '',
   unit: 'each', unitTouched: false, qty: '', unitPrice: '',
+  newNotes: '', newBuyUrl: '', newCategoryIds: [],
 })
 
 export interface ServiceTag {

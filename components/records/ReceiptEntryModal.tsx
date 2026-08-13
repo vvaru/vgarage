@@ -163,8 +163,20 @@ export default function ReceiptEntryModal({
   // Shop labour on the receipt itself. A DIY record merely links to it.
   const carriesShopService = services.some(s => s.performedBy === 'shop')
 
+  // Services this receipt is ALREADY tied to before anything is typed: the record
+  // a past receipt was lifted from, plus any existing attachments when editing.
+  const linkedLogIds = useMemo(() => {
+    const s = new Set(existingLogIds)
+    if (mode === 'past' && past?.logId) s.add(past.logId)
+    return [...s]
+  }, [existingLogIds, mode, past?.logId])
+  const linkedShop = linkedLogIds.some(id => logById.get(id)?.performed_by === 'shop')
+
   const hasAnyProduct = lines.some(l => (l.productId || l.newName.trim()) && num(l.qty) != null)
-  const canSave = serviceOnly ? services.length > 0 : (hasAnyProduct || services.length > 0)
+  const hasImage = Boolean(imagePreview || existingImage)
+  // A past or existing receipt is always saveable — it already has an origin and an
+  // image. Only a brand-new one needs something on it before Save means anything.
+  const canSave = mode !== 'new' || hasImage || hasAnyProduct || services.length > 0
 
   function patchLine(key: string, patch: Partial<LineDraft>) {
     setLines(prev => prev.map(l => l.key === key ? { ...l, ...patch } : l))
@@ -365,38 +377,38 @@ export default function ReceiptEntryModal({
               )}
             </div>
 
-            {/* Linked services — always visible, even when empty */}
-            {mode === 'edit' && (
-              <div className="shrink-0 border-t border-border/60 p-3">
-                <p className="text-[10px] uppercase tracking-wide text-faint mb-2">Linked services</p>
-                {existingLogIds.length === 0 ? (
-                  <div className="space-y-2">
-                    <p className="text-faint text-xs">No services linked yet.</p>
-                    {onGoToServices && (
-                      <button onClick={onGoToServices} className="w-full flex items-center justify-center gap-1.5 bg-surface border border-border rounded-xl py-2 text-xs font-semibold text-accent hover:border-accent/40 transition-colors">
-                        <ExternalLink size={12} /> Go to Services
+            {/* Linked services — shown in every mode, including when empty */}
+            <div className="shrink-0 border-t border-border/60 p-3">
+              <p className="text-[10px] uppercase tracking-wide text-faint mb-2">Linked services</p>
+              {linkedLogIds.length === 0 ? (
+                <div className="space-y-2">
+                  <p className="text-faint text-xs">No services linked yet.</p>
+                  {onGoToServices && (
+                    <button onClick={onGoToServices} className="w-full flex items-center justify-center gap-1.5 bg-surface border border-border rounded-xl py-2 text-xs font-semibold text-accent hover:border-accent/40 transition-colors">
+                      <ExternalLink size={12} /> Go to Services
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  {linkedLogIds.map(id => {
+                    const l = logById.get(id)
+                    if (!l) return null
+                    const isOrigin = mode === 'past' && id === past?.logId
+                    return (
+                      <button key={id} onClick={() => onOpenService?.(id)}
+                        className="w-full text-left bg-surface border border-border rounded-xl px-3 py-2 hover:border-accent/40 transition-colors">
+                        <span className="text-foreground text-sm font-medium truncate block">{l.service_type}</span>
+                        <span className="text-faint text-[11px]">
+                          {format(parseISO(l.date), 'MMM d, yyyy')} · {l.performed_by === 'shop' ? 'Shop' : 'DIY'}
+                          {isOrigin && ' · this receipt came from here'}
+                        </span>
                       </button>
-                    )}
-                  </div>
-                ) : (
-                  <div className="space-y-1.5">
-                    {existingLogIds.map(id => {
-                      const l = logById.get(id)
-                      if (!l) return null
-                      return (
-                        <button key={id} onClick={() => onOpenService?.(id)}
-                          className="w-full text-left bg-surface border border-border rounded-xl px-3 py-2 hover:border-accent/40 transition-colors">
-                          <span className="text-foreground text-sm font-medium truncate block">{l.service_type}</span>
-                          <span className="text-faint text-[11px]">
-                            {format(parseISO(l.date), 'MMM d, yyyy')} · {l.performed_by === 'shop' ? 'Shop' : 'DIY'}
-                          </span>
-                        </button>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
+                    )
+                  })}
+                </div>
+              )}
+            </div>
           </aside>
 
           <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-5">
@@ -499,6 +511,12 @@ export default function ReceiptEntryModal({
                 <Wrench size={13} className="text-muted" />
                 <label className="text-xs font-medium text-muted">Services on this receipt</label>
               </div>
+              {linkedLogIds.length > 0 && services.length === 0 && (
+                <p className="text-faint text-xs mb-2">
+                  Already linked to {linkedLogIds.length} service{linkedLogIds.length === 1 ? '' : 's'}
+                  {linkedShop ? ', including shop work — nothing more needed.' : '. Add one only if this receipt also paid for work done.'}
+                </p>
+              )}
               <div className="space-y-3">
                 {services.map(s => (
                   <div key={s.key} className="bg-surface-2/50 border border-border rounded-2xl p-3 space-y-2">

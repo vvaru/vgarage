@@ -84,6 +84,8 @@ export interface ServiceLog {
   date: string
   odometer: number
   cost: number | null
+  labor_cost?: number | null
+  shop_equivalent_cost?: number | null   // what a shop would have charged; DIY saving = this − cost
   notes: string | null
   created_at: string
 }

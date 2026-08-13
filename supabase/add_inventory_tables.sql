@@ -78,6 +78,10 @@ CREATE TABLE IF NOT EXISTS service_log_receipts (
 -- ── Service logs: a manual labor/other cost on top of auto parts cost ─────────
 ALTER TABLE service_logs ADD COLUMN IF NOT EXISTS labor_cost numeric;
 
+-- What a shop would have charged for this same job. Optional, and only
+-- meaningful on DIY records — the gap against actual cost is the DIY saving.
+ALTER TABLE service_logs ADD COLUMN IF NOT EXISTS shop_equivalent_cost numeric;
+
 -- ── RLS ──────────────────────────────────────────────────────────────────────
 ALTER TABLE receipts               ENABLE ROW LEVEL SECURITY;
 ALTER TABLE receipt_items          ENABLE ROW LEVEL SECURITY;

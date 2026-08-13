@@ -6,25 +6,28 @@ import { useRouter } from 'next/navigation'
 import { Plus, Package, Receipt as ReceiptIcon, Image as ImageIcon, AlertTriangle, Wrench, Ban } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
+import { useVehicle } from '@/components/vehicle/VehicleContext'
 import { computeStock, lotBalancesByItem, type LotBalance, type ProductStock } from '@/lib/inventory'
 import { fmtQty, fmtNum } from '@/lib/units'
 import { getCache, setCache } from '@/lib/cache'
-import type { Product, Receipt, ReceiptItem, InventoryAdjustment, ServiceProductUsage } from '@/lib/types'
-import ReceiptModal, { PastReceipt } from './ReceiptModal'
-import ReceiptDetailModal from './ReceiptDetailModal'
+import type {
+  Product, Receipt, ReceiptItem, InventoryAdjustment, ServiceProductUsage, ServiceLog, ServiceCategory,
+} from '@/lib/types'
+import ReceiptEntryModal, { type PastReceipt } from '@/components/records/ReceiptEntryModal'
 import UseProductModal from './UseProductModal'
 
 type ProductU = Product & { unit?: string }
-interface PastLog { id: string; date: string; service_type: string; receipt_url: string }
+type PastLog = ServiceLog
 interface LogReceiptLink { log_id: string; receipt_id: string }
 interface Snapshot {
   products: ProductU[]; receipts: Receipt[]; items: ReceiptItem[]
   usage: ServiceProductUsage[]; adjustments: InventoryAdjustment[]; pastLogs: PastLog[]
-  allLogs: PastLog[]; links: LogReceiptLink[]; tablesReady: boolean
+  allLogs: PastLog[]; links: LogReceiptLink[]; categories: ServiceCategory[]; tablesReady: boolean
 }
 
 export default function InventoryTab() {
   const { user } = useAuth()
+  const { vehicle } = useVehicle()
   const [loading, setLoading] = useState(true)
   const [tablesReady, setTablesReady] = useState(true)
   const [products, setProducts] = useState<ProductU[]>([])
@@ -35,6 +38,7 @@ export default function InventoryTab() {
   const [pastLogs, setPastLogs] = useState<PastLog[]>([])
   const [allLogs, setAllLogs] = useState<PastLog[]>([])
   const [links, setLinks] = useState<LogReceiptLink[]>([])
+  const [categories, setCategories] = useState<ServiceCategory[]>([])
   const [modal, setModal] = useState<{ past: PastReceipt | null } | null>(null)
   const [detail, setDetail] = useState<Receipt | null>(null)
   const [useStock, setUseStock] = useState<ProductStock | null>(null)
@@ -49,7 +53,8 @@ export default function InventoryTab() {
     const apply = (s: Snapshot) => {
       setProducts(s.products); setReceipts(s.receipts); setItems(s.items)
       setUsage(s.usage); setAdjustments(s.adjustments); setPastLogs(s.pastLogs)
-      setAllLogs(s.allLogs ?? []); setLinks(s.links ?? []); setTablesReady(s.tablesReady)
+      setAllLogs(s.allLogs ?? []); setLinks(s.links ?? [])
+      setCategories(s.categories ?? []); setTablesReady(s.tablesReady)
     }
 
     const fetchFresh = async () => {
@@ -75,17 +80,18 @@ export default function InventoryTab() {
       }
       // All logs, not just the ones carrying an image: usage rows can point at any
       // service, and FIFO order depends on those dates.
-      const { data: pl } = await supabase
-        .from('service_logs')
-        .select('id,date,service_type,receipt_url')
-        .eq('user_id', uid)
-        .order('date', { ascending: false })
+      const [{ data: pl }, { data: cats }] = await Promise.all([
+        supabase.from('service_logs').select('*').eq('user_id', uid).order('date', { ascending: false }),
+        vehicle
+          ? supabase.from('service_categories').select('*').eq('vehicle_id', vehicle.id).order('name')
+          : Promise.resolve({ data: [] as ServiceCategory[] }),
+      ])
       const allLogs = (pl ?? []) as PastLog[]
       const snap: Snapshot = {
         products: (prods ?? []) as ProductU[], receipts: rec, items: its,
         usage: use, adjustments: adj,
         pastLogs: allLogs.filter(l => l.receipt_url),
-        allLogs, links: lnk, tablesReady: ready,
+        allLogs, links: lnk, categories: (cats ?? []) as ServiceCategory[], tablesReady: ready,
       }
       setCache(key, snap)
       apply(snap)
@@ -104,7 +110,7 @@ export default function InventoryTab() {
     } catch { /* keep showing what we have */ } finally {
       setLoading(false)
     }
-  }, [user?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [user?.id, vehicle?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { load() }, [load])
 
@@ -129,12 +135,19 @@ export default function InventoryTab() {
     for (const it of items) m.set(it.receipt_id, [...(m.get(it.receipt_id) ?? []), it])
     return m
   }, [items])
-  const serviceCountFor = useCallback((receiptId: string) => {
+  // Two different relationships, deliberately kept apart:
+  //   linked  — a service drew products from this receipt (DIY provenance)
+  //   shop    — the receipt itself carries shop labour, i.e. some attached
+  //             service was performed_by 'shop'. Only this earns a Services flag.
+  const logById = useMemo(() => new Map(allLogs.map(l => [l.id, l])), [allLogs])
+  const receiptFacts = useCallback((receiptId: string) => {
     const logIds = new Set(links.filter(l => l.receipt_id === receiptId).map(l => l.log_id))
     const itemIds = new Set((itemsByReceipt.get(receiptId) ?? []).map(i => i.id))
     for (const u of usage) if (u.receipt_item_id && itemIds.has(u.receipt_item_id)) logIds.add(u.log_id)
-    return logIds.size
-  }, [links, usage, itemsByReceipt])
+    let shopServices = 0
+    for (const id of logIds) if (logById.get(id)?.performed_by === 'shop') shopServices++
+    return { linked: logIds.size, shopServices }
+  }, [links, usage, itemsByReceipt, logById])
 
   // A lot's human label: which receipt (and when) the stock came from.
   const lotLabel = useCallback((b: LotBalance) => {
@@ -243,13 +256,13 @@ export default function InventoryTab() {
                   <p className="font-medium text-foreground text-sm truncate">{pl.service_type}</p>
                   <p className="text-faint text-xs">{pl.date ? format(parseISO(pl.date), 'MMM d, yyyy') : '—'} · details unknown</p>
                 </div>
-                <button onClick={() => viewImage(pl.receipt_url)} className="text-muted hover:text-accent p-1.5" title="View image"><ImageIcon size={15} /></button>
+                <button onClick={() => viewImage(pl.receipt_url!)} className="text-muted hover:text-accent p-1.5" title="View image"><ImageIcon size={15} /></button>
                 {tablesReady && (
                   <>
                     <button onClick={() => markNoProducts(pl)}
                       title="Labour or services only — nothing to stock"
                       className="text-muted hover:text-foreground p-1.5 shrink-0"><Ban size={15} /></button>
-                    <button onClick={() => setModal({ past: { logId: pl.id, imagePath: pl.receipt_url, date: pl.date, label: pl.service_type } })}
+                    <button onClick={() => setModal({ past: { logId: pl.id, imagePath: pl.receipt_url!, date: pl.date, label: pl.service_type } })}
                       className="bg-accent/10 text-accent border border-accent/20 rounded-xl px-3 py-1.5 text-xs font-semibold hover:bg-accent/20 transition-colors shrink-0">
                       Add details
                     </button>
@@ -268,13 +281,14 @@ export default function InventoryTab() {
           <div className="space-y-3">
             {receipts.map(r => {
               const rItems = items.filter(i => i.receipt_id === r.id)
-              const svcCount = serviceCountFor(r.id)
+              const { linked, shopServices } = receiptFacts(r.id)
               const hasProducts = rItems.length > 0
               const flags: { label: string; cls: string }[] = []
               if (hasProducts) flags.push({ label: 'Products', cls: 'bg-accent/10 text-accent border-accent/20' })
-              if (svcCount > 0) flags.push({ label: 'Services', cls: 'bg-success/10 text-success border-success/20' })
-              if (!hasProducts && r.no_products) flags.push({ label: 'No products', cls: 'bg-surface-2 text-faint border-border' })
-              if (!hasProducts && !r.no_products && svcCount === 0) flags.push({ label: 'Needs details', cls: 'bg-warn/10 text-warn border-warn/20' })
+              // Shop labour on the receipt itself — NOT merely being used by a DIY job.
+              if (shopServices > 0) flags.push({ label: 'Services', cls: 'bg-success/10 text-success border-success/20' })
+              if (!hasProducts && r.no_products && shopServices === 0) flags.push({ label: 'No products', cls: 'bg-surface-2 text-faint border-border' })
+              if (!hasProducts && !r.no_products && linked === 0) flags.push({ label: 'Needs details', cls: 'bg-warn/10 text-warn border-warn/20' })
               return (
                 <button key={r.id} onClick={() => setDetail(r)}
                   className="w-full text-left bg-surface border border-border rounded-2xl p-4 hover:border-accent/40 transition-colors">
@@ -291,8 +305,8 @@ export default function InventoryTab() {
                       {r.image_path && <span onClick={e => { e.stopPropagation(); viewImage(r.image_path!) }} className="text-muted hover:text-accent cursor-pointer" title="View image"><ImageIcon size={15} /></span>}
                     </div>
                   </div>
-                  {svcCount > 0 && (
-                    <p className="text-faint text-[11px] mt-1">Used in {svcCount} service{svcCount === 1 ? '' : 's'} · tap to see where</p>
+                  {linked > 0 && (
+                    <p className="text-faint text-[11px] mt-1">Linked to {linked} service{linked === 1 ? '' : 's'} · tap to see where</p>
                   )}
                   <div className="mt-2 divide-y divide-border">
                     {rItems.map(it => {
@@ -334,26 +348,34 @@ export default function InventoryTab() {
       )}
 
       {modal && (
-        <ReceiptModal
+        <ReceiptEntryModal
+          mode={modal.past ? 'past' : 'new'}
+          past={modal.past ?? undefined}
           products={products}
-          past={modal.past}
+          categories={categories}
+          logs={allLogs}
+          stock={stock}
           onClose={() => setModal(null)}
           onSaved={() => { setModal(null); load() }}
+          onGoToServices={() => router.push('/service')}
         />
       )}
 
       {detail && (
-        <ReceiptDetailModal
+        <ReceiptEntryModal
+          mode="edit"
           receipt={detail}
-          items={items.filter(i => i.receipt_id === detail.id)}
+          existingItems={items.filter(i => i.receipt_id === detail.id)}
+          existingLogIds={links.filter(l => l.receipt_id === detail.id).map(l => l.log_id)}
           products={products}
+          categories={categories}
+          logs={allLogs}
           usage={usage}
           stock={stock}
-          logs={allLogs}
-          directLogIds={links.filter(l => l.receipt_id === detail.id).map(l => l.log_id)}
           onClose={() => setDetail(null)}
           onSaved={() => { setDetail(null); load() }}
           onOpenService={logId => router.push(`/service?log=${logId}`)}
+          onGoToServices={() => router.push('/service')}
         />
       )}
 

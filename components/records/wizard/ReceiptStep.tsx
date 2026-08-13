@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { Plus, Trash2, Image as ImageIcon, Package, Wrench, ChevronDown, ChevronRight, Link as LinkIcon } from 'lucide-react'
+import { Plus, Trash2, Image as ImageIcon, Package, Wrench, ChevronDown, ChevronRight, Link as LinkIcon, X } from 'lucide-react'
 import ReceiptViewer from '@/components/ui/ReceiptViewer'
 import { UNIT_GROUPS, guessUnit, fmtQty } from '@/lib/units'
 import { emptyLine, emptyTag, type LineDraft, type ReceiptDraft, type ServiceTag } from '@/lib/recordDraft'
@@ -185,26 +185,28 @@ export default function ReceiptStep({ draft, products, categories, stock, locked
                               className={`${inputCls} resize-none`} />
                             {categories.length > 0 && (
                               <div>
-                                <p className="text-[10px] uppercase tracking-wide text-faint mb-1.5">Used for</p>
-                                <div className="flex flex-wrap gap-1.5">
-                                  {categories.map(c => {
-                                    const on = l.newCategoryIds.includes(c.id)
-                                    return (
-                                      <button key={c.id}
-                                        onClick={() => patchLine(l.key, {
-                                          newCategoryIds: on
-                                            ? l.newCategoryIds.filter(x => x !== c.id)
-                                            : [...l.newCategoryIds, c.id],
-                                        })}
-                                        className={`px-2 py-1 rounded-lg text-[11px] font-medium border transition-colors ${
-                                          on ? 'bg-accent/15 text-accent border-accent/30' : 'bg-surface-2 text-muted border-border-strong'
-                                        }`}>{c.name}</button>
-                                    )
-                                  })}
-                                </div>
-                                <p className="text-faint text-[10px] mt-1.5">
-                                  Left blank, the service you use it in tags it for you.
-                                </p>
+                                {/* Dropdown rather than a chip grid — most products
+                                    need one category, and the list can be long. */}
+                                <select value="" onChange={e => {
+                                  if (!e.target.value) return
+                                  patchLine(l.key, { newCategoryIds: [...new Set([...l.newCategoryIds, e.target.value])] })
+                                }} className={inputCls}>
+                                  <option value="">Used for… (optional)</option>
+                                  {categories.filter(c => !l.newCategoryIds.includes(c.id))
+                                    .map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                </select>
+                                {l.newCategoryIds.length > 0 && (
+                                  <div className="flex flex-wrap gap-1.5 mt-1.5">
+                                    {l.newCategoryIds.map(id => (
+                                      <button key={id}
+                                        onClick={() => patchLine(l.key, { newCategoryIds: l.newCategoryIds.filter(x => x !== id) })}
+                                        className="flex items-center gap-1 bg-accent/10 text-accent border border-accent/20 rounded-lg px-2 py-0.5 text-[11px] font-medium hover:bg-accent/20 transition-colors">
+                                        {categories.find(c => c.id === id)?.name ?? 'Category'}
+                                        <X size={9} />
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>

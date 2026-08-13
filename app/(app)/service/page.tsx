@@ -11,6 +11,7 @@ import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
 import { withRetry, withTimeout } from '@/lib/recover'
 import { getCache, setCache } from '@/lib/cache'
+import { useStock } from '@/lib/useStock'
 import type { ServiceLog, ServiceCategory, ServiceCategoryProduct } from '@/lib/types'
 import dynamic from 'next/dynamic'
 
@@ -18,7 +19,7 @@ const CategoryManagerModal = dynamic(() => import('@/components/service/Category
 const CarfaxImportModal = dynamic(() => import('@/components/service/CarfaxImportModal'), { ssr: false })
 const ExportPdfModal = dynamic(() => import('@/components/service/ExportPdfModal'), { ssr: false })
 const ImageCropModal = dynamic(() => import('@/components/service/ImageCropModal'), { ssr: false })
-const AddServiceFlow = dynamic(() => import('@/components/service/AddServiceFlow'), { ssr: false })
+const RecordWizard = dynamic(() => import('@/components/records/RecordWizard'), { ssr: false })
 const ReceiptViewer = dynamic(() => import('@/components/ui/ReceiptViewer'), { ssr: false })
 const ReceiptPreviewModal = dynamic(() => import('@/components/service/ReceiptPreviewModal'), { ssr: false })
 
@@ -166,6 +167,8 @@ export default function ServicePage() {
   const [selectedStatus, setSelectedStatus] = useState<CategoryWithStatus | null>(null)
 
   const [showAddFlow, setShowAddFlow] = useState(false)
+  // Stock for the wizard's "products used" step.
+  const { products: invProducts, stock, reload: reloadStock } = useStock(user?.id)
   const [editLog, setEditLog] = useState<ServiceLog | null>(null)
   const [form, setForm] = useState(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
@@ -1323,12 +1326,13 @@ export default function ServicePage() {
       {showExport && vehicle && <ExportPdfModal vehicle={vehicle} logs={logs} onClose={() => setShowExport(false)} />}
       {cropSourceFile && <ImageCropModal file={cropSourceFile} onConfirm={handleCropConfirm} onCancel={() => { setCropSourceFile(null); if (fileRef.current) fileRef.current.value = '' }} />}
       {showAddFlow && vehicle && (
-        <AddServiceFlow
-          vehicle={vehicle}
+        <RecordWizard
+          products={invProducts}
           categories={categories}
-          historicalReadings={logs.filter(l => l.odometer > 0).map(l => ({ date: l.date, odo: l.odometer }))}
+          logs={logs}
+          stock={stock}
           onClose={() => setShowAddFlow(false)}
-          onSaved={() => { setShowAddFlow(false); load() }}
+          onSaved={() => { setShowAddFlow(false); reloadStock(); load() }}
         />
       )}
 

@@ -13,8 +13,10 @@ import { getCache, setCache } from '@/lib/cache'
 import type {
   Product, Receipt, ReceiptItem, InventoryAdjustment, ServiceProductUsage, ServiceLog, ServiceCategory,
 } from '@/lib/types'
-import ReceiptEntryModal, { type PastReceipt } from '@/components/records/ReceiptEntryModal'
+import RecordWizard, { type WizardSeed } from '@/components/records/RecordWizard'
 import UseProductModal from './UseProductModal'
+
+interface PastReceipt { logId: string; imagePath: string; date: string | null; label: string }
 
 type ProductU = Product & { unit?: string }
 type PastLog = ServiceLog
@@ -348,25 +350,26 @@ export default function InventoryTab() {
       )}
 
       {modal && (
-        <ReceiptEntryModal
-          mode={modal.past ? 'past' : 'new'}
-          past={modal.past ?? undefined}
+        <RecordWizard
+          seed={modal.past
+            ? { past: { logId: modal.past.logId, imagePath: modal.past.imagePath, date: modal.past.date } }
+            : undefined}
           products={products}
           categories={categories}
           logs={allLogs}
           stock={stock}
           onClose={() => setModal(null)}
           onSaved={() => { setModal(null); load() }}
-          onGoToServices={() => router.push('/service')}
         />
       )}
 
       {detail && (
-        <ReceiptEntryModal
-          mode="edit"
-          receipt={detail}
-          existingItems={items.filter(i => i.receipt_id === detail.id)}
-          existingLogIds={links.filter(l => l.receipt_id === detail.id).map(l => l.log_id)}
+        <RecordWizard
+          seed={{
+            receipt: detail,
+            items: items.filter(i => i.receipt_id === detail.id),
+            logIds: links.filter(l => l.receipt_id === detail.id).map(l => l.log_id),
+          }}
           products={products}
           categories={categories}
           logs={allLogs}
@@ -374,8 +377,6 @@ export default function InventoryTab() {
           stock={stock}
           onClose={() => setDetail(null)}
           onSaved={() => { setDetail(null); load() }}
-          onOpenService={logId => router.push(`/service?log=${logId}`)}
-          onGoToServices={() => router.push('/service')}
         />
       )}
 

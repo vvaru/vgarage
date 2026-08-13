@@ -221,3 +221,16 @@ export function lotBalancesByItem(stock: Map<string, ProductStock>): Map<string,
 export function nextLot(stock: ProductStock): LotBalance | null {
   return stock.lots.find(b => b.remaining > 0) ?? null
 }
+
+// Walk lots oldest-first taking what's left of each, until the amount is met.
+// `short` is whatever couldn't be covered by known stock.
+export function planDraw(lots: LotBalance[], amount: number): { plan: { lot: LotBalance; qty: number }[]; short: number } {
+  const plan: { lot: LotBalance; qty: number }[] = []
+  let need = amount
+  for (const b of lots) {
+    if (need <= 0) break
+    const take = Math.min(need, b.remaining)
+    if (take > 0) { plan.push({ lot: b, qty: take }); need -= take }
+  }
+  return { plan, short: Math.max(0, need) }
+}

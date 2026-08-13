@@ -17,9 +17,10 @@ import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
 import { withRetry, withTimeout } from '@/lib/recover'
 import { getCache, setCache } from '@/lib/cache'
+import { useStock } from '@/lib/useStock'
 import type { ServiceLog, FuelLog, ServiceCategory, ServiceCategoryProduct } from '@/lib/types'
 
-const AddServiceFlow = dynamic(() => import('@/components/service/AddServiceFlow'), { ssr: false })
+const RecordWizard = dynamic(() => import('@/components/records/RecordWizard'), { ssr: false })
 const FuelLogModal = dynamic(() => import('@/components/fuel/FuelLogModal'), { ssr: false })
 
 interface CategoryWithStatus {
@@ -109,7 +110,7 @@ const ChartTooltip = ({ active, payload, label }: { active?: boolean; payload?: 
 }
 
 export default function DashboardPage() {
-  useAuth()
+  const { user } = useAuth()
   const { vehicle, vehicles, setActiveVehicleId, refresh: refreshVehicle } = useVehicle()
   const [categories, setCategories] = useState<ServiceCategory[]>([])
   const [serviceLogs, setServiceLogs] = useState<ServiceLog[]>([])
@@ -123,6 +124,8 @@ export default function DashboardPage() {
   const [upcomingPeriod, setUpcomingPeriod] = useState<UpcomingPeriod>('3mo')
   const [showCarPicker, setShowCarPicker] = useState(false)
   const [showAddFlow, setShowAddFlow] = useState(false)
+  // Stock for the wizard's "products used" step.
+  const { products: invProducts, stock, reload: reloadStock } = useStock(user?.id)
   const [showFuelModal, setShowFuelModal] = useState(false)
 
   const gridStroke = '#27272a'
@@ -509,13 +512,13 @@ export default function DashboardPage() {
       )}
 
       {showAddFlow && (
-        <AddServiceFlow
-          vehicle={vehicle}
+        <RecordWizard
+          products={invProducts}
           categories={categories}
-          historicalReadings={historicalReadings}
-          milesPerMonth={milesPerMonth}
+          logs={serviceLogs}
+          stock={stock}
           onClose={() => setShowAddFlow(false)}
-          onSaved={() => { setShowAddFlow(false); load() }}
+          onSaved={() => { setShowAddFlow(false); reloadStock(); load() }}
         />
       )}
 

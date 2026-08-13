@@ -56,7 +56,6 @@ interface ServiceDraft {
   categoryId: string
   serviceType: string
   performedBy: 'shop' | 'owner'
-  shopName: string
   cost: string
   shopEquivalent: string       // DIY only — what a shop would have charged
   date: string
@@ -66,7 +65,7 @@ interface ServiceDraft {
 
 const emptyService = (date: string): ServiceDraft => ({
   key: crypto.randomUUID(), linkedLogId: null, categoryId: '', serviceType: '',
-  performedBy: 'shop', shopName: '', cost: '', shopEquivalent: '', date, odometer: '', notes: '',
+  performedBy: 'shop', cost: '', shopEquivalent: '', date, odometer: '', notes: '',
 })
 
 interface Props {
@@ -286,25 +285,29 @@ export default function ReceiptEntryModal({
       for (const s of services) {
         const logId = ids.logs[s.key]
         const cat = categories.find(c => c.id === s.categoryId)
+        // Date and shop name come from the receipt, so they're never entered twice.
+        const fields = {
+          service_type: (cat?.name ?? s.serviceType).trim() || 'Service',
+          category_id: s.categoryId || null,
+          record_type: cat?.category_type ?? 'maintenance',
+          performed_by: s.performedBy === 'shop' ? 'shop' : 'owner',
+          shop_name: s.performedBy === 'shop' ? (store.trim() || null) : null,
+          date: date || s.date,
+          odometer: num(s.odometer) ?? vehicle.odometer,
+          cost: num(s.cost),
+          shop_equivalent_cost: s.performedBy === 'owner' ? num(s.shopEquivalent) : null,
+          notes: s.notes.trim() || null,
+        }
         if (!s.linkedLogId) {
           const { error: lErr } = await withRetry(() => withTimeout(supabase.from('service_logs').upsert({
-            id: logId, user_id: user.id, vehicle_id: vehicle.id,
-            service_type: (cat?.name ?? s.serviceType).trim() || 'Service',
-            category_id: s.categoryId || null,
-            record_type: cat?.category_type ?? 'maintenance',
-            performed_by: s.performedBy === 'shop' ? 'shop' : 'owner',
-            shop_name: s.performedBy === 'shop' ? (s.shopName.trim() || null) : null,
-            date: s.date || date,
-            odometer: num(s.odometer) ?? vehicle.odometer,
-            cost: num(s.cost),
-            shop_equivalent_cost: s.performedBy === 'owner' ? num(s.shopEquivalent) : null,
-            notes: s.notes.trim() || null,
+            id: logId, user_id: user.id, vehicle_id: vehicle.id, ...fields,
           }), 9000), 2, 800)
           if (lErr) throw new Error(lErr.message)
-        } else if (s.performedBy === 'owner' && num(s.shopEquivalent) != null) {
-          // Filling a gap on a record we're linking to rather than creating.
-          await withTimeout(supabase.from('service_logs')
-            .update({ shop_equivalent_cost: num(s.shopEquivalent) }).eq('id', logId), 9000)
+        } else {
+          // Editing a record we're linked to, right here — no separate service UI.
+          const { error: uErr } = await withRetry(() => withTimeout(
+            supabase.from('service_logs').update(fields).eq('id', logId), 9000), 2, 800)
+          if (uErr) throw new Error(uErr.message)
         }
         await withTimeout(supabase.from('service_log_receipts').upsert({ log_id: logId, receipt_id: ids.receiptId }), 9000)
       }
@@ -342,9 +345,11 @@ export default function ReceiptEntryModal({
           <button onClick={onClose} className="text-muted hover:text-foreground shrink-0"><X size={20} /></button>
         </div>
 
-        <div className="flex-1 min-h-0 flex flex-col lg:flex-row">
+        {/* Mobile scrolls as one column — two independent scroll panes squeeze the
+            form to nothing on a phone. Desktop keeps the side-by-side panes. */}
+        <div className="flex-1 min-h-0 overflow-y-auto lg:overflow-hidden flex flex-col lg:flex-row">
           {/* Receipt image */}
-          <aside className="shrink-0 flex flex-col lg:w-[40%] border-b lg:border-b-0 lg:border-r border-border bg-surface-2/30">
+          <aside className="lg:shrink-0 flex flex-col lg:w-[40%] border-b lg:border-b-0 lg:border-r border-border bg-surface-2/30">
             <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-border/60">
               <p className="text-xs font-semibold text-foreground truncate">
                 {imageFile?.name ?? (existingImage ? 'Receipt image' : 'No image yet')}
@@ -396,14 +401,22 @@ export default function ReceiptEntryModal({
                     if (!l) return null
                     const isOrigin = mode === 'past' && id === past?.logId
                     return (
-                      <button key={id} onClick={() => onOpenService?.(id)}
-                        className="w-full text-left bg-surface border border-border rounded-xl px-3 py-2 hover:border-accent/40 transition-colors">
-                        <span className="text-foreground text-sm font-medium truncate block">{l.service_type}</span>
-                        <span className="text-faint text-[11px]">
+                      <div key={id} className="bg-surface border border-border rounded-xl px-3 py-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-foreground text-sm font-medium truncate">{l.service_type}</span>
+                          <div className="flex items-center gap-2 shrink-0">
+                            {/* $0 is a real answer, so test for null rather than truthiness */}
+                            {l.cost != null && <span className="text-faint text-xs">${Number(l.cost).toFixed(2)}</span>}
+                            <button onClick={() => onOpenService?.(id)} title="Open on the Services page"
+                              className="text-faint hover:text-accent"><ExternalLink size={12} /></button>
+                          </div>
+                        </div>
+                        <p className="text-faint text-[11px]">
                           {format(parseISO(l.date), 'MMM d, yyyy')} · {l.performed_by === 'shop' ? 'Shop' : 'DIY'}
                           {isOrigin && ' · this receipt came from here'}
-                        </span>
-                      </button>
+                        </p>
+                        <p className="text-faint text-[11px] mt-0.5">Editable below ↓</p>
+                      </div>
                     )
                   })}
                 </div>
@@ -411,7 +424,7 @@ export default function ReceiptEntryModal({
             </div>
           </aside>
 
-          <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-5">
+          <div className="flex-1 lg:min-h-0 lg:overflow-y-auto p-6 space-y-5">
             <input ref={fileRef} type="file" accept="image/*,application/pdf" hidden onChange={pickImage} />
 
             <div className="grid grid-cols-2 gap-3">
@@ -533,36 +546,40 @@ export default function ReceiptEntryModal({
                         className="w-8 h-8 rounded-xl bg-surface-2 flex items-center justify-center text-muted hover:text-danger transition-colors"><Trash2 size={13} /></button>
                     </div>
 
-                    {s.linkedLogId ? (
-                      <div className="flex items-center justify-between gap-2 bg-surface border border-accent/20 rounded-xl px-3 py-2">
-                        <span className="min-w-0">
-                          <span className="text-foreground text-sm font-medium truncate block">{s.serviceType}</span>
-                          <span className="text-faint text-[11px]">Linked to an existing record · {s.date}</span>
-                        </span>
+                    {/* Linked records stay fully editable here — same fields either
+                        way, so there's no second UI just to change a service. */}
+                    {s.linkedLogId && (
+                      <div className="flex items-center justify-between gap-2 bg-accent/5 border border-accent/20 rounded-xl px-3 py-1.5">
+                        <span className="text-accent text-[11px] font-medium">Editing an existing record</span>
                         <button onClick={() => patchService(s.key, { linkedLogId: null })} className="text-muted hover:text-foreground text-xs shrink-0">Unlink</button>
                       </div>
-                    ) : (
-                      <>
-                        <div className="grid grid-cols-2 gap-2">
-                          <select value={s.categoryId} onChange={e => patchService(s.key, { categoryId: e.target.value })} className={inputCls}>
-                            <option value="">Pick a category…</option>
-                            {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                          </select>
-                          <input type="text" placeholder="or type a name" value={s.serviceType} onChange={e => patchService(s.key, { serviceType: e.target.value })} className={inputCls} />
-                        </div>
-                        <div className="grid grid-cols-3 gap-2">
-                          <input type="date" value={s.date} onChange={e => patchService(s.key, { date: e.target.value })} className={inputCls} />
-                          <input type="number" inputMode="numeric" placeholder="Odometer" value={s.odometer} onChange={e => patchService(s.key, { odometer: e.target.value })} className={inputCls} />
-                          <input type="number" inputMode="decimal" placeholder="Cost" value={s.cost} onChange={e => patchService(s.key, { cost: e.target.value })} className={inputCls} />
-                        </div>
-                        {s.performedBy === 'shop' && (
-                          <input type="text" placeholder="Shop name" value={s.shopName} onChange={e => patchService(s.key, { shopName: e.target.value })} className={inputCls} />
-                        )}
-                        <button onClick={() => { setPicking(s.key); setFilter(EMPTY_FILTER) }}
-                          className="flex items-center gap-1.5 text-muted hover:text-accent text-xs transition-colors">
-                          <Link2 size={12} /> Link to a service I already logged
-                        </button>
-                      </>
+                    )}
+                    <div className="grid grid-cols-2 gap-2">
+                      <select value={s.categoryId} onChange={e => patchService(s.key, { categoryId: e.target.value })} className={inputCls}>
+                        <option value="">Pick a category…</option>
+                        {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                      <input type="text" placeholder="or type a name" value={s.serviceType} onChange={e => patchService(s.key, { serviceType: e.target.value })} className={inputCls} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[10px] uppercase tracking-wide text-faint mb-1">Odometer</label>
+                        <input type="number" inputMode="numeric" placeholder="miles" value={s.odometer} onChange={e => patchService(s.key, { odometer: e.target.value })} className={inputCls} />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] uppercase tracking-wide text-faint mb-1">Cost</label>
+                        <input type="number" inputMode="decimal" placeholder="0.00" value={s.cost} onChange={e => patchService(s.key, { cost: e.target.value })} className={inputCls} />
+                      </div>
+                    </div>
+                    {/* Date and shop come from the receipt above — not asked twice. */}
+                    <p className="text-faint text-[11px]">
+                      Dated {date || '—'}{store.trim() ? ` · ${store.trim()}` : ''}, from this receipt.
+                    </p>
+                    {!s.linkedLogId && (
+                      <button onClick={() => { setPicking(s.key); setFilter(EMPTY_FILTER) }}
+                        className="flex items-center gap-1.5 text-muted hover:text-accent text-xs transition-colors">
+                        <Link2 size={12} /> Link to a service I already logged
+                      </button>
                     )}
 
                     {/* DIY savings — only meaningful when you did it yourself */}

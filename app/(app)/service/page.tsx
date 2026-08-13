@@ -264,6 +264,12 @@ export default function ServicePage() {
     deepLinked.current = true
     setActiveTab('history')
     setSelectedGroup(group)
+    // Selecting it isn't enough — the row can be hundreds of entries down the
+    // list, so bring it into view once the history tab has actually rendered.
+    requestAnimationFrame(() => {
+      document.querySelector(`[data-group-key="${CSS.escape(group.key)}"]`)
+        ?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    })
   }, [logs])
 
   // Lock background scroll while a mobile detail sheet is open, so the page
@@ -1065,6 +1071,7 @@ export default function ServicePage() {
                 return (
                   <button
                     key={group.key}
+                    data-group-key={group.key}
                     onClick={() => setSelectedGroup(isSelected ? null : group)}
                     className={`w-full px-4 py-3 border-b border-border/60 text-left transition-colors ${
                       isSelected ? 'bg-surface-2/80 lg:border-l-2 lg:border-l-accent' : 'hover:bg-surface-2/40'

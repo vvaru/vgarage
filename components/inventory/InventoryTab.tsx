@@ -9,6 +9,7 @@ import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
 import { computeStock, lotBalancesByItem, type LotBalance, type ProductStock } from '@/lib/inventory'
 import { fmtQty, fmtNum } from '@/lib/units'
+import { receiptTitle } from '@/lib/receipts'
 import { getCache, setCache } from '@/lib/cache'
 import type {
   Product, Receipt, ReceiptItem, InventoryAdjustment, ServiceProductUsage, ServiceLog, ServiceCategory,
@@ -148,7 +149,7 @@ export default function InventoryTab() {
     for (const u of usage) if (u.receipt_item_id && itemIds.has(u.receipt_item_id)) logIds.add(u.log_id)
     let shopServices = 0
     for (const id of logIds) if (logById.get(id)?.performed_by === 'shop') shopServices++
-    return { linked: logIds.size, shopServices }
+    return { linked: logIds.size, shopServices, logIds: [...logIds] }
   }, [links, usage, itemsByReceipt, logById])
 
   // A lot's human label: which receipt (and when) the stock came from.
@@ -283,7 +284,14 @@ export default function InventoryTab() {
           <div className="space-y-3">
             {receipts.map(r => {
               const rItems = items.filter(i => i.receipt_id === r.id)
-              const { linked, shopServices } = receiptFacts(r.id)
+              const { linked, shopServices, logIds } = receiptFacts(r.id)
+              const linkedLogs = logIds.map(id => logById.get(id)).filter(Boolean) as PastLog[]
+              const title = receiptTitle({
+                store: r.store,
+                products: rItems.map(it => productName(it.product_id)),
+                services: linkedLogs.map(l => l.service_type),
+                noProducts: r.no_products,
+              })
               const hasProducts = rItems.length > 0
               const flags: { label: string; cls: string }[] = []
               if (hasProducts) flags.push({ label: 'Products', cls: 'bg-accent/10 text-accent border-accent/20' })
@@ -296,7 +304,7 @@ export default function InventoryTab() {
                   className="w-full text-left bg-surface border border-border rounded-2xl p-4 hover:border-accent/40 transition-colors">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                      <p className="font-medium text-foreground text-sm">{r.store || 'Receipt'}</p>
+                      <p className="font-medium text-foreground text-sm">{title}</p>
                       <span className="text-faint text-xs">{r.date ? format(parseISO(r.date), 'MMM d, yyyy') : ''}</span>
                       {flags.map(f => (
                         <span key={f.label} className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md border ${f.cls}`}>{f.label}</span>
@@ -307,9 +315,6 @@ export default function InventoryTab() {
                       {r.image_path && <span onClick={e => { e.stopPropagation(); viewImage(r.image_path!) }} className="text-muted hover:text-accent cursor-pointer" title="View image"><ImageIcon size={15} /></span>}
                     </div>
                   </div>
-                  {linked > 0 && (
-                    <p className="text-faint text-[11px] mt-1">Linked to {linked} service{linked === 1 ? '' : 's'} · tap to see where</p>
-                  )}
                   <div className="mt-2 divide-y divide-border">
                     {rItems.map(it => {
                       const bal = lots.get(it.id)
@@ -326,12 +331,27 @@ export default function InventoryTab() {
                         </div>
                       )
                     })}
-                    {rItems.length === 0 && (
+                    {/* Services were invisible here before — a shop bill looked empty */}
+                    {linkedLogs.map(l => (
+                      <div key={l.id} className="flex items-center justify-between gap-2 py-1.5 text-sm">
+                        <span className="text-foreground truncate flex items-center gap-1.5">
+                          <Wrench size={11} className="text-faint shrink-0" />{l.service_type}
+                        </span>
+                        <span className="text-faint text-xs shrink-0">
+                          {l.performed_by === 'shop' ? 'Shop' : 'DIY'}
+                          {l.cost != null && ` · $${Number(l.cost).toFixed(2)}`}
+                        </span>
+                      </div>
+                    ))}
+                    {rItems.length === 0 && linkedLogs.length === 0 && (
                       <p className="text-faint text-xs py-1.5">
                         {r.no_products ? 'Labour / services only — nothing stocked.' : 'No line items yet — tap to add them.'}
                       </p>
                     )}
                   </div>
+                  {linked > 0 && (
+                    <p className="text-faint text-[11px] mt-2">Tap to see where it was used</p>
+                  )}
                 </button>
               )
             })}

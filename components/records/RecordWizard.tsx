@@ -10,9 +10,10 @@ import { withRetry, withTimeout } from '@/lib/recover'
 import ReceiptStep from './wizard/ReceiptStep'
 import ServiceStep from './wizard/ServiceStep'
 import {
-  availableProducts, emptyLine, emptyReceipt, groupServiceTags, mergeGroupEdits, isPending,
+  availableProducts, emptyLine, emptyReceipt, groupServiceTags, mergeGroupEdits, isPending, tagLabel,
   type ReceiptDraft, type ServiceGroup,
 } from '@/lib/recordDraft'
+import { receiptTitle } from '@/lib/receipts'
 import { planDraw, type Lot, type LotBalance, type ProductStock } from '@/lib/inventory'
 import type { Product, Receipt, ReceiptItem, ServiceCategory, ServiceLog, ServiceProductUsage } from '@/lib/types'
 
@@ -103,6 +104,14 @@ export default function RecordWizard({
 
   const patchReceipt = (key: string, patch: Partial<ReceiptDraft>) =>
     setReceipts(prev => prev.map(r => r.key === key ? { ...r, ...patch } : r))
+
+  // Name a draft by what's on it, not by its position in the list.
+  const draftTitle = (r: ReceiptDraft, max = 2) => receiptTitle({
+    store: r.store,
+    products: r.noProducts ? [] : r.lines.map(l => l.newName.trim() || products.find(p => p.id === l.productId)?.name || ''),
+    services: r.tags.map(t => tagLabel(t, categories)),
+    noProducts: r.noProducts,
+  }, max)
 
   function goToServices() {
     setGroups(prev => mergeGroupEdits(groupServiceTags(receipts, categories), prev))
@@ -332,7 +341,7 @@ export default function RecordWizard({
               <div className="w-9 h-9 rounded-xl bg-accent/10 flex items-center justify-center shrink-0"><ReceiptIcon size={17} className="text-accent" /></div>
               <div className="min-w-0">
                 <h3 className="font-bold text-foreground text-lg truncate">
-                  {phase === 'receipts' ? (seed ? 'Edit receipt' : 'Add records') : 'Service details'}
+                  {phase === 'services' ? 'Service details' : seed ? draftTitle(draft) : 'Add records'}
                 </h3>
                 <p className="text-faint text-xs">
                   {phase === 'receipts'
@@ -352,7 +361,7 @@ export default function RecordWizard({
                   className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-colors ${
                     i === current ? 'bg-accent/15 text-accent border-accent/30' : 'bg-surface-2 text-muted border-border-strong'
                   }`}>
-                  {r.store.trim() || `Receipt ${i + 1}`}
+                  {draftTitle(r, 1)}
                 </button>
               ))}
               <button onClick={() => { setReceipts(prev => prev.filter((_, i) => i !== current)); setCurrent(0) }}

@@ -48,3 +48,6 @@ next-env.d.ts
 
 # claude code
 .claude/
+
+# netlify cli state + its bundled plugins (thousands of vendored files)
+.netlify/

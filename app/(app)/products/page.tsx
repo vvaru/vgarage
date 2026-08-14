@@ -7,6 +7,7 @@ import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
 import InventoryTab from '@/components/inventory/InventoryTab'
 import { UNIT_GROUPS, guessUnit, fmtQty } from '@/lib/units'
+import { findType, guessProductType, type ProductType } from '@/lib/productTypes'
 import type { Product, ProductLink, ServiceCategory } from '@/lib/types'
 
 interface ProductWithLinks extends Product {
@@ -19,6 +20,7 @@ interface LinkDraft { label: string; url: string }
 const EMPTY_FORM = {
   name: '',
   brand: '',
+  typeName: '',        // what it IS; free text so a new type can be named inline
   unit: '',            // blank = follow the name-based guess until edited by hand
   notes: '',
   categoryIds: [] as string[],
@@ -43,6 +45,8 @@ export default function ProductsPage() {
   const [hasEdited, setHasEdited] = useState(false)
   const [saving, setSaving] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [productTypes, setProductTypes] = useState<ProductType[]>([])
+  const [assigning, setAssigning] = useState<string | null>(null)
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false)
   const categoryDropdownRef = useRef<HTMLDivElement>(null)
 
@@ -58,6 +62,9 @@ export default function ProductsPage() {
         supabase.from('product_category_links').select('*'),
         supabase.from('service_categories').select('*').eq('vehicle_id', vehicle.id).order('name'),
       ])
+      // Types are optional until the SQL is run — stay quiet if the table is absent.
+      const typesQ = await supabase.from('product_types').select('*').eq('user_id', user.id).order('name')
+      setProductTypes((typesQ.data ?? []) as ProductType[])
       const combined: ProductWithLinks[] = (prods ?? []).map(p => ({
         ...p,
         links: (links ?? []).filter(l => l.product_id === p.id),
@@ -108,6 +115,7 @@ export default function ProductsPage() {
     setForm({
       name: p.name,
       brand: p.brand ?? '',
+      typeName: productTypes.find(t => t.id === p.product_type_id)?.name ?? '',
       unit: (p as ProductWithLinks & { unit?: string }).unit ?? '',
       notes: p.notes ?? '',
       categoryIds: p.categoryIds,
@@ -135,9 +143,24 @@ export default function ProductsPage() {
     if (!user || !vehicle) return
     setSaving(true)
 
+    // Resolve the typed name to a type row, creating it if it's a new one.
+    let typeId: string | null = null
+    const wantedType = form.typeName.trim()
+    if (wantedType) {
+      const existing = findType(productTypes, wantedType)
+      if (existing) {
+        typeId = existing.id
+      } else {
+        const { data } = await supabase.from('product_types')
+          .insert({ user_id: user.id, name: wantedType }).select('id').single()
+        typeId = data?.id ?? null
+      }
+    }
+
     const payload = {
       user_id: user.id,
       vehicle_id: null,     // garage-wide, matching the inventory model
+      product_type_id: typeId,
       name: form.name.trim(),
       brand: form.brand.trim() || null,
       unit: form.unit.trim() || guessUnit(form.name),
@@ -196,6 +219,47 @@ export default function ProductsPage() {
     : products
 
   const categoryName = (id: string) => categories.find(c => c.id === id)?.name ?? id
+
+  // Catalog groups by what a product IS. Untyped ones collect at the end with a
+  // suggestion rather than being scattered through the list unexplained.
+  const grouped = (() => {
+    const byType = new Map<string, { type: ProductType | null; items: ProductWithLinks[] }>()
+    for (const p of visible) {
+      const t = productTypes.find(x => x.id === p.product_type_id) ?? null
+      const key = t?.id ?? '__untyped__'
+      if (!byType.has(key)) byType.set(key, { type: t, items: [] })
+      byType.get(key)!.items.push(p)
+    }
+    const groups = [...byType.values()]
+    return [
+      ...groups.filter(g => g.type).sort((a, b) => a.type!.name.localeCompare(b.type!.name)),
+      ...groups.filter(g => !g.type),
+    ]
+  })()
+
+  // Assign a type to a product, creating the type if it's new.
+  async function applyType(product: ProductWithLinks, typeName: string) {
+    if (!user || !typeName.trim()) return
+    setAssigning(product.id)
+    try {
+      let type = findType(productTypes, typeName)
+      if (!type) {
+        const { data } = await supabase.from('product_types')
+          .insert({ user_id: user.id, name: typeName.trim() }).select('*').single()
+        if (!data) return
+        type = data as ProductType
+      }
+      await supabase.from('products').update({ product_type_id: type.id }).eq('id', product.id)
+      // Carry the product's category tags up to the type — services link to types.
+      for (const catId of product.categoryIds) {
+        await supabase.from('product_type_category_links')
+          .upsert({ product_type_id: type.id, category_id: catId })
+      }
+      await load()
+    } finally {
+      setAssigning(null)
+    }
+  }
 
   const activeFilterName = categoryFilter ? categories.find(c => c.id === categoryFilter)?.name : null
 
@@ -300,8 +364,25 @@ export default function ProductsPage() {
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {visible.map(p => (
+          <div className="space-y-8">
+            {grouped.map(g => (
+              <div key={g.type?.id ?? 'untyped'}>
+                <div className="flex items-baseline gap-2 mb-3">
+                  <h2 className="text-sm font-bold text-foreground">
+                    {g.type?.name ?? 'Not classified yet'}
+                  </h2>
+                  <span className="text-faint text-xs">
+                    {g.items.length} {g.items.length === 1 ? 'model' : 'models'}
+                  </span>
+                </div>
+                {!g.type && (
+                  <p className="text-faint text-xs mb-3 max-w-2xl">
+                    A type says what a thing <em>is</em> — “Transmission Fluid” — while the name below is the
+                    specific model. Receipts and service categories use the type, so these read as part numbers until set.
+                  </p>
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                  {g.items.map(p => (
               <div key={p.id} className="bg-surface border border-border rounded-3xl p-5 flex flex-col gap-3">
                 {/* Top */}
                 <div className="flex items-start justify-between gap-2">
@@ -315,8 +396,24 @@ export default function ProductsPage() {
                   </div>
                 </div>
 
+                {/* Untyped: offer the guess inline rather than making them dig */}
+                {!p.product_type_id && (() => {
+                  const guess = guessProductType(p.name, p.categoryIds.map(categoryName))
+                  return guess.name ? (
+                    <button onClick={() => applyType(p, guess.name!)} disabled={assigning === p.id}
+                      className="self-start bg-accent/10 text-accent border border-accent/20 rounded-lg px-2 py-1 text-xs font-medium hover:bg-accent/20 disabled:opacity-50 transition-colors">
+                      {assigning === p.id ? 'Setting…' : `Looks like ${guess.name} — set it`}
+                    </button>
+                  ) : (
+                    <button onClick={() => openEdit(p)}
+                      className="self-start bg-warn/10 text-warn border border-warn/20 rounded-lg px-2 py-1 text-xs font-medium hover:bg-warn/20 transition-colors">
+                      Set a product type
+                    </button>
+                  )
+                })()}
+
                 {/* Products created from a receipt arrive bare — make that findable */}
-                {p.categoryIds.length === 0 && p.links.length === 0 && (
+                {p.product_type_id && p.categoryIds.length === 0 && p.links.length === 0 && (
                   <button onClick={() => openEdit(p)}
                     className="self-start bg-warn/10 text-warn border border-warn/20 rounded-lg px-2 py-0.5 text-xs font-medium hover:bg-warn/20 transition-colors">
                     Add details
@@ -357,6 +454,9 @@ export default function ProductsPage() {
                 {p.links.length === 0 && (
                   <p className="text-faint text-xs mt-auto pt-1">No buy links</p>
                 )}
+              </div>
+                  ))}
+                </div>
               </div>
             ))}
           </div>
@@ -399,6 +499,26 @@ export default function ProductsPage() {
                   onChange={e => patchForm({ brand: e.target.value })}
                   className="w-full bg-surface-2 border border-border-strong rounded-xl px-4 py-3 text-foreground placeholder-faint focus:outline-none focus:border-accent/70 transition-all"
                 />
+              </div>
+
+              {/* Product type — what it IS, above this specific model */}
+              <div>
+                <label className="block text-sm font-medium text-muted mb-1.5">Product type</label>
+                <input
+                  type="text"
+                  list="product-type-options"
+                  placeholder="e.g. Transmission Fluid"
+                  value={form.typeName}
+                  onChange={e => patchForm({ typeName: e.target.value })}
+                  className="w-full bg-surface-2 border border-border-strong rounded-xl px-4 py-3 text-foreground placeholder-faint focus:outline-none focus:border-accent/70 transition-all"
+                />
+                <datalist id="product-type-options">
+                  {productTypes.map(t => <option key={t.id} value={t.name} />)}
+                </datalist>
+                <p className="text-faint text-xs mt-1.5">
+                  What it is, not which one — “{form.name.trim() || 'HCF2'}” is the model, “Transmission Fluid” is the type.
+                  Receipts and services are named by the type.
+                </p>
               </div>
 
               {/* Unit — how inventory counts this thing */}

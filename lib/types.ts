@@ -107,10 +107,11 @@ export interface Product {
   id: string
   user_id: string
   vehicle_id: string | null
-  name: string
+  name: string             // the MODEL, e.g. "HCF2" — the type sits above it
   brand: string | null
   notes: string | null
   unit?: string            // inventory unit (gal, qt, each…); added with the inventory feature
+  product_type_id?: string | null   // what it IS, e.g. "Transmission Fluid"
   created_at: string
 }
 

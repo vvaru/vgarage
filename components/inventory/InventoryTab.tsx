@@ -10,6 +10,7 @@ import { useVehicle } from '@/components/vehicle/VehicleContext'
 import { computeStock, lotBalancesByItem, type LotBalance, type ProductStock } from '@/lib/inventory'
 import { fmtQty, fmtNum } from '@/lib/units'
 import { receiptTitle, receiptWhere } from '@/lib/receipts'
+import type { ProductType } from '@/lib/productTypes'
 import { getCache, setCache } from '@/lib/cache'
 import type {
   Product, Receipt, ReceiptItem, InventoryAdjustment, ServiceProductUsage, ServiceLog, ServiceCategory,
@@ -25,7 +26,8 @@ interface LogReceiptLink { log_id: string; receipt_id: string }
 interface Snapshot {
   products: ProductU[]; receipts: Receipt[]; items: ReceiptItem[]
   usage: ServiceProductUsage[]; adjustments: InventoryAdjustment[]; pastLogs: PastLog[]
-  allLogs: PastLog[]; links: LogReceiptLink[]; categories: ServiceCategory[]; tablesReady: boolean
+  allLogs: PastLog[]; links: LogReceiptLink[]; categories: ServiceCategory[]
+  productTypes: ProductType[]; tablesReady: boolean
 }
 
 export default function InventoryTab() {
@@ -42,6 +44,7 @@ export default function InventoryTab() {
   const [allLogs, setAllLogs] = useState<PastLog[]>([])
   const [links, setLinks] = useState<LogReceiptLink[]>([])
   const [categories, setCategories] = useState<ServiceCategory[]>([])
+  const [productTypes, setProductTypes] = useState<ProductType[]>([])
   const [modal, setModal] = useState<{ past: PastReceipt | null } | null>(null)
   const [detail, setDetail] = useState<Receipt | null>(null)
   const [useStock, setUseStock] = useState<ProductStock | null>(null)
@@ -57,7 +60,8 @@ export default function InventoryTab() {
       setProducts(s.products); setReceipts(s.receipts); setItems(s.items)
       setUsage(s.usage); setAdjustments(s.adjustments); setPastLogs(s.pastLogs)
       setAllLogs(s.allLogs ?? []); setLinks(s.links ?? [])
-      setCategories(s.categories ?? []); setTablesReady(s.tablesReady)
+      setCategories(s.categories ?? []); setProductTypes(s.productTypes ?? [])
+      setTablesReady(s.tablesReady)
     }
 
     const fetchFresh = async () => {
@@ -83,18 +87,20 @@ export default function InventoryTab() {
       }
       // All logs, not just the ones carrying an image: usage rows can point at any
       // service, and FIFO order depends on those dates.
-      const [{ data: pl }, { data: cats }] = await Promise.all([
+      const [{ data: pl }, { data: cats }, typesQ] = await Promise.all([
         supabase.from('service_logs').select('*').eq('user_id', uid).order('date', { ascending: false }),
         vehicle
           ? supabase.from('service_categories').select('*').eq('vehicle_id', vehicle.id).order('name')
           : Promise.resolve({ data: [] as ServiceCategory[] }),
+        supabase.from('product_types').select('*').eq('user_id', uid).order('name'),
       ])
       const allLogs = (pl ?? []) as PastLog[]
       const snap: Snapshot = {
         products: (prods ?? []) as ProductU[], receipts: rec, items: its,
         usage: use, adjustments: adj,
         pastLogs: allLogs.filter(l => l.receipt_url),
-        allLogs, links: lnk, categories: (cats ?? []) as ServiceCategory[], tablesReady: ready,
+        allLogs, links: lnk, categories: (cats ?? []) as ServiceCategory[],
+        productTypes: (typesQ.data ?? []) as ProductType[], tablesReady: ready,
       }
       setCache(key, snap)
       apply(snap)
@@ -125,6 +131,12 @@ export default function InventoryTab() {
   const lots = useMemo(() => lotBalancesByItem(stock), [stock])
   const productName = (id: string) => products.find(p => p.id === id)?.name ?? 'Unknown product'
   const productUnit = (id: string) => products.find(p => p.id === id)?.unit ?? 'each'
+  // What the thing IS, for headlines. Falls back to the model when untyped, so
+  // an unclassified product still reads as something rather than nothing.
+  const typeNameOf = (id: string) => {
+    const p = products.find(x => x.id === id)
+    return productTypes.find(t => t.id === p?.product_type_id)?.name ?? p?.name ?? 'Unknown product'
+  }
 
   // Past receipts not yet pulled into inventory (no receipt row reuses their image).
   const importedImages = useMemo(() => new Set(receipts.map(r => r.image_path).filter(Boolean)), [receipts])
@@ -288,7 +300,7 @@ export default function InventoryTab() {
               const linkedLogs = logIds.map(id => logById.get(id)).filter(Boolean) as PastLog[]
               const title = receiptTitle({
                 store: r.store,
-                products: rItems.map(it => productName(it.product_id)),
+                products: rItems.map(it => typeNameOf(it.product_id)),
                 services: linkedLogs.map(l => l.service_type),
                 noProducts: r.no_products,
               })

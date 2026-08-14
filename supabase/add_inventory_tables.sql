@@ -13,6 +13,45 @@
 -- scoped by user_id instead. Existing per-vehicle products keep working.
 ALTER TABLE products ADD COLUMN IF NOT EXISTS unit text NOT NULL DEFAULT 'each';
 
+-- ── Product types: WHAT a thing is, above the specific model you bought ──────
+-- "Transmission Fluid" is the type; Honda HCF2 and Valvoline Maxlife ATF are
+-- models of it. Service categories link to the TYPE, so any model satisfies the
+-- job, and a receipt can say "Transmission Fluid" instead of a part number.
+CREATE TABLE IF NOT EXISTS product_types (
+  id         uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id    uuid REFERENCES auth.users NOT NULL,
+  name       text NOT NULL,
+  created_at timestamptz DEFAULT now()
+);
+
+-- Nullable: existing products keep working untyped until one is assigned.
+ALTER TABLE products ADD COLUMN IF NOT EXISTS product_type_id uuid
+  REFERENCES product_types(id) ON DELETE SET NULL;
+
+CREATE TABLE IF NOT EXISTS product_type_category_links (
+  product_type_id uuid REFERENCES product_types(id) ON DELETE CASCADE NOT NULL,
+  category_id     uuid REFERENCES service_categories(id) ON DELETE CASCADE NOT NULL,
+  PRIMARY KEY (product_type_id, category_id)
+);
+
+ALTER TABLE product_types                ENABLE ROW LEVEL SECURITY;
+ALTER TABLE product_type_category_links  ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "own product_types" ON product_types;
+CREATE POLICY "own product_types" ON product_types FOR ALL
+  USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "own product_type_category_links" ON product_type_category_links;
+CREATE POLICY "own product_type_category_links" ON product_type_category_links FOR ALL
+  USING (EXISTS (SELECT 1 FROM product_types t WHERE t.id = product_type_category_links.product_type_id AND t.user_id = auth.uid()))
+  WITH CHECK (EXISTS (SELECT 1 FROM product_types t WHERE t.id = product_type_category_links.product_type_id AND t.user_id = auth.uid()));
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON product_types, product_type_category_links TO authenticated;
+GRANT ALL ON product_types, product_type_category_links TO service_role;
+
+CREATE INDEX IF NOT EXISTS products_type_idx ON products(product_type_id);
+CREATE INDEX IF NOT EXISTS product_type_category_links_type_idx ON product_type_category_links(product_type_id);
+
 -- ── Receipts: a purchase (with line items) OR a standalone image (labor bill) ─
 CREATE TABLE IF NOT EXISTS receipts (
   id          uuid DEFAULT gen_random_uuid() PRIMARY KEY,

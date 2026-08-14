@@ -6,7 +6,7 @@ import { Split, Link2, Package, Receipt as ReceiptIcon, X, SlidersHorizontal, Ch
 import ServiceFilterPanel from '@/components/service/ServiceFilterPanel'
 import { applyServiceFilter, EMPTY_FILTER, isFilterActive, type ServiceFilterState } from '@/lib/serviceFilter'
 import { fmtQty, fmtNum } from '@/lib/units'
-import { receiptTitle } from '@/lib/receipts'
+import { receiptTitle, receiptWhere } from '@/lib/receipts'
 import {
   splitMember, suggestExisting, drawsCost,
   type AvailableProduct, type ReceiptDraft, type ServiceGroup, type TagRef,
@@ -50,7 +50,8 @@ export default function ServiceStep({ groups, setGroups, receipts, available, lo
         l.newName.trim() || available.find(a => a.key === l.productId)?.name || ''),
       noProducts: r.noProducts,
     }, 2)
-    return `${title} · ${when}`
+    const where = receiptWhere(r.store, when)
+    return where && where !== title ? `${title} · ${where}` : title
   }
 
   function setDraw(groupKey: string, productKey: string, qty: string) {

@@ -9,7 +9,7 @@ import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
 import { computeStock, lotBalancesByItem, type LotBalance, type ProductStock } from '@/lib/inventory'
 import { fmtQty, fmtNum } from '@/lib/units'
-import { receiptTitle } from '@/lib/receipts'
+import { receiptTitle, receiptWhere } from '@/lib/receipts'
 import { getCache, setCache } from '@/lib/cache'
 import type {
   Product, Receipt, ReceiptItem, InventoryAdjustment, ServiceProductUsage, ServiceLog, ServiceCategory,
@@ -305,7 +305,9 @@ export default function InventoryTab() {
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0 flex-wrap">
                       <p className="font-medium text-foreground text-sm">{title}</p>
-                      <span className="text-faint text-xs">{r.date ? format(parseISO(r.date), 'MMM d, yyyy') : ''}</span>
+                      <span className="text-faint text-xs">
+                        {receiptWhere(r.store, r.date ? format(parseISO(r.date), 'MMM d, yyyy') : null)}
+                      </span>
                       {flags.map(f => (
                         <span key={f.label} className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md border ${f.cls}`}>{f.label}</span>
                       ))}

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { format, parseISO } from 'date-fns'
-import { Split, Link2, Package, Receipt as ReceiptIcon, X, SlidersHorizontal, Check } from 'lucide-react'
+import { Split, Link2, Package, Receipt as ReceiptIcon, X, SlidersHorizontal, Check, Plus } from 'lucide-react'
 import ServiceFilterPanel from '@/components/service/ServiceFilterPanel'
 import { applyServiceFilter, EMPTY_FILTER, isFilterActive, type ServiceFilterState } from '@/lib/serviceFilter'
 import { fmtQty, fmtNum } from '@/lib/units'
@@ -60,12 +60,27 @@ export default function ServiceStep({ groups, setGroups, receipts, available, lo
     return where && where !== title ? `${title} · ${where}` : title
   }
 
-  function setDraw(groupKey: string, productKey: string, qty: string) {
+  // Rows are added on demand rather than one per product in stock: a garage
+  // with thirty products shouldn't render thirty inputs to record using one.
+  function addDraw(groupKey: string) {
     const g = groups.find(x => x.key === groupKey)
     if (!g) return
-    const rest = g.draws.filter(d => d.productKey !== productKey)
-    patch(groupKey, { draws: qty.trim() === '' || parseFloat(qty) <= 0 ? rest : [...rest, { productKey, qty }] })
+    patch(groupKey, { draws: [...g.draws, { productKey: '', qty: '' }] })
   }
+  function updateDraw(groupKey: string, idx: number, p: Partial<{ productKey: string; qty: string }>) {
+    const g = groups.find(x => x.key === groupKey)
+    if (!g) return
+    patch(groupKey, { draws: g.draws.map((d, i) => (i === idx ? { ...d, ...p } : d)) })
+  }
+  function removeDraw(groupKey: string, idx: number) {
+    const g = groups.find(x => x.key === groupKey)
+    if (!g) return
+    patch(groupKey, { draws: g.draws.filter((_, i) => i !== idx) })
+  }
+
+  // Split the picker so "the thing I just bought" is the first thing offered.
+  const fromReceipts = available.filter(a => a.incoming > 0)
+  const fromStock = available.filter(a => a.incoming === 0)
 
   if (groups.length === 0) {
     return (
@@ -208,26 +223,58 @@ export default function ServiceStep({ groups, setGroups, receipts, available, lo
                   <Package size={12} className="text-muted" />
                   <label className="text-[10px] uppercase tracking-wide text-faint">Products used (optional)</label>
                 </div>
-                <div className="space-y-1.5">
-                  {available.map(a => {
-                    const drawn = g.draws.find(d => d.productKey === a.key)?.qty ?? ''
-                    return (
-                      <div key={a.key} className="flex items-center gap-2 bg-surface-2/50 border border-border rounded-xl px-3 py-2">
-                        <span className="flex-1 min-w-0">
-                          <span className="text-foreground text-sm truncate block">{a.name}</span>
-                          <span className="text-faint text-[11px]">
-                            {fmtQty(a.onHand, a.unit)} available
-                            {a.incoming > 0 && <span className="text-accent"> · {fmtNum(a.incoming)} from these receipts</span>}
-                          </span>
-                        </span>
-                        <input type="number" inputMode="decimal" placeholder="0" value={drawn}
-                          onChange={e => setDraw(g.key, a.key, e.target.value)}
-                          className="w-20 shrink-0 bg-surface-2 border border-border-strong rounded-lg px-2 py-1.5 text-foreground placeholder-faint text-sm focus:outline-none focus:border-accent/70" />
-                      </div>
-                    )
-                  })}
-                </div>
-                <p className="text-faint text-[11px] mt-1.5">Leave blank and attach products later — the receipt still links either way.</p>
+                {g.draws.length > 0 && (
+                  <div className="space-y-2">
+                    {g.draws.map((d, i) => {
+                      const a = available.find(x => x.key === d.productKey)
+                      return (
+                        <div key={i}>
+                          <div className="flex items-center gap-2">
+                            <select
+                              value={d.productKey}
+                              onChange={e => updateDraw(g.key, i, { productKey: e.target.value })}
+                              className={`${inputCls} flex-1`}
+                            >
+                              <option value="">Pick a product…</option>
+                              {fromReceipts.length > 0 && (
+                                <optgroup label="On these receipts">
+                                  {fromReceipts.map(x => <option key={x.key} value={x.key}>{x.name}</option>)}
+                                </optgroup>
+                              )}
+                              {fromStock.length > 0 && (
+                                <optgroup label="In inventory">
+                                  {fromStock.map(x => <option key={x.key} value={x.key}>{x.name}</option>)}
+                                </optgroup>
+                              )}
+                            </select>
+                            <input
+                              type="number" inputMode="decimal" placeholder="qty" value={d.qty}
+                              onChange={e => updateDraw(g.key, i, { qty: e.target.value })}
+                              className="w-20 shrink-0 bg-surface-2 border border-border-strong rounded-xl px-2 py-2.5 text-foreground placeholder-faint text-sm focus:outline-none focus:border-accent/70"
+                            />
+                            <button
+                              onClick={() => removeDraw(g.key, i)}
+                              className="w-9 h-9 shrink-0 rounded-xl bg-surface-2 flex items-center justify-center text-muted hover:text-danger transition-colors"
+                            ><X size={14} /></button>
+                          </div>
+                          {a && (
+                            <p className="text-faint text-[11px] mt-1">
+                              {fmtQty(a.onHand, a.unit)} available
+                              {a.incoming > 0 && <span className="text-accent"> · {fmtNum(a.incoming)} from these receipts</span>}
+                            </p>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+                <button
+                  onClick={() => addDraw(g.key)}
+                  className="mt-2 flex items-center gap-1.5 text-muted hover:text-accent text-xs transition-colors"
+                ><Plus size={12} /> Add a product used</button>
+                {g.draws.length === 0 && (
+                  <p className="text-faint text-[11px] mt-1.5">Or attach products later — the receipt links either way.</p>
+                )}
               </div>
             )}
 

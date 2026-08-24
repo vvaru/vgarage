@@ -243,15 +243,21 @@ export default function RecordWizard({
 
         // Plan the stock draws first: a DIY job isn't charged for, so what it
         // cost IS what its parts cost, priced off the lots FIFO actually takes.
-        const plans: { pid: string; plan: { lot: LotBalance; qty: number }[]; short: number }[] = []
+        // Rows are free-form, so the same product can appear twice. Total it
+        // first: planning each row separately would draw the same lot twice.
+        const wanted = new Map<string, number>()
         for (const d of g.draws) {
-          const want = num(d.qty)
-          if (want == null || want <= 0) continue
+          const q = num(d.qty)
+          if (q == null || q <= 0) continue
           const pid = d.productKey.startsWith('draft:')
             ? draftLineToProduct.get(d.productKey)
             : d.productKey
           if (!pid) continue
+          wanted.set(pid, (wanted.get(pid) ?? 0) + q)
+        }
 
+        const plans: { pid: string; plan: { lot: LotBalance; qty: number }[]; short: number }[] = []
+        for (const [pid, want] of wanted) {
           const committed: LotBalance[] = (stock.get(pid)?.lots ?? []).filter(b => b.remaining > 0)
           const incoming: LotBalance[] = (freshLots.get(pid) ?? []).map(lot => ({ lot, used: 0, remaining: lot.qty }))
           const all = [...committed, ...incoming].sort((a, b) => {

@@ -106,7 +106,9 @@ export default function ServiceStep({ groups, setGroups, receipts, available, lo
               )}
             </div>
 
-            {/* What fed this record, and how to undo a wrong merge */}
+            {/* What fed this record, and how to undo a wrong merge. Groups carried
+                in from an existing link have no members and skip this entirely. */}
+            {g.members.length > 0 && (
             <div className="bg-surface-2/50 border border-border rounded-xl divide-y divide-border">
               {g.members.map(m => (
                 <div key={`${m.receiptKey}:${m.tagKey}`} className="flex items-center justify-between gap-2 px-3 py-2">
@@ -121,6 +123,7 @@ export default function ServiceStep({ groups, setGroups, receipts, available, lo
                 </div>
               ))}
             </div>
+            )}
 
             {/* Attach to something already logged */}
             {linked ? (

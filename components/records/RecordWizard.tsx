@@ -113,12 +113,39 @@ export default function RecordWizard({
     noProducts: r.noProducts,
   }, max)
 
+  // Services already attached to the receipt being edited. Without these, a
+  // saved receipt's linked services never reach step 2 and it wrongly reports
+  // having none.
+  function linkedGroups(): ServiceGroup[] {
+    return (seed?.logIds ?? []).map(id => {
+      const l = logs.find(x => x.id === id)
+      return {
+        key: `linked:${id}`,
+        label: l?.service_type ?? 'Service',
+        categoryId: l?.category_id ?? '',
+        customName: l?.service_type ?? '',
+        performedBy: (l?.performed_by === 'owner' ? 'owner' : 'shop') as 'shop' | 'owner',
+        members: [],
+        linkedLogId: id,
+        date: l?.date ?? today,
+        odometer: l ? String(l.odometer) : '',
+        cost: l?.cost == null ? '' : String(l.cost),
+        shopEquivalent: l?.shop_equivalent_cost == null ? '' : String(l.shop_equivalent_cost),
+        notes: l?.notes ?? '',
+        draws: [],
+      }
+    })
+  }
+
   function goToServices() {
-    setGroups(prev => mergeGroupEdits(groupServiceTags(receipts, categories), prev))
+    const fresh = [...linkedGroups(), ...groupServiceTags(receipts, categories)]
+    setGroups(prev => mergeGroupEdits(fresh, prev))
     setPhase('services')
   }
 
   const pendingCount = receipts.filter(isPending).length
+  // Step 2 only earns its place when something there needs answering.
+  const hasServiceWork = receipts.some(r => r.tags.length > 0) || (seed?.logIds?.length ?? 0) > 0
 
   async function handleSave() {
     if (!user || !vehicle) return
@@ -247,7 +274,7 @@ export default function RecordWizard({
           performed_by: isDiy ? 'owner' : 'shop',
           shop_name: isDiy
             ? null
-            : (receipts.find(r => r.key === g.members[0]?.receiptKey)?.store.trim() || null),
+            : ((receipts.find(r => r.key === g.members[0]?.receiptKey) ?? receipts[0])?.store.trim() || null),
           date: g.date,
           odometer: num(g.odometer) ?? vehicle.odometer,
           // No draws means we know nothing about what it cost — not that it was free.
@@ -271,8 +298,12 @@ export default function RecordWizard({
           if (lErr) throw new Error(lErr.message)
         }
 
-        // Attach every receipt that fed this service.
-        for (const receiptKey of new Set(g.members.map(m => m.receiptKey))) {
+        // Attach every receipt that fed this service. A group carried in from an
+        // existing link has no members, so it keeps its tie to the receipt in hand.
+        const feeders = g.members.length > 0
+          ? [...new Set(g.members.map(m => m.receiptKey))]
+          : receipts.map(r => r.key)
+        for (const receiptKey of feeders) {
           await withTimeout(supabase.from('service_log_receipts')
             .upsert({ log_id: logId, receipt_id: ids.receipts[receiptKey] }), 9000)
         }
@@ -398,10 +429,19 @@ export default function RecordWizard({
                   className="flex items-center justify-center gap-1.5 bg-surface-2 hover:bg-border text-foreground font-medium rounded-2xl px-4 py-3 transition-colors">
                   <Plus size={15} /> <span className="hidden sm:inline">Another receipt</span>
                 </button>
-                <button onClick={goToServices}
-                  className="flex-1 flex items-center justify-center gap-1.5 bg-accent hover:bg-accent-hover text-white font-bold rounded-2xl py-3 transition-colors">
-                  Next <ChevronRight size={16} />
-                </button>
+                {/* Nothing to answer in step 2 — save from here rather than
+                    marching through a page that has nothing on it. */}
+                {hasServiceWork ? (
+                  <button onClick={goToServices}
+                    className="flex-1 flex items-center justify-center gap-1.5 bg-accent hover:bg-accent-hover text-white font-bold rounded-2xl py-3 transition-colors">
+                    Next <ChevronRight size={16} />
+                  </button>
+                ) : (
+                  <button onClick={handleSave} disabled={saving}
+                    className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-40 text-white font-bold rounded-2xl py-3 transition-colors">
+                    {saving ? 'Saving…' : seed ? 'Save changes' : 'Save receipt'}
+                  </button>
+                )}
               </>
             ) : (
               <>

@@ -6,7 +6,7 @@ import { X, Plus, Receipt as ReceiptIcon, ChevronLeft, ChevronRight, Trash2 } fr
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
-import { withRetry, withTimeout } from '@/lib/recover'
+import { withRetry, write, warmUp } from '@/lib/recover'
 import ReceiptStep from './wizard/ReceiptStep'
 import ServiceStep from './wizard/ServiceStep'
 import {
@@ -85,7 +85,16 @@ export default function RecordWizard({
   })
   const [groups, setGroups] = useState<ServiceGroup[]>([])
 
-  const saveIds = useRef<{ receipts: Record<string, string>; lines: Record<string, string>; logs: Record<string, string> } | null>(null)
+  // Every id a save will write, generated once and reused by every retry. A
+  // retry must rewrite the same rows, never add new ones.
+  const saveIds = useRef<{
+    receipts: Record<string, string>
+    lines: Record<string, string>
+    logs: Record<string, string>
+    usage: Record<string, string>
+    adjustments: Record<string, string>
+    uploads: Record<string, string>
+  } | null>(null)
 
   // Existing lines already drawn from can't be removed without breaking a service.
   const lockedItemIds = useMemo(() => {
@@ -156,11 +165,19 @@ export default function RecordWizard({
         receipts: Object.fromEntries(receipts.map(r => [r.key, r.receiptId ?? crypto.randomUUID()])),
         lines: Object.fromEntries(receipts.flatMap(r => r.lines.map(l => [`${r.key}:${l.key}`, l.itemId ?? crypto.randomUUID()]))),
         logs: Object.fromEntries(groups.map(g => [g.key, g.linkedLogId ?? crypto.randomUUID()])),
+        usage: {},
+        adjustments: {},
+        uploads: {},
       }
     }
     const ids = saveIds.current
 
     try {
+      // Filling in a receipt takes minutes, so the socket from page load is
+      // usually dead by now. Spend it on a request that costs nothing, rather
+      // than on the first of twenty writes and leaving the batch half-done.
+      await warmUp(() => supabase.from('vehicles').select('id', { head: true, count: 'exact' }))
+
       // Lots created in this save, so product draws can be allocated against them.
       const freshLots = new Map<string, Lot[]>()
       const draftLineToProduct = new Map<string, string>()   // `draft:<lineKey>` → real product id
@@ -173,8 +190,12 @@ export default function RecordWizard({
         let imagePath = r.existingImage
         if (r.file) {
           const ext = r.file.name.split('.').pop() ?? 'jpg'
-          const path = `${user.id}/${crypto.randomUUID()}.${ext}`
-          const { error: upErr } = await withTimeout(supabase.storage.from('receipts').upload(path, r.file, { upsert: true }), 20000)
+          // Stable path: a fresh uuid per attempt would leave an orphaned copy
+          // in storage every time a save was retried.
+          ids.uploads[r.key] ??= `${user.id}/${crypto.randomUUID()}.${ext}`
+          const path = ids.uploads[r.key]
+          const { error: upErr } = await withRetry(
+            () => write(supabase.storage.from('receipts').upload(path, r.file!, { upsert: true })), 1, 2500)
           if (!upErr) imagePath = path
         }
 
@@ -182,11 +203,11 @@ export default function RecordWizard({
         const svc = r.tags.reduce((s, t) => s + (num(t.amount) ?? 0), 0)
         const total = parts + svc
 
-        const { error: rErr } = await withRetry(() => withTimeout(supabase.from('receipts').upsert({
+        const { error: rErr } = await withRetry(() => write(supabase.from('receipts').upsert({
           id: receiptId, user_id: user.id, date: r.date || null, store: r.store.trim() || null,
           image_path: imagePath, no_products: r.noProducts,
           total_cost: total > 0 ? Math.round(total * 100) / 100 : null,
-        }), 9000), 2, 800)
+        })), 2, 2500)
         if (rErr) throw new Error(rErr.message)
 
         if (r.noProducts) continue
@@ -198,33 +219,33 @@ export default function RecordWizard({
 
           if (!pid) {
             pid = itemId   // reuse the stable id so a retry doesn't duplicate the product
-            const { error: pErr } = await withRetry(() => withTimeout(supabase.from('products').upsert({
+            const { error: pErr } = await withRetry(() => write(supabase.from('products').upsert({
               id: pid, user_id: user.id, vehicle_id: null,
               name: l.newName.trim(), brand: l.newBrand.trim() || null, unit: l.unit || 'each',
               notes: l.newNotes.trim() || null,
-            }), 9000), 2, 800)
+            })), 2, 2500)
             if (pErr) throw new Error(pErr.message)
             draftLineToProduct.set(`draft:${l.key}`, pid)
 
             // Catalogue extras — best-effort, never worth failing a receipt over.
             if (l.newBuyUrl.trim()) {
               try {
-                await withTimeout(supabase.from('product_links').delete().eq('product_id', pid), 9000)
-                await withTimeout(supabase.from('product_links')
-                  .insert({ product_id: pid, label: 'Buy', url: l.newBuyUrl.trim() }), 9000)
+                await write(supabase.from('product_links').delete().eq('product_id', pid))
+                await write(supabase.from('product_links')
+                  .insert({ product_id: pid, label: 'Buy', url: l.newBuyUrl.trim() }))
               } catch { /* the product still exists without a link */ }
             }
             for (const catId of l.newCategoryIds) categoryLinks.add(`${pid}|${catId}`)
           } else {
             const currentUnit = products.find(p => p.id === pid)?.unit ?? 'each'
             if (currentUnit !== l.unit) {
-              await withTimeout(supabase.from('products').update({ unit: l.unit }).eq('id', pid), 9000)
+              await write(supabase.from('products').update({ unit: l.unit }).eq('id', pid))
             }
           }
 
-          const { error: iErr } = await withRetry(() => withTimeout(supabase.from('receipt_items').upsert({
+          const { error: iErr } = await withRetry(() => write(supabase.from('receipt_items').upsert({
             id: itemId, receipt_id: receiptId, product_id: pid, qty, unit_cost: num(l.unitPrice),
-          }), 9000), 2, 800)
+          })), 2, 2500)
           if (iErr) throw new Error(iErr.message)
 
           const lot: Lot = {
@@ -294,13 +315,13 @@ export default function RecordWizard({
           // not blank out a cost that record already had.
           const patch: Record<string, unknown> = { ...fields }
           if (isDiy && plans.length === 0) delete patch.cost
-          const { error: uErr } = await withRetry(() => withTimeout(
-            supabase.from('service_logs').update(patch).eq('id', logId), 9000), 2, 800)
+          const { error: uErr } = await withRetry(() => write(
+            supabase.from('service_logs').update(patch).eq('id', logId)), 2, 2500)
           if (uErr) throw new Error(uErr.message)
         } else {
-          const { error: lErr } = await withRetry(() => withTimeout(supabase.from('service_logs').upsert({
+          const { error: lErr } = await withRetry(() => write(supabase.from('service_logs').upsert({
             id: logId, user_id: user.id, vehicle_id: vehicle.id, ...fields,
-          }), 9000), 2, 800)
+          })), 2, 2500)
           if (lErr) throw new Error(lErr.message)
         }
 
@@ -310,8 +331,8 @@ export default function RecordWizard({
           ? [...new Set(g.members.map(m => m.receiptKey))]
           : receipts.map(r => r.key)
         for (const receiptKey of feeders) {
-          await withTimeout(supabase.from('service_log_receipts')
-            .upsert({ log_id: logId, receipt_id: ids.receipts[receiptKey] }), 9000)
+          await write(supabase.from('service_log_receipts')
+            .upsert({ log_id: logId, receipt_id: ids.receipts[receiptKey] }))
         }
 
         // Using a product in a categorised service says what it's for, so the
@@ -320,21 +341,30 @@ export default function RecordWizard({
           for (const { pid } of plans) categoryLinks.add(`${pid}|${g.categoryId}`)
         }
 
-        // Write the draws planned above.
+        // Write the draws planned above. Ids come from the save-scoped store, not
+        // from inside the retried closure: generating one per attempt meant a
+        // retry wrote a NEW usage row instead of rewriting the same one, so every
+        // recovered save silently double-counted the stock it consumed.
         for (const { pid, plan, short } of plans) {
-          for (const p of plan) {
-            const { error: uErr } = await withRetry(() => withTimeout(supabase.from('service_product_usage').upsert({
-              id: crypto.randomUUID(), log_id: logId, product_id: pid,
+          for (let i = 0; i < plan.length; i++) {
+            const p = plan[i]
+            const usageKey = `${g.key}|${pid}|${i}`
+            ids.usage[usageKey] ??= crypto.randomUUID()
+            const { error: uErr } = await withRetry(() => write(supabase.from('service_product_usage').upsert({
+              id: ids.usage[usageKey], log_id: logId, product_id: pid,
               receipt_item_id: p.lot.lot.kind === 'receipt' ? p.lot.lot.id : null,
               qty: p.qty, unit_cost: p.lot.lot.unitCost,
-            }), 9000), 2, 800)
+            })), 2, 2500)
             if (uErr) throw new Error(uErr.message)
           }
           // Used more than we can account for — still record it, unallocated.
           if (short > 0) {
-            await withTimeout(supabase.from('service_product_usage').insert({
-              log_id: logId, product_id: pid, receipt_item_id: null, qty: short, unit_cost: null,
-            }), 9000)
+            const shortKey = `${g.key}|${pid}|short`
+            ids.usage[shortKey] ??= crypto.randomUUID()
+            await withRetry(() => write(supabase.from('service_product_usage').upsert({
+              id: ids.usage[shortKey], log_id: logId, product_id: pid,
+              receipt_item_id: null, qty: short, unit_cost: null,
+            })), 2, 2500)
           }
         }
       }
@@ -342,18 +372,18 @@ export default function RecordWizard({
       // ── 3. A past receipt stays attached to the record it came from ──────
       for (const r of receipts) {
         if (!r.originLogId) continue
-        await withTimeout(supabase.from('service_log_receipts')
-          .upsert({ log_id: r.originLogId, receipt_id: ids.receipts[r.key] }), 9000)
+        await write(supabase.from('service_log_receipts')
+          .upsert({ log_id: r.originLogId, receipt_id: ids.receipts[r.key] }))
       }
 
       // ── 4. Catalogue category tags, chosen or inferred ───────────────────
       for (const pair of categoryLinks) {
         const [product_id, category_id] = pair.split('|')
         try {
-          const { data: dupe } = await withTimeout(supabase.from('product_category_links')
-            .select('product_id').eq('product_id', product_id).eq('category_id', category_id).limit(1), 9000)
+          const { data: dupe } = await write(supabase.from('product_category_links')
+            .select('product_id').eq('product_id', product_id).eq('category_id', category_id).limit(1))
           if (!dupe || dupe.length === 0) {
-            await withTimeout(supabase.from('product_category_links').insert({ product_id, category_id }), 9000)
+            await write(supabase.from('product_category_links').insert({ product_id, category_id }))
           }
         } catch { /* a missing tag is not worth failing the save for */ }
       }

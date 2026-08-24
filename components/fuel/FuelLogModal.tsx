@@ -5,7 +5,7 @@ import { format } from 'date-fns'
 import { X, Fuel } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
-import { withRetry, withTimeout } from '@/lib/recover'
+import { withRetry, write } from '@/lib/recover'
 import { recomputeFuelMpg } from '@/lib/fuelMpg'
 import type { FuelLog, Vehicle } from '@/lib/types'
 
@@ -49,7 +49,7 @@ export default function FuelLogModal({ vehicle, log, onClose, onSaved }: Props) 
   // saved connection is dead; kicking a throwaway read now lets it reconnect while you
   // fill in the form, so Save is fast — often instant — by the time you tap it.
   useEffect(() => {
-    withTimeout(supabase.from('fuel_logs').select('id').eq('vehicle_id', vehicle.id).limit(1), 18000)
+    write(supabase.from('fuel_logs').select('id').eq('vehicle_id', vehicle.id).limit(1))
       .catch(() => { /* just warming the pipe; ignore the result */ })
   }, [vehicle.id])
 
@@ -104,14 +104,14 @@ export default function FuelLogModal({ vehicle, log, onClose, onSaved }: Props) 
       // dead pipe before the write below.
       let mpg: number | null = null
       if (G != null && G > 0) {
-        const { data: prev } = await withRetry(() => withTimeout(supabase
+        const { data: prev } = await withRetry(() => write(supabase
           .from('fuel_logs')
           .select('odometer')
           .eq('vehicle_id', vehicle.id)
           .lt('odometer', odo)
           .order('odometer', { ascending: false })
           .limit(1)
-          .maybeSingle(), 18000), 2, 800)
+          .maybeSingle()), 2, 2500)
         mpg = prev && odo - prev.odometer > 0 ? (odo - prev.odometer) / G : null
       }
 
@@ -128,14 +128,14 @@ export default function FuelLogModal({ vehicle, log, onClose, onSaved }: Props) 
       // pipe fails fast (9s) and the retry lands on a fresh connection. Because every
       // attempt targets the same rowId (upsert on the primary key), retrying can never
       // create a duplicate — so it's safe to just keep trying until it lands.
-      const { error: dbErr } = await withRetry(() => withTimeout(isEdit
+      const { error: dbErr } = await withRetry(() => write(isEdit
         ? supabase.from('fuel_logs').update(payload).eq('id', rowId)
-        : supabase.from('fuel_logs').upsert({ id: rowId, user_id: user.id, vehicle_id: vehicle.id, ...payload }), 18000), 2, 800)
+        : supabase.from('fuel_logs').upsert({ id: rowId, user_id: user.id, vehicle_id: vehicle.id, ...payload })), 2, 2500)
       if (dbErr) { setError(`Save failed (${dbErr.message}). Your entry is kept — tap Save to try again.`); return }
 
       if (odo > vehicle.odometer) {
         // Bumping the odometer is idempotent (sets an absolute value), so retry it too.
-        await withRetry(() => withTimeout(supabase.from('vehicles').update({ odometer: odo }).eq('id', vehicle.id), 18000), 2, 800)
+        await withRetry(() => write(supabase.from('vehicles').update({ odometer: odo }).eq('id', vehicle.id)), 2, 2500)
       }
       // Recompute the MPG chain: this fill-up may sit before an existing one (e.g. a
       // backfilled older entry), whose MPG must now be measured from this one.

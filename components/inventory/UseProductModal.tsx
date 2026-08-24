@@ -6,7 +6,7 @@ import { X, Wrench, ArrowRight } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
-import { withRetry, withTimeout } from '@/lib/recover'
+import { withRetry, write, warmUp } from '@/lib/recover'
 import { fmtQty, fmtNum } from '@/lib/units'
 import type { ProductStock, LotBalance } from '@/lib/inventory'
 
@@ -64,8 +64,11 @@ export default function UseProductModal({ stock, lotLabel, onClose, onSaved }: P
     const { logId } = ids.current
 
     try {
+      // Spend a stale socket on a free request before the writes start.
+      await warmUp(() => supabase.from('vehicles').select('id', { head: true, count: 'exact' }))
+
       // 1) The service record itself (idempotent on its id).
-      const { error: lErr } = await withRetry(() => withTimeout(supabase.from('service_logs').upsert({
+      const { error: lErr } = await withRetry(() => write(supabase.from('service_logs').upsert({
         id: logId,
         user_id: user.id,
         vehicle_id: vehicle.id,
@@ -76,13 +79,13 @@ export default function UseProductModal({ stock, lotLabel, onClose, onSaved }: P
         cost: Math.round((partsCost + labor) * 100) / 100,
         labor_cost: labor > 0 ? labor : null,
         notes: notes.trim() || null,
-      }), 9000), 2, 800)
+      })), 2, 2500)
       if (lErr) throw new Error(lErr.message)
 
       // 2) One usage row per lot the draw touched — that's the FIFO provenance.
       for (let i = 0; i < plan.length; i++) {
         const { lot, qty } = plan[i]
-        const { error: uErr } = await withRetry(() => withTimeout(supabase.from('service_product_usage').upsert({
+        const { error: uErr } = await withRetry(() => write(supabase.from('service_product_usage').upsert({
           id: ids.current!.usage[i],
           log_id: logId,
           product_id: stock.product.id,
@@ -90,14 +93,14 @@ export default function UseProductModal({ stock, lotLabel, onClose, onSaved }: P
           receipt_item_id: lot.lot.kind === 'receipt' ? lot.lot.id : null,
           qty,
           unit_cost: lot.lot.unitCost,
-        }), 9000), 2, 800)
+        })), 2, 2500)
         if (uErr) throw new Error(uErr.message)
       }
 
       // 3) Attach every receipt the stock came from, so the service shows its paperwork.
       const receiptIds = [...new Set(plan.filter(p => p.lot.lot.kind === 'receipt').map(p => p.lot.lot.sourceId))]
       for (const rid of receiptIds) {
-        await withTimeout(supabase.from('service_log_receipts').upsert({ log_id: logId, receipt_id: rid }), 9000)
+        await write(supabase.from('service_log_receipts').upsert({ log_id: logId, receipt_id: rid }))
       }
 
       onSaved()

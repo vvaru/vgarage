@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { format, parseISO, subDays, subMonths, subYears, getMonth } from 'date-fns'
 import { Plus, Trash2, Pencil, Fuel, TrendingUp, Leaf, ChevronDown, ChevronRight, Gauge, CalendarClock } from 'lucide-react'
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar,
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, ReferenceLine,
 } from 'recharts'
 import { supabase } from '@/lib/supabase'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
@@ -21,10 +21,35 @@ import type { FuelLog } from '@/lib/types'
 type Period = 'week' | 'month' | '3mo' | 'year' | 'all'
 type TrendMetric = 'mpg' | 'cpm'
 
+type ChartView = 'combined' | 'mode'
+
 const TREND_METRICS: { key: TrendMetric; label: string }[] = [
   { key: 'mpg', label: 'MPG' },
   { key: 'cpm', label: 'Cost / mile' },
 ]
+
+const MODE_COLORS: Record<string, string> = {
+  efficient: '#22c55e',
+  aggressive: '#f97316',
+  mixed: '#52525b',
+}
+
+// Mixed fill-ups are drawn small and dim: they're the middle of the distribution
+// and say little, so they stay visible as context without pulling the eye.
+const ModeDot = (props: { cx?: number; cy?: number; payload?: { mode?: string | null } }) => {
+  const { cx, cy, payload } = props
+  if (cx == null || cy == null) return null
+  const mode = payload?.mode ?? null
+  const loud = mode === 'efficient' || mode === 'aggressive'
+  return (
+    <circle
+      cx={cx} cy={cy}
+      r={loud ? 5 : 3.5}
+      fill={MODE_COLORS[mode ?? 'mixed'] ?? MODE_COLORS.mixed}
+      opacity={loud ? 1 : 0.5}
+    />
+  )
+}
 
 const PERIODS: { key: Period; label: string }[] = [
   { key: 'week', label: 'Week' },
@@ -124,8 +149,11 @@ export default function FuelPage() {
   const [loading, setLoading] = useState(true)
   const [fuelModal, setFuelModal] = useState<{ log: FuelLog | null } | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
-  const [period, setPeriod] = useState<Period>('all')
+  // Opens on the current month: the "All" view buckets by month, which flattens
+  // recent fill-ups into two or three points and hides what just happened.
+  const [period, setPeriod] = useState<Period>('month')
   const [trendMetric, setTrendMetric] = useState<TrendMetric>('mpg')
+  const [chartView, setChartView] = useState<ChartView>('combined')
   const [showPrice, setShowPrice] = useState(false)
   // Manual overrides for MPG counting, persisted per-device.
   const [manualInclude, setManualInclude] = useState<Set<string>>(new Set()) // force-count
@@ -298,7 +326,19 @@ export default function FuelPage() {
     : points.filter(p => p.pricePerGallon != null)
         .map(p => ({ date: format(parseISO(p.date), 'MMM d'), value: p.pricePerGallon as number }))
 
-  const trendSeries = trendMetric === 'mpg' ? mpgSeries : cpmSeries
+  // Split-by-mode is a per-fill-up property, so it never buckets — averaging a
+  // month of mixed modes into one point would erase the very thing being shown.
+  const modeSeries = points
+    .filter(p => p.log.mpg != null && p.mode != null)
+    .map(p => ({ date: format(parseISO(p.date), 'MMM d'), value: Number(p.log.mpg), mode: p.mode }))
+  const splitByMode = trendMetric === 'mpg' && chartView === 'mode'
+  const trendSeries = splitByMode ? modeSeries : trendMetric === 'mpg' ? mpgSeries : cpmSeries
+
+  const modeAvg = (m: string) => costs.find(c => c.mode === m)?.avgMpg ?? null
+  const efficientAvg = modeAvg('efficient')
+  const aggressiveAvg = modeAvg('aggressive')
+  const modeGap = efficientAvg != null && aggressiveAvg != null ? efficientAvg - aggressiveAvg : null
+  const canSplit = modeSeries.length >= 2
 
   const stats = [
     { label: 'Avg MPG', value: avgMpg ? avgMpg.toFixed(1) : '—', accent: true },
@@ -444,10 +484,10 @@ export default function FuelPage() {
                       <TrendingUp size={16} className="text-accent" />
                       <p className="text-sm font-semibold text-foreground">
                         {trendMetric === 'mpg' ? 'MPG Trend' : 'Cost per Mile'}
-                        {byMonth && <span className="text-faint font-normal"> · monthly</span>}
+                        {byMonth && !splitByMode && <span className="text-faint font-normal"> · monthly</span>}
                       </p>
                     </div>
-                    <div className="flex gap-1.5">
+                    <div className="flex gap-1.5 flex-wrap">
                       {TREND_METRICS.map(m => (
                         <button
                           key={m.key}
@@ -459,8 +499,40 @@ export default function FuelPage() {
                           }`}
                         >{m.label}</button>
                       ))}
+                      {trendMetric === 'mpg' && canSplit && (
+                        <button
+                          onClick={() => setChartView(v => (v === 'mode' ? 'combined' : 'mode'))}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-colors ${
+                            splitByMode
+                              ? 'bg-accent/15 text-accent border-accent/30'
+                              : 'bg-surface-2 text-muted border-border-strong hover:text-foreground'
+                          }`}
+                        >Split by mode</button>
+                      )}
                     </div>
                   </div>
+
+                  {/* Legend carries the averages, so the dashed lines are readable */}
+                  {splitByMode && (
+                    <div className="flex items-center gap-4 flex-wrap mb-3 -mt-1">
+                      {efficientAvg != null && (
+                        <span className="flex items-center gap-1.5 text-xs text-muted">
+                          <span className="w-2.5 h-2.5 rounded-sm" style={{ background: MODE_COLORS.efficient }} />
+                          Efficient <span className="text-foreground font-semibold">avg {efficientAvg.toFixed(1)}</span>
+                        </span>
+                      )}
+                      {aggressiveAvg != null && (
+                        <span className="flex items-center gap-1.5 text-xs text-muted">
+                          <span className="w-2.5 h-2.5 rounded-sm" style={{ background: MODE_COLORS.aggressive }} />
+                          Aggressive <span className="text-foreground font-semibold">avg {aggressiveAvg.toFixed(1)}</span>
+                        </span>
+                      )}
+                      <span className="flex items-center gap-1.5 text-xs text-faint">
+                        <span className="w-2.5 h-2.5 rounded-sm opacity-50" style={{ background: MODE_COLORS.mixed }} />
+                        Mixed
+                      </span>
+                    </div>
+                  )}
                   <div className="h-[200px] lg:h-[280px]">
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={trendSeries} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
@@ -471,15 +543,47 @@ export default function FuelPage() {
                           tickFormatter={v => trendMetric === 'cpm' ? `$${Number(v).toFixed(2)}` : String(Math.round(Number(v)))}
                         />
                         <Tooltip content={trendMetric === 'mpg' ? <MpgTooltip /> : <CpmTooltip />} />
-                        <Line
-                          type="monotone" dataKey="value"
-                          stroke={trendMetric === 'mpg' ? '#f59e0b' : '#3b82f6'} strokeWidth={2.5}
-                          dot={{ fill: trendMetric === 'mpg' ? '#f59e0b' : '#3b82f6', r: 3, strokeWidth: 0 }}
-                          activeDot={{ r: 5, fill: trendMetric === 'mpg' ? '#f59e0b' : '#3b82f6', strokeWidth: 0 }}
-                        />
+                        {splitByMode && efficientAvg != null && (
+                          <ReferenceLine y={efficientAvg} stroke={MODE_COLORS.efficient} strokeDasharray="5 4" strokeWidth={1.5} />
+                        )}
+                        {splitByMode && aggressiveAvg != null && (
+                          <ReferenceLine y={aggressiveAvg} stroke={MODE_COLORS.aggressive} strokeDasharray="5 4" strokeWidth={1.5} />
+                        )}
+                        {splitByMode ? (
+                          <Line
+                            type="linear" dataKey="value"
+                            stroke="#3f3f46" strokeWidth={1} strokeDasharray="2 3"
+                            dot={<ModeDot />} activeDot={{ r: 6, strokeWidth: 0 }} isAnimationActive={false}
+                          />
+                        ) : (
+                          <Line
+                            type="monotone" dataKey="value"
+                            stroke={trendMetric === 'mpg' ? '#f59e0b' : '#3b82f6'} strokeWidth={2.5}
+                            dot={{ fill: trendMetric === 'mpg' ? '#f59e0b' : '#3b82f6', r: 3, strokeWidth: 0 }}
+                            activeDot={{ r: 5, fill: trendMetric === 'mpg' ? '#f59e0b' : '#3b82f6', strokeWidth: 0 }}
+                          />
+                        )}
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
+
+                  {/* The comparison the split view exists to make */}
+                  {splitByMode && modeGap != null && (
+                    <div className="flex items-center gap-4 mt-3 pt-3 border-t border-border">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xl font-bold" style={{ color: MODE_COLORS.efficient }}>{efficientAvg!.toFixed(1)}</p>
+                        <p className="text-xs text-muted">Efficient-mode avg MPG</p>
+                      </div>
+                      <div className="shrink-0 flex flex-col items-center">
+                        <span className="w-8 h-8 rounded-full bg-surface-2 flex items-center justify-center text-muted text-sm">↓</span>
+                        <span className="text-faint text-[11px] mt-1">−{modeGap.toFixed(1)}</span>
+                      </div>
+                      <div className="flex-1 min-w-0 text-right">
+                        <p className="text-xl font-bold" style={{ color: MODE_COLORS.aggressive }}>{aggressiveAvg!.toFixed(1)}</p>
+                        <p className="text-xs text-muted">Aggressive-mode avg MPG</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 

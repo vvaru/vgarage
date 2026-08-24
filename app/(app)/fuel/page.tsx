@@ -149,9 +149,9 @@ export default function FuelPage() {
   const [loading, setLoading] = useState(true)
   const [fuelModal, setFuelModal] = useState<{ log: FuelLog | null } | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
-  // Opens on the current month: the "All" view buckets by month, which flattens
-  // recent fill-ups into two or three points and hides what just happened.
-  const [period, setPeriod] = useState<Period>('month')
+  // Three months is enough fill-ups for a trend to have a shape, without
+  // reaching so far back that recent driving gets averaged away.
+  const [period, setPeriod] = useState<Period>('3mo')
   const [trendMetric, setTrendMetric] = useState<TrendMetric>('mpg')
   const [chartView, setChartView] = useState<ChartView>('combined')
   const [showPrice, setShowPrice] = useState(false)
@@ -584,9 +584,12 @@ export default function FuelPage() {
                         <p className="text-xl font-bold" style={{ color: MODE_COLORS.efficient }}>{efficientAvg!.toFixed(1)}</p>
                         <p className="text-xs text-muted">Efficient-mode avg MPG</p>
                       </div>
-                      <div className="shrink-0 flex flex-col items-center">
-                        <span className="w-8 h-8 rounded-full bg-surface-2 flex items-center justify-center text-muted text-sm">↓</span>
-                        <span className="text-faint text-[11px] mt-1">−{modeGap.toFixed(1)}</span>
+                      <div
+                        className="shrink-0 text-center px-2"
+                        title={`Driving aggressively costs you ${modeGap.toFixed(1)} mpg versus your efficient tanks`}
+                      >
+                        <p className="text-sm font-bold text-warn whitespace-nowrap">↓ {modeGap.toFixed(1)} mpg</p>
+                        <p className="text-faint text-[11px] leading-tight mt-0.5">lost driving<br />aggressively</p>
                       </div>
                       <div className="flex-1 min-w-0 text-right">
                         <p className="text-xl font-bold" style={{ color: MODE_COLORS.aggressive }}>{aggressiveAvg!.toFixed(1)}</p>

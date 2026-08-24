@@ -14,7 +14,7 @@ import { recomputeFuelMpg } from '@/lib/fuelMpg'
 import FuelLogModal from '@/components/fuel/FuelLogModal'
 import {
   buildPoints, bucketByMonth, modeCosts, aggressivePremium, forecastMonth,
-  rollingCostPerMile, totalSavings, savingsTrend, MODE_LABELS,
+  rollingCostPerMile, totalSavings, savingsTrend, modeBands, MODE_LABELS,
 } from '@/lib/fuelAnalytics'
 import type { FuelLog } from '@/lib/types'
 
@@ -310,9 +310,12 @@ export default function FuelPage() {
   const savingsDirection = savingsTrend(savingsByMonth)
   const rangeSavings = totalSavings(points)
 
-  // "All" groups by month; shorter ranges stay per-fill-up, where each point
-  // still means something on its own.
-  const byMonth = period === 'all'
+  // "All" groups by month only once there are enough fill-ups that plotting each
+  // one would be unreadable. Below that, bucketing throws away detail for
+  // nothing — a three-month history collapses to three points and says less
+  // than the raw series it replaced.
+  const BUCKET_ABOVE = 40
+  const byMonth = period === 'all' && points.length > BUCKET_ABOVE
   const mpgSeries = byMonth
     ? bucketByMonth(points, p => (p.log.mpg != null ? Number(p.log.mpg) : null), 'avg')
         .map(b => ({ date: b.label, value: b.value }))
@@ -334,6 +337,7 @@ export default function FuelPage() {
   const splitByMode = trendMetric === 'mpg' && chartView === 'mode'
   const trendSeries = splitByMode ? modeSeries : trendMetric === 'mpg' ? mpgSeries : cpmSeries
 
+  const bands = modeBands(logs, outlierIds)
   const modeAvg = (m: string) => costs.find(c => c.mode === m)?.avgMpg ?? null
   const efficientAvg = modeAvg('efficient')
   const aggressiveAvg = modeAvg('aggressive')
@@ -531,6 +535,12 @@ export default function FuelPage() {
                         <span className="w-2.5 h-2.5 rounded-sm opacity-50" style={{ background: MODE_COLORS.mixed }} />
                         Mixed
                       </span>
+                      {bands && (
+                        <span className="text-faint text-[11px] w-full sm:w-auto">
+                          Your typical is {bands.center.toFixed(1)} — efficient at {bands.efficientAt.toFixed(1)}+,
+                          aggressive at {bands.aggressiveAt.toFixed(1)} or below
+                        </span>
+                      )}
                     </div>
                   )}
                   <div className="h-[200px] lg:h-[280px]">

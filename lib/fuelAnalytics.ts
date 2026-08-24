@@ -14,20 +14,78 @@ import type { FuelLog } from '@/lib/types'
 
 export type DrivingMode = 'efficient' | 'mixed' | 'aggressive'
 
-export const MODE_THRESHOLDS = { efficient: 0.95, mixed: 0.85 }
-
 export const MODE_LABELS: Record<DrivingMode, string> = {
   efficient: 'Efficient',
   mixed: 'Mixed',
   aggressive: 'Aggressive',
 }
 
-export function classifyMode(mpg: number, seasonBest: number): DrivingMode | null {
-  if (!(mpg > 0) || !(seasonBest > 0)) return null
-  const ratio = mpg / seasonBest
-  if (ratio >= MODE_THRESHOLDS.efficient) return 'efficient'
-  if (ratio >= MODE_THRESHOLDS.mixed) return 'mixed'
-  return 'aggressive'
+/**
+ * How far from typical a tank has to be to count as efficient or aggressive,
+ * in units of this car's own MPG spread. Just under half a spread either side
+ * leaves the middle third "mixed" with meaningful counts on both wings — on a
+ * car averaging ~35.5 that puts the efficient line a little under 38, which
+ * matches where a driver looking at the trend would draw it by eye.
+ */
+export const MODE_SPREAD_K = 0.45
+
+/** Fill-ups needed before the distribution says anything worth classifying by. */
+export const MODE_MIN_SAMPLE = 4
+
+export interface ModeBands {
+  center: number        // typical MPG for this car
+  spread: number        // robust sigma
+  efficientAt: number   // at or above this = efficient
+  aggressiveAt: number  // at or below this = aggressive
+  sample: number
+}
+
+const median = (arr: number[]): number => {
+  if (arr.length === 0) return 0
+  const s = [...arr].sort((a, b) => a - b)
+  const m = Math.floor(s.length / 2)
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2
+}
+
+/**
+ * Thresholds derived from THIS car's own MPG distribution.
+ *
+ * Benchmarking against the single best tank instead makes one exceptional run
+ * the bar for every other — a 43.8 outlier pushed "efficient" to 41.6 and
+ * dumped everything under 37 into "aggressive". Median plus MAD-derived sigma
+ * describes normal driving and isn't dragged by one great or one awful tank.
+ */
+export function modeBands(logs: FuelLog[], excluded: Set<string> = new Set(), k = MODE_SPREAD_K): ModeBands | null {
+  const vals = logs
+    .filter(l => l.mpg != null && !excluded.has(l.id) && Number(l.mpg) > 0)
+    .map(l => Number(l.mpg))
+  if (vals.length < MODE_MIN_SAMPLE) return null
+
+  const center = median(vals)
+  const mad = median(vals.map(v => Math.abs(v - center)))
+  // 1.4826 scales MAD to a standard deviation for normal-ish data; fall back to
+  // plain sd when every reading is identical enough to make MAD zero.
+  let spread = mad * 1.4826
+  if (!(spread > 0)) {
+    const mean = vals.reduce((s, v) => s + v, 0) / vals.length
+    spread = Math.sqrt(vals.reduce((s, v) => s + (v - mean) ** 2, 0) / vals.length)
+  }
+  if (!(spread > 0)) return null
+
+  return {
+    center,
+    spread,
+    efficientAt: center + k * spread,
+    aggressiveAt: center - k * spread,
+    sample: vals.length,
+  }
+}
+
+export function classifyMode(mpg: number, bands: ModeBands | null): DrivingMode | null {
+  if (!(mpg > 0) || !bands) return null
+  if (mpg >= bands.efficientAt) return 'efficient'
+  if (mpg <= bands.aggressiveAt) return 'aggressive'
+  return 'mixed'
 }
 
 /** Which occurrence of a season a date falls in — Jan 2026 belongs to Winter-2025. */
@@ -80,7 +138,10 @@ const num = (v: unknown): number | null => {
  */
 export function buildPoints(logs: FuelLog[], excluded: Set<string> = new Set()): FuelPoint[] {
   const asc = [...logs].sort((a, b) => a.date.localeCompare(b.date) || a.odometer - b.odometer)
+  // Savings still measure against the season's best — that's the question it
+  // answers. Mode measures against normal driving, which is a different one.
   const bests = seasonBests(logs, excluded)
+  const bands = modeBands(logs, excluded)
 
   return asc.map((log, i) => {
     const prev = asc[i - 1]
@@ -108,7 +169,7 @@ export function buildPoints(logs: FuelLog[], excluded: Set<string> = new Set()):
       costPerMile: miles != null && total != null && miles > 0 ? total / miles : null,
       pricePerGallon: num(log.price_per_gallon),
       gallonsPer100: usable && mpg != null && mpg > 0 ? 100 / mpg : null,
-      mode: usable && mpg != null && best != null ? classifyMode(mpg, best) : null,
+      mode: usable && mpg != null ? classifyMode(mpg, bands) : null,
       savings,
     }
   })

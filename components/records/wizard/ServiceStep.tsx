@@ -7,6 +7,7 @@ import ServiceFilterPanel from '@/components/service/ServiceFilterPanel'
 import { applyServiceFilter, EMPTY_FILTER, isFilterActive, type ServiceFilterState } from '@/lib/serviceFilter'
 import { fmtQty, fmtNum } from '@/lib/units'
 import { receiptTitle, receiptWhere } from '@/lib/receipts'
+import ReceiptPreviewPane from './ReceiptPreviewPane'
 import {
   splitMember, suggestExisting, drawsCost,
   type AvailableProduct, type ReceiptDraft, type ServiceGroup, type TagRef,
@@ -32,6 +33,11 @@ export default function ServiceStep({ groups, setGroups, receipts, available, lo
   const [picking, setPicking] = useState<string | null>(null)
   const [filter, setFilter] = useState<ServiceFilterState>(EMPTY_FILTER)
   const [showFilters, setShowFilters] = useState(false)
+  // Default to the first receipt that actually has something to look at.
+  const [previewKey, setPreviewKey] = useState(
+    () => (receipts.find(r => r.preview || r.existingImage) ?? receipts[0])?.key ?? '',
+  )
+  const hasAnyImage = receipts.some(r => r.preview || r.existingImage)
 
   const receiptByKey = useMemo(() => new Map(receipts.map(r => [r.key, r])), [receipts])
   const allTypes = useMemo(() => [...new Set(logs.map(l => l.service_type))].sort(), [logs])
@@ -75,10 +81,16 @@ export default function ServiceStep({ groups, setGroups, receipts, available, lo
   }
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-4">
-      <p className="text-faint text-xs">
-        Receipts naming the same job were merged into one record. Split any that were really separate.
-      </p>
+    <div className="flex-1 min-h-0 overflow-y-auto lg:overflow-hidden flex flex-col lg:flex-row">
+      {/* The paperwork stays on screen while the details get typed */}
+      {hasAnyImage && (
+        <ReceiptPreviewPane receipts={receipts} activeKey={previewKey} onPick={setPreviewKey} />
+      )}
+
+      <div className="flex-1 lg:min-h-0 lg:overflow-y-auto p-6 space-y-4">
+        <p className="text-faint text-xs">
+          Receipts naming the same job were merged into one record. Split any that were really separate.
+        </p>
 
       {groups.map(g => {
         const suggestion = g.linkedLogId ? null : suggestExisting(g, logs)
@@ -233,6 +245,7 @@ export default function ServiceStep({ groups, setGroups, receipts, available, lo
           </div>
         )
       })}
+      </div>
 
       {picking && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[60] flex items-end sm:items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) setPicking(null) }}>

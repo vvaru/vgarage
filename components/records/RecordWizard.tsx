@@ -365,7 +365,9 @@ export default function RecordWizard({
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="bg-surface border border-border rounded-3xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden">
+      {/* Wide on purpose: the receipt is the thing being read, and a 4xl dialog
+          left most of a laptop screen empty while the scan stayed unreadable. */}
+      <div className="bg-surface border border-border rounded-3xl w-full max-w-6xl 2xl:max-w-[88rem] max-h-[94vh] flex flex-col overflow-hidden">
         <div className="shrink-0 px-6 pt-6 pb-4 border-b border-border">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">

@@ -1,8 +1,8 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { Plus, Trash2, Image as ImageIcon, Package, Wrench, ChevronDown, ChevronRight, Link as LinkIcon, X } from 'lucide-react'
-import ReceiptViewer from '@/components/ui/ReceiptViewer'
+import { Plus, Trash2, Package, Wrench, ChevronDown, ChevronRight, Link as LinkIcon, X } from 'lucide-react'
+import ReceiptPreviewPane from './ReceiptPreviewPane'
 import { UNIT_GROUPS, guessUnit, fmtQty } from '@/lib/units'
 import { emptyLine, emptyTag, type LineDraft, type ReceiptDraft, type ServiceTag } from '@/lib/recordDraft'
 import type { Product, ServiceCategory } from '@/lib/types'
@@ -51,37 +51,13 @@ export default function ReceiptStep({ draft, products, categories, stock, locked
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto lg:overflow-hidden flex flex-col lg:flex-row">
-      {/* Image */}
-      <aside className="lg:shrink-0 flex flex-col lg:w-[38%] border-b lg:border-b-0 lg:border-r border-border bg-surface-2/30">
-        <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-border/60">
-          <p className="text-xs font-semibold text-foreground truncate">
-            {draft.file?.name ?? (draft.existingImage ? 'Receipt image' : 'No image yet')}
-          </p>
-          {draft.preview && (
-            <button onClick={() => onPatch({ file: null, preview: null })} className="text-danger text-xs font-medium shrink-0">Remove</button>
-          )}
-        </div>
-        <div className="p-3 h-64 lg:h-auto lg:flex-1 lg:min-h-0">
-          {draft.preview ? (
-            draft.file?.type === 'application/pdf' ? (
-              <iframe src={`${draft.preview}#toolbar=0&navpanes=0`} title="Receipt PDF" className="w-full h-full rounded-xl border border-border-strong/50 bg-surface" />
-            ) : (
-              <a href={draft.preview} target="_blank" rel="noopener noreferrer" className="block w-full h-full bg-surface-2 rounded-xl overflow-hidden">
-                <img src={draft.preview} alt="Receipt" className="w-full h-full object-contain" />
-              </a>
-            )
-          ) : draft.existingImage ? (
-            <ReceiptViewer path={draft.existingImage} className="w-full h-full" fit />
-          ) : (
-            <button onClick={() => fileRef.current?.click()}
-              className="w-full h-full rounded-xl border border-dashed border-border-strong flex flex-col items-center justify-center gap-1.5 text-muted hover:text-accent hover:border-accent/50 transition-colors">
-              <ImageIcon size={22} />
-              <span className="text-sm font-medium">Attach receipt</span>
-              <span className="text-[11px] text-faint">Image or PDF · optional</span>
-            </button>
-          )}
-        </div>
-      </aside>
+      <ReceiptPreviewPane
+        receipts={[draft]}
+        activeKey={draft.key}
+        onPick={() => {}}
+        onAttach={() => fileRef.current?.click()}
+        onRemove={() => onPatch({ file: null, preview: null })}
+      />
 
       {/* What's printed on it */}
       <div className="flex-1 lg:min-h-0 lg:overflow-y-auto p-6 space-y-5">

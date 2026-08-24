@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { format, differenceInDays, parseISO, addMonths, isSameMonth } from 'date-fns'
 import {
   Gauge, X, CircleAlert, TrendingUp, Settings, LogOut, RefreshCw,
-  ChevronDown, ChevronRight, Car, CheckCircle2, Fuel, Wrench,
+  ChevronDown, ChevronRight, Car, CheckCircle2, Fuel, Wrench, Leaf,
 } from 'lucide-react'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -18,6 +18,7 @@ import { useVehicle } from '@/components/vehicle/VehicleContext'
 import { withRetry, withTimeout } from '@/lib/recover'
 import { getCache, setCache } from '@/lib/cache'
 import { useStock } from '@/lib/useStock'
+import { buildPoints, totalSavings, forecastMonth } from '@/lib/fuelAnalytics'
 import type { ServiceLog, FuelLog, ServiceCategory, ServiceCategoryProduct } from '@/lib/types'
 
 const RecordWizard = dynamic(() => import('@/components/records/RecordWizard'), { ssr: false })
@@ -236,6 +237,14 @@ export default function DashboardPage() {
   const avgMpg = mpgVals.length ? mpgVals.reduce((a, b) => a + b, 0) / mpgVals.length : null
   const monthSpend = fuelLogs.filter(f => isSameMonth(parseISO(f.date), new Date())).reduce((s, f) => s + Number(f.total_cost), 0)
 
+  // Cost analytics off the full fuel history, not the charting slice.
+  const fuelPoints = buildPoints(allFuelLogs)
+  const missedSavings = totalSavings(fuelPoints)
+  const fuelForecast = forecastMonth(fuelPoints)
+  const savingsSince = allFuelLogs.length
+    ? [...allFuelLogs].sort((a, b) => a.date.localeCompare(b.date))[0].date
+    : null
+
   const totalFuelSpend = fuelLogs.reduce((s, f) => s + Number(f.total_cost), 0)
   const totalServiceSpend = serviceLogs.reduce((s, l) => s + Number(l.cost ?? 0), 0)
   const fuelChartData = fuelLogs.map(f => ({ date: format(parseISO(f.date), 'MMM d'), cost: Number(f.total_cost) }))
@@ -372,9 +381,30 @@ export default function DashboardPage() {
           </div>
           <div className="rounded-2xl bg-surface border border-border p-4">
             <p className="text-2xl font-bold tracking-tight text-foreground">${monthSpend.toFixed(0)}</p>
-            <p className="text-muted text-xs mt-0.5">fuel this month</p>
+            <p className="text-muted text-xs mt-0.5">
+              fuel this month
+              {fuelForecast && <span className="text-faint"> · ~${fuelForecast.projected.toFixed(0)} projected</span>}
+            </p>
           </div>
         </div>
+
+        {/* ─── What inefficient driving has cost ───────────────────────────────── */}
+        {missedSavings >= 1 && (
+          <Link href="/fuel" className="block rounded-2xl bg-surface border border-border p-4 hover:border-accent/40 transition-colors">
+            <div className="flex items-center gap-4">
+              <div className="w-11 h-11 rounded-xl bg-success/10 flex items-center justify-center shrink-0">
+                <Leaf size={20} className="text-success" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-2xl font-bold tracking-tight text-success">${missedSavings.toFixed(0)}</p>
+                <p className="text-muted text-xs mt-0.5">
+                  left on the table by not driving efficiently more often
+                  {savingsSince && <span className="text-faint"> · since {format(parseISO(savingsSince), 'MMM yyyy')}</span>}
+                </p>
+              </div>
+            </div>
+          </Link>
+        )}
 
         {/* ─── Upcoming cost ───────────────────────────────────────────────────── */}
         {categoryStatuses.length > 0 && (

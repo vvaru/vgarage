@@ -2,9 +2,9 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { format, parseISO, subDays, subMonths, subYears, getMonth } from 'date-fns'
-import { Plus, Trash2, Pencil, Fuel, TrendingUp, Leaf } from 'lucide-react'
+import { Plus, Trash2, Pencil, Fuel, TrendingUp, Leaf, ChevronDown, ChevronRight, Gauge, CalendarClock } from 'lucide-react'
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar,
 } from 'recharts'
 import { supabase } from '@/lib/supabase'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
@@ -12,9 +12,19 @@ import { withRetry, withTimeout } from '@/lib/recover'
 import { getCache, setCache } from '@/lib/cache'
 import { recomputeFuelMpg } from '@/lib/fuelMpg'
 import FuelLogModal from '@/components/fuel/FuelLogModal'
+import {
+  buildPoints, bucketByMonth, modeCosts, aggressivePremium, forecastMonth,
+  rollingCostPerMile, totalSavings, savingsTrend, MODE_LABELS,
+} from '@/lib/fuelAnalytics'
 import type { FuelLog } from '@/lib/types'
 
 type Period = 'week' | 'month' | '3mo' | 'year' | 'all'
+type TrendMetric = 'mpg' | 'cpm'
+
+const TREND_METRICS: { key: TrendMetric; label: string }[] = [
+  { key: 'mpg', label: 'MPG' },
+  { key: 'cpm', label: 'Cost / mile' },
+]
 
 const PERIODS: { key: Period; label: string }[] = [
   { key: 'week', label: 'Week' },
@@ -31,19 +41,29 @@ const SEASONS = [
   { label: 'Fall',   months: [8, 9, 10] },    // Sep Oct Nov
 ]
 
-const ChartTooltip = ({ active, payload, label }: {
-  active?: boolean
-  payload?: Array<{ value: number }>
-  label?: string
-}) => {
-  if (!active || !payload?.length) return null
-  return (
-    <div className="bg-surface border border-border-strong rounded-xl px-3 py-2 shadow-xl">
-      <p className="text-muted text-xs mb-1">{label}</p>
-      <p className="text-foreground text-sm font-bold">{payload[0].value.toFixed(1)} mpg</p>
-    </div>
-  )
+// Shared across every chart on the page; `fmt` decides how the value reads.
+const makeTooltip = (fmt: (v: number) => string) => {
+  const Inner = ({ active, payload, label }: {
+    active?: boolean
+    payload?: Array<{ value: number }>
+    label?: string
+  }) => {
+    if (!active || !payload?.length) return null
+    return (
+      <div className="bg-surface border border-border-strong rounded-xl px-3 py-2 shadow-xl">
+        <p className="text-muted text-xs mb-1">{label}</p>
+        <p className="text-foreground text-sm font-bold">{fmt(payload[0].value)}</p>
+      </div>
+    )
+  }
+  Inner.displayName = 'ChartTooltip'
+  return Inner
 }
+
+const MpgTooltip = makeTooltip(v => `${v.toFixed(1)} mpg`)
+const CpmTooltip = makeTooltip(v => `$${v.toFixed(3)} / mile`)
+const PpgTooltip = makeTooltip(v => `$${v.toFixed(2)} / gal`)
+const MoneyTooltip = makeTooltip(v => `$${v.toFixed(2)}`)
 
 function getCutoff(period: Period): Date | null {
   const now = new Date()
@@ -105,6 +125,8 @@ export default function FuelPage() {
   const [fuelModal, setFuelModal] = useState<{ log: FuelLog | null } | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [period, setPeriod] = useState<Period>('all')
+  const [trendMetric, setTrendMetric] = useState<TrendMetric>('mpg')
+  const [showPrice, setShowPrice] = useState(false)
   // Manual overrides for MPG counting, persisted per-device.
   const [manualInclude, setManualInclude] = useState<Set<string>>(new Set()) // force-count
   const [manualExclude, setManualExclude] = useState<Set<string>>(new Set()) // force-exclude
@@ -245,8 +267,42 @@ export default function FuelPage() {
   }
   const conservativeSavings = filteredLogs.reduce((sum, l) => sum + (savingsFor(l) ?? 0), 0)
 
+  // ── Cost analytics ─────────────────────────────────────────────────────────
+  // Points are built from ALL logs so miles-since-last-fill can look back past
+  // the period boundary, then filtered — otherwise the first fill-up in every
+  // range would have no previous odometer to measure against.
+  const allPoints = buildPoints(logs, outlierIds)
+  const points = cutoff ? allPoints.filter(p => parseISO(p.date) >= cutoff) : allPoints
+
+  const currentCpm = rollingCostPerMile(points)
+  const costs = modeCosts(points)
+  const premium = aggressivePremium(costs)
+  const forecast = forecastMonth(allPoints)
+  const savingsByMonth = bucketByMonth(points, p => p.savings, 'sum')
+  const savingsDirection = savingsTrend(savingsByMonth)
+  const rangeSavings = totalSavings(points)
+
+  // "All" groups by month; shorter ranges stay per-fill-up, where each point
+  // still means something on its own.
+  const byMonth = period === 'all'
+  const mpgSeries = byMonth
+    ? bucketByMonth(points, p => (p.log.mpg != null ? Number(p.log.mpg) : null), 'avg')
+        .map(b => ({ date: b.label, value: b.value }))
+    : chartData.map(d => ({ date: d.date, value: d.mpg }))
+  const cpmSeries = byMonth
+    ? bucketByMonth(points, p => p.costPerMile, 'avg').map(b => ({ date: b.label, value: b.value }))
+    : points.filter(p => p.costPerMile != null)
+        .map(p => ({ date: format(parseISO(p.date), 'MMM d'), value: p.costPerMile as number }))
+  const ppgSeries = byMonth
+    ? bucketByMonth(points, p => p.pricePerGallon, 'avg').map(b => ({ date: b.label, value: b.value }))
+    : points.filter(p => p.pricePerGallon != null)
+        .map(p => ({ date: format(parseISO(p.date), 'MMM d'), value: p.pricePerGallon as number }))
+
+  const trendSeries = trendMetric === 'mpg' ? mpgSeries : cpmSeries
+
   const stats = [
     { label: 'Avg MPG', value: avgMpg ? avgMpg.toFixed(1) : '—', accent: true },
+    { label: 'Cost / mile', value: currentCpm != null ? `$${currentCpm.toFixed(3)}` : '—', accent: true },
     { label: 'Total Spent', value: `$${totalSpend.toFixed(0)}` },
     { label: 'Gallons', value: totalGallons.toFixed(0) },
     { label: 'Fillups', value: String(filteredLogs.length) },
@@ -301,7 +357,7 @@ export default function FuelPage() {
             )}
 
             {/* Stats */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
               {stats.map(s => (
                 <div key={s.label} className="bg-surface border border-border rounded-2xl p-4">
                   <p className={`text-2xl lg:text-3xl font-bold tracking-tight ${s.accent ? 'text-accent' : 'text-foreground'}`}>{s.value}</p>
@@ -310,37 +366,117 @@ export default function FuelPage() {
               ))}
             </div>
 
-            {/* Conservative-driving savings for the selected period */}
+            {/* Cumulative savings + whether the monthly gap is closing */}
             {conservativeSavings >= 0.005 && (
-              <div className="bg-surface border border-border rounded-2xl p-4 mb-4 flex items-center gap-4">
-                <div className="w-11 h-11 rounded-xl bg-success/10 flex items-center justify-center shrink-0">
-                  <Leaf size={20} className="text-success" />
+              <div className="bg-surface border border-border rounded-2xl p-4 mb-4 flex flex-col sm:flex-row sm:items-center gap-4">
+                <div className="flex items-center gap-4 min-w-0 flex-1">
+                  <div className="w-11 h-11 rounded-xl bg-success/10 flex items-center justify-center shrink-0">
+                    <Leaf size={20} className="text-success" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-2xl lg:text-3xl font-bold tracking-tight text-success">${conservativeSavings.toFixed(2)}</p>
+                    <p className="text-xs text-muted mt-0.5">
+                      Left on the table by not matching your best MPG each season
+                      {period !== 'all' ? ` · ${PERIODS.find(p => p.key === period)?.label}` : ' · all time'}
+                    </p>
+                    {savingsDirection && (
+                      <p className={`text-xs mt-1 font-medium ${savingsDirection === 'improving' ? 'text-success' : 'text-warn'}`}>
+                        {savingsDirection === 'improving' ? '↓ Gap shrinking vs last month' : '↑ Gap growing vs last month'}
+                      </p>
+                    )}
+                  </div>
                 </div>
-                <div className="min-w-0">
-                  <p className="text-2xl lg:text-3xl font-bold tracking-tight text-success">${conservativeSavings.toFixed(2)}</p>
-                  <p className="text-xs text-muted mt-0.5">
-                    Could’ve saved by matching your best MPG each season{period !== 'all' ? ` · ${PERIODS.find(p => p.key === period)?.label}` : ''}
-                  </p>
-                </div>
+                {savingsByMonth.length >= 2 && (
+                  <div className="w-full sm:w-52 h-16 shrink-0">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={savingsByMonth} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
+                        <XAxis dataKey="label" tick={{ fill: '#71717a', fontSize: 9 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                        <Tooltip content={<MoneyTooltip />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
+                        <Bar dataKey="value" fill="#22c55e" radius={[3, 3, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Projected spend + what aggressive driving costs */}
+            {(forecast || premium != null) && (
+              <div className="grid sm:grid-cols-2 gap-3 mb-4">
+                {forecast && (
+                  <div className="bg-surface border border-border rounded-2xl p-4 flex items-center gap-4">
+                    <div className="w-11 h-11 rounded-xl bg-accent/10 flex items-center justify-center shrink-0">
+                      <CalendarClock size={20} className="text-accent" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-2xl font-bold tracking-tight text-accent">~${forecast.projected.toFixed(0)}</p>
+                      <p className="text-xs text-muted mt-0.5">Projected fuel spend this month</p>
+                      <p className="text-faint text-[11px] mt-0.5">
+                        ${forecast.spentSoFar.toFixed(0)} so far · {forecast.dailyMiles.toFixed(0)} mi/day × {forecast.daysLeft} days left
+                      </p>
+                    </div>
+                  </div>
+                )}
+                {premium != null && (
+                  <div className="bg-surface border border-border rounded-2xl p-4 flex items-center gap-4">
+                    <div className="w-11 h-11 rounded-xl bg-warn/10 flex items-center justify-center shrink-0">
+                      <Gauge size={20} className="text-warn" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-2xl font-bold tracking-tight text-warn">+${premium.toFixed(2)}</p>
+                      <p className="text-xs text-muted mt-0.5">Aggressive costs more per 100 miles than efficient</p>
+                      <p className="text-faint text-[11px] mt-0.5">
+                        {costs.filter(c => c.costPer100 != null).map(c =>
+                          `${MODE_LABELS[c.mode]} $${c.costPer100!.toFixed(2)}`).join(' · ')}
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
             {/* MPG Trend + Seasonal: side by side on laptop */}
             <div className="grid lg:grid-cols-3 gap-4 mb-4">
-              {chartData.length >= 2 && (
+              {trendSeries.length >= 2 && (
                 <div className={`bg-surface border border-border rounded-2xl p-4 ${hasSeasonalData ? 'lg:col-span-2' : 'lg:col-span-3'}`}>
-                  <div className="flex items-center gap-2 mb-4">
-                    <TrendingUp size={16} className="text-accent" />
-                    <p className="text-sm font-semibold text-foreground">MPG Trend</p>
+                  <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <TrendingUp size={16} className="text-accent" />
+                      <p className="text-sm font-semibold text-foreground">
+                        {trendMetric === 'mpg' ? 'MPG Trend' : 'Cost per Mile'}
+                        {byMonth && <span className="text-faint font-normal"> · monthly</span>}
+                      </p>
+                    </div>
+                    <div className="flex gap-1.5">
+                      {TREND_METRICS.map(m => (
+                        <button
+                          key={m.key}
+                          onClick={() => setTrendMetric(m.key)}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-colors ${
+                            trendMetric === m.key
+                              ? 'bg-accent/15 text-accent border-accent/30'
+                              : 'bg-surface-2 text-muted border-border-strong hover:text-foreground'
+                          }`}
+                        >{m.label}</button>
+                      ))}
+                    </div>
                   </div>
                   <div className="h-[200px] lg:h-[280px]">
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
+                      <LineChart data={trendSeries} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
                         <XAxis dataKey="date" tick={{ fill: '#71717a', fontSize: 11 }} axisLine={false} tickLine={false} />
-                        <YAxis tick={{ fill: '#71717a', fontSize: 11 }} axisLine={false} tickLine={false} domain={['auto', 'auto']} />
-                        <Tooltip content={<ChartTooltip />} />
-                        <Line type="monotone" dataKey="mpg" stroke="#f59e0b" strokeWidth={2.5} dot={{ fill: '#f59e0b', r: 3, strokeWidth: 0 }} activeDot={{ r: 5, fill: '#f59e0b', strokeWidth: 0 }} />
+                        <YAxis
+                          tick={{ fill: '#71717a', fontSize: 11 }} axisLine={false} tickLine={false} domain={['auto', 'auto']}
+                          tickFormatter={v => trendMetric === 'cpm' ? `$${Number(v).toFixed(2)}` : String(Math.round(Number(v)))}
+                        />
+                        <Tooltip content={trendMetric === 'mpg' ? <MpgTooltip /> : <CpmTooltip />} />
+                        <Line
+                          type="monotone" dataKey="value"
+                          stroke={trendMetric === 'mpg' ? '#f59e0b' : '#3b82f6'} strokeWidth={2.5}
+                          dot={{ fill: trendMetric === 'mpg' ? '#f59e0b' : '#3b82f6', r: 3, strokeWidth: 0 }}
+                          activeDot={{ r: 5, fill: trendMetric === 'mpg' ? '#f59e0b' : '#3b82f6', strokeWidth: 0 }}
+                        />
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
@@ -364,6 +500,43 @@ export default function FuelPage() {
                 </div>
               )}
             </div>
+
+            {/* What he's paying per gallon — secondary, folded away by default so
+                it doesn't compete with the MPG trend for attention.
+                TODO: flag fill-ups >10% above the regional average via the EIA
+                Open Data API (series PET.EMM_EPM0_PTE_SPA_DPG.W for PA). Left
+                out of this pass — it needs an API key and a cached weekly fetch. */}
+            {ppgSeries.length >= 2 && (
+              <div className="bg-surface border border-border rounded-2xl mb-4">
+                <button
+                  onClick={() => setShowPrice(v => !v)}
+                  className="w-full flex items-center justify-between gap-2 p-4 text-left"
+                >
+                  <div className="flex items-center gap-2">
+                    {showPrice ? <ChevronDown size={15} className="text-muted" /> : <ChevronRight size={15} className="text-muted" />}
+                    <p className="text-sm font-semibold text-foreground">
+                      Price per gallon{byMonth && <span className="text-faint font-normal"> · monthly</span>}
+                    </p>
+                  </div>
+                  <span className="text-faint text-xs">
+                    {ppgSeries.length > 0 && `latest $${ppgSeries[ppgSeries.length - 1].value.toFixed(2)}`}
+                  </span>
+                </button>
+                {showPrice && (
+                  <div className="h-[180px] px-4 pb-4">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={ppgSeries} margin={{ top: 4, right: 8, bottom: 0, left: -20 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
+                        <XAxis dataKey="date" tick={{ fill: '#71717a', fontSize: 11 }} axisLine={false} tickLine={false} />
+                        <YAxis tick={{ fill: '#71717a', fontSize: 11 }} axisLine={false} tickLine={false} domain={['auto', 'auto']} tickFormatter={v => `$${Number(v).toFixed(2)}`} />
+                        <Tooltip content={<PpgTooltip />} />
+                        <Line type="monotone" dataKey="value" stroke="#a1a1aa" strokeWidth={2} dot={{ fill: '#a1a1aa', r: 2.5, strokeWidth: 0 }} activeDot={{ r: 4.5, fill: '#a1a1aa', strokeWidth: 0 }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* History */}
             <h2 className="text-lg font-bold text-foreground mt-6 mb-3">History</h2>

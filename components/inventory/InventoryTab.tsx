@@ -17,6 +17,8 @@ import type {
 } from '@/lib/types'
 import RecordWizard, { type WizardSeed } from '@/components/records/RecordWizard'
 import UseProductModal from './UseProductModal'
+import ProductPeek from './ProductPeek'
+import type { ProductLink } from '@/lib/types'
 
 interface PastReceipt { logId: string; imagePath: string; date: string | null; label: string }
 
@@ -30,7 +32,12 @@ interface Snapshot {
   productTypes: ProductType[]; tablesReady: boolean
 }
 
-export default function InventoryTab() {
+interface InventoryTabProps {
+  /** Hand a product back to the catalog editor — the one place editing lives. */
+  onEditProduct?: (productId: string) => void
+}
+
+export default function InventoryTab({ onEditProduct }: InventoryTabProps = {}) {
   const { user } = useAuth()
   const { vehicle } = useVehicle()
   const [loading, setLoading] = useState(true)
@@ -48,6 +55,9 @@ export default function InventoryTab() {
   const [modal, setModal] = useState<{ past: PastReceipt | null } | null>(null)
   const [detail, setDetail] = useState<Receipt | null>(null)
   const [useStock, setUseStock] = useState<ProductStock | null>(null)
+  const [peekId, setPeekId] = useState<string | null>(null)
+  const [productLinks, setProductLinks] = useState<ProductLink[]>([])
+  const [catLinks, setCatLinks] = useState<{ product_id: string; category_id: string }[]>([])
   const router = useRouter()
 
   const cacheFirstFor = useRef<string | null>(null)
@@ -94,6 +104,15 @@ export default function InventoryTab() {
           : Promise.resolve({ data: [] as ServiceCategory[] }),
         supabase.from('product_types').select('*').eq('user_id', uid).order('name'),
       ])
+      // Peek-card extras; absent tables shouldn't break the inventory list.
+      try {
+        const [pl, cl] = await Promise.all([
+          supabase.from('product_links').select('*'),
+          supabase.from('product_category_links').select('*'),
+        ])
+        setProductLinks((pl.data ?? []) as ProductLink[])
+        setCatLinks((cl.data ?? []) as { product_id: string; category_id: string }[])
+      } catch { /* peek just shows less */ }
       const allLogs = (pl ?? []) as PastLog[]
       const snap: Snapshot = {
         products: (prods ?? []) as ProductU[], receipts: rec, items: its,
@@ -226,8 +245,14 @@ export default function InventoryTab() {
               const lotCount = s.lots.filter(b => b.remaining > 0).length
               return (
                 <div key={s.product.id} className="bg-surface border border-border rounded-2xl p-4">
-                  <p className="font-bold text-foreground truncate">{s.product.name}</p>
-                  {s.product.brand && <p className="text-muted text-xs">{s.product.brand}</p>}
+                  <button onClick={() => setPeekId(s.product.id)} className="text-left w-full group">
+                    <p className="font-bold text-foreground truncate group-hover:text-accent transition-colors">
+                      {typeNameOf(s.product.id)}
+                    </p>
+                    <p className="text-muted text-xs truncate">
+                      {[s.product.name, s.product.brand].filter(Boolean).join(' · ')}
+                    </p>
+                  </button>
                   <p className={`text-2xl font-bold mt-2 ${empty ? 'text-faint' : 'text-accent'}`}>
                     {empty ? 'None left' : fmtQty(s.onHand, s.unit)}
                   </p>
@@ -413,6 +438,23 @@ export default function InventoryTab() {
           onSaved={() => { setDetail(null); load() }}
         />
       )}
+
+      {peekId && (() => {
+        const p = products.find(x => x.id === peekId)
+        if (!p) return null
+        const tagged = new Set(catLinks.filter(c => c.product_id === peekId).map(c => c.category_id))
+        return (
+          <ProductPeek
+            product={p}
+            type={productTypes.find(t => t.id === p.product_type_id) ?? null}
+            stock={stock.get(peekId) ?? null}
+            links={productLinks.filter(l => l.product_id === peekId)}
+            categories={categories.filter(c => tagged.has(c.id))}
+            onClose={() => setPeekId(null)}
+            onEdit={() => { setPeekId(null); onEditProduct?.(peekId) }}
+          />
+        )
+      })()}
 
       {useStock && (
         <UseProductModal

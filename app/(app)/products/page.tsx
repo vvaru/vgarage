@@ -220,22 +220,17 @@ export default function ProductsPage() {
 
   const categoryName = (id: string) => categories.find(c => c.id === id)?.name ?? id
 
-  // Catalog groups by what a product IS. Untyped ones collect at the end with a
-  // suggestion rather than being scattered through the list unexplained.
-  const grouped = (() => {
-    const byType = new Map<string, { type: ProductType | null; items: ProductWithLinks[] }>()
-    for (const p of visible) {
-      const t = productTypes.find(x => x.id === p.product_type_id) ?? null
-      const key = t?.id ?? '__untyped__'
-      if (!byType.has(key)) byType.set(key, { type: t, items: [] })
-      byType.get(key)!.items.push(p)
-    }
-    const groups = [...byType.values()]
-    return [
-      ...groups.filter(g => g.type).sort((a, b) => a.type!.name.localeCompare(b.type!.name)),
-      ...groups.filter(g => !g.type),
-    ]
-  })()
+  // One flat grid ordered by type, rather than a headed section per type: with
+  // mostly one model per type, the headings cost more space than they earn.
+  // The type leads each card instead.
+  const typeNameOf = (p: ProductWithLinks) =>
+    productTypes.find(t => t.id === p.product_type_id)?.name ?? ''
+  const sortedProducts = [...visible].sort((a, b) => {
+    const ta = typeNameOf(a), tb = typeNameOf(b)
+    // Unclassified last — they're the ones needing attention, not the headline.
+    if (!ta !== !tb) return ta ? -1 : 1
+    return (ta || a.name).localeCompare(tb || b.name) || a.name.localeCompare(b.name)
+  })
 
   // Assign a type to a product, creating the type if it's new.
   async function applyType(product: ProductWithLinks, typeName: string) {
@@ -343,7 +338,12 @@ export default function ProductsPage() {
 
       {tab === 'inventory' && (
         <div className="max-w-6xl 2xl:max-w-7xl mx-auto px-4 lg:px-8 pt-4 pb-28 lg:pb-12">
-          <InventoryTab />
+          <InventoryTab onEditProduct={id => {
+            const p = products.find(x => x.id === id)
+            if (!p) return
+            setTab('catalog')
+            openEdit(p)
+          }} />
         </div>
       )}
 
@@ -364,31 +364,19 @@ export default function ProductsPage() {
             )}
           </div>
         ) : (
-          <div className="space-y-8">
-            {grouped.map(g => (
-              <div key={g.type?.id ?? 'untyped'}>
-                <div className="flex items-baseline gap-2 mb-3">
-                  <h2 className="text-sm font-bold text-foreground">
-                    {g.type?.name ?? 'Not classified yet'}
-                  </h2>
-                  <span className="text-faint text-xs">
-                    {g.items.length} {g.items.length === 1 ? 'model' : 'models'}
-                  </span>
-                </div>
-                {!g.type && (
-                  <p className="text-faint text-xs mb-3 max-w-2xl">
-                    A type says what a thing <em>is</em> — “Transmission Fluid” — while the name below is the
-                    specific model. Receipts and service categories use the type, so these read as part numbers until set.
-                  </p>
-                )}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                  {g.items.map(p => (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {sortedProducts.map(p => {
+              const typeName = productTypes.find(t => t.id === p.product_type_id)?.name ?? null
+              // Type leads, model and brand explain which one — same order the
+              // receipt titles use, so a product reads the same wherever it appears.
+              const subtitle = [p.name, p.brand].filter(Boolean).join(' · ')
+              return (
               <div key={p.id} className="bg-surface border border-border rounded-3xl p-5 flex flex-col gap-3">
                 {/* Top */}
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
-                    <p className="font-bold text-foreground text-base leading-tight truncate">{p.name}</p>
-                    {p.brand && <p className="text-muted text-sm mt-0.5">{p.brand}</p>}
+                    <p className="font-bold text-foreground text-base leading-tight truncate">{typeName ?? p.name}</p>
+                    <p className="text-muted text-sm mt-0.5 truncate">{typeName ? subtitle : (p.brand ?? '')}</p>
                   </div>
                   <div className="flex gap-1 shrink-0">
                     <button onClick={() => openEdit(p)} className="w-7 h-7 rounded-lg bg-surface-2 hover:bg-surface-2 flex items-center justify-center text-muted hover:text-foreground transition-colors"><Pencil size={12} /></button>
@@ -455,10 +443,8 @@ export default function ProductsPage() {
                   <p className="text-faint text-xs mt-auto pt-1">No buy links</p>
                 )}
               </div>
-                  ))}
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>

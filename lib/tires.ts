@@ -209,3 +209,78 @@ export const tireName = (life: TireLife, productName: (id: string) => string): s
   life.tire.label?.trim()
     || (life.tire.product_id ? productName(life.tire.product_id) : '')
     || 'Tire'
+
+// ── Rotation ────────────────────────────────────────────────────────────────
+//
+// Which patterns are legal is decided by the TIRE, not the car. A directional
+// tire's tread is cut to turn one way, so it can only move front<->back on its
+// own side; crossing it over would run the tread backwards. A non-directional
+// tire can go anywhere.
+//
+// (A car can impose its own limit — staggered fitment, wider rears — which
+// blocks front<->back instead. Different constraint, different place; this car
+// runs one size all round.)
+
+export interface RotationPattern {
+  key: string
+  label: string
+  description: string
+  /** from corner → to corner */
+  moves: Record<TirePosition, TirePosition>
+  /** Crossing patterns run a directional tread backwards on one side. */
+  crosses: boolean
+}
+
+export const ROTATION_PATTERNS: RotationPattern[] = [
+  {
+    key: 'front-back',
+    label: 'Front to back',
+    description: 'Each tire swaps with the one at the other end of its own side.',
+    moves: { FL: 'RL', RL: 'FL', FR: 'RR', RR: 'FR' },
+    crosses: false,
+  },
+  {
+    key: 'forward-cross',
+    label: 'Forward cross',
+    description: 'Rears cross to the front, fronts drop straight back. Usual choice for front-wheel drive.',
+    moves: { RL: 'FR', RR: 'FL', FL: 'RL', FR: 'RR' },
+    crosses: true,
+  },
+  {
+    key: 'x-pattern',
+    label: 'X-pattern',
+    description: 'Every tire moves to the opposite corner.',
+    moves: { FL: 'RR', RR: 'FL', FR: 'RL', RL: 'FR' },
+    crosses: true,
+  },
+]
+
+/**
+ * Patterns this car can actually use. One directional tire on the car rules out
+ * every crossing pattern — you can't cross half a set.
+ */
+export function legalRotations(
+  lives: TireLife[],
+  isDirectional: (productId: string | null) => boolean,
+): { patterns: RotationPattern[]; blockedByDirectional: boolean } {
+  const mounted = lives.filter(l => l.mounted)
+  const anyDirectional = mounted.some(l => isDirectional(l.tire.product_id))
+  return {
+    patterns: anyDirectional ? ROTATION_PATTERNS.filter(p => !p.crosses) : ROTATION_PATTERNS,
+    blockedByDirectional: anyDirectional,
+  }
+}
+
+/** Where each mounted tire ends up under a pattern. Corners with no tire are skipped. */
+export function applyRotation(
+  lives: TireLife[],
+  pattern: RotationPattern,
+): { tireId: string; from: TirePosition; to: TirePosition }[] {
+  const out: { tireId: string; from: TirePosition; to: TirePosition }[] = []
+  for (const l of lives) {
+    if (!l.mounted || !l.position) continue
+    const to = pattern.moves[l.position]
+    if (to && to !== l.position) out.push({ tireId: l.tire.id, from: l.position, to })
+  }
+  return out
+}

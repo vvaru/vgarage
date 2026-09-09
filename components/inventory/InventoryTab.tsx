@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { format, parseISO } from 'date-fns'
 import { useRouter } from 'next/navigation'
-import { Plus, Package, Receipt as ReceiptIcon, Image as ImageIcon, AlertTriangle, Wrench, Ban } from 'lucide-react'
+import { Plus, Package, Receipt as ReceiptIcon, Image as ImageIcon, AlertTriangle, Wrench, Ban, X } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
@@ -11,6 +11,9 @@ import { computeStock, lotBalancesByItem, type LotBalance, type ProductStock } f
 import { fmtQty, fmtNum } from '@/lib/units'
 import { receiptTitle, receiptWhere } from '@/lib/receipts'
 import type { ProductType } from '@/lib/productTypes'
+import { allTireLives, type Tire, type TireEvent } from '@/lib/tires'
+import TireCard from '@/components/tires/TireCard'
+import TirePanel from '@/components/tires/TirePanel'
 import { getCache, setCache } from '@/lib/cache'
 import type {
   Product, Receipt, ReceiptItem, InventoryAdjustment, ServiceProductUsage, ServiceLog, ServiceCategory,
@@ -56,6 +59,9 @@ export default function InventoryTab({ onEditProduct }: InventoryTabProps = {}) 
   const [detail, setDetail] = useState<Receipt | null>(null)
   const [useStock, setUseStock] = useState<ProductStock | null>(null)
   const [peekId, setPeekId] = useState<string | null>(null)
+  const [tires, setTires] = useState<Tire[]>([])
+  const [tireEvents, setTireEvents] = useState<TireEvent[]>([])
+  const [showTires, setShowTires] = useState(false)
   const [productLinks, setProductLinks] = useState<ProductLink[]>([])
   const [catLinks, setCatLinks] = useState<{ product_id: string; category_id: string }[]>([])
   const router = useRouter()
@@ -105,6 +111,16 @@ export default function InventoryTab({ onEditProduct }: InventoryTabProps = {}) 
         supabase.from('product_types').select('*').eq('user_id', uid).order('name'),
       ])
       // Peek-card extras; absent tables shouldn't break the inventory list.
+      try {
+        const [tq, teq] = await Promise.all([
+          supabase.from('tires').select('*'),
+          vehicle
+            ? supabase.from('tire_events').select('*').eq('vehicle_id', vehicle.id)
+            : Promise.resolve({ data: [] as TireEvent[] }),
+        ])
+        setTires((tq.data ?? []) as Tire[])
+        setTireEvents((teq.data ?? []) as TireEvent[])
+      } catch { /* migration not run yet — the tire card just stays quiet */ }
       try {
         const [pl, cl] = await Promise.all([
           supabase.from('product_links').select('*'),
@@ -162,6 +178,8 @@ export default function InventoryTab({ onEditProduct }: InventoryTabProps = {}) 
   const pending = pastLogs.filter(pl => !importedImages.has(pl.receipt_url))
 
   const tracked = [...stock.values()].filter(s => s.purchased > 0 || s.consumed > 0)
+  const tireLives = allTireLives(tires, tireEvents, vehicle?.odometer ?? 0)
+  const hasTireData = tireLives.length > 0
 
   // What a receipt actually carries, for the Products / Services / Both flag.
   const itemsByReceipt = useMemo(() => {
@@ -236,10 +254,12 @@ export default function InventoryTab({ onEditProduct }: InventoryTabProps = {}) 
       )}
 
       {/* Stock */}
-      {tracked.length > 0 && (
+      {(tracked.length > 0 || hasTireData) && (
         <div>
           <h3 className="text-sm font-bold text-foreground mb-3">On hand</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {/* Tires first: the most valuable stock most garages hold. */}
+            {hasTireData && <TireCard lives={tireLives} onOpen={() => setShowTires(true)} />}
             {tracked.map(s => {
               const empty = s.onHand <= 0
               const lotCount = s.lots.filter(b => b.remaining > 0).length
@@ -455,6 +475,27 @@ export default function InventoryTab({ onEditProduct }: InventoryTabProps = {}) 
           />
         )
       })()}
+
+      {showTires && vehicle && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) setShowTires(false) }}>
+          <div className="bg-surface border border-border rounded-3xl w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden">
+            <div className="shrink-0 flex items-center justify-between px-6 pt-6 pb-4 border-b border-border">
+              <div>
+                <h3 className="font-bold text-foreground text-lg">Tires</h3>
+                <p className="text-faint text-xs">{vehicle.odometer.toLocaleString()} mi on the clock</p>
+              </div>
+              <button onClick={() => setShowTires(false)} className="text-muted hover:text-foreground"><X size={20} /></button>
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto p-6">
+              <TirePanel
+                lives={tireLives}
+                currentOdometer={vehicle.odometer}
+                productName={id => products.find(x => x.id === id)?.name ?? 'Tire'}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {useStock && (
         <UseProductModal

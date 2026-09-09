@@ -8,8 +8,6 @@ import { useVehicle } from '@/components/vehicle/VehicleContext'
 import InventoryTab from '@/components/inventory/InventoryTab'
 import { UNIT_GROUPS, guessUnit, fmtQty } from '@/lib/units'
 import { findType, guessProductType, type ProductType } from '@/lib/productTypes'
-import { allTireLives, type Tire, type TireEvent } from '@/lib/tires'
-import TirePanel from '@/components/tires/TirePanel'
 import type { Product, ProductLink, ServiceCategory } from '@/lib/types'
 
 interface ProductWithLinks extends Product {
@@ -23,6 +21,7 @@ const EMPTY_FORM = {
   name: '',
   brand: '',
   typeName: '',        // what it IS; free text so a new type can be named inline
+  tireDirectional: false,
   unit: '',            // blank = follow the name-based guess until edited by hand
   notes: '',
   categoryIds: [] as string[],
@@ -33,9 +32,7 @@ export default function ProductsPage() {
   const { user } = useAuth()
   const { vehicle } = useVehicle()
 
-  const [tab, setTab] = useState<'inventory' | 'catalog' | 'tires'>('inventory')
-  const [tires, setTires] = useState<Tire[]>([])
-  const [tireEvents, setTireEvents] = useState<TireEvent[]>([])
+  const [tab, setTab] = useState<'inventory' | 'catalog'>('inventory')
   const [products, setProducts] = useState<ProductWithLinks[]>([])
   const [categories, setCategories] = useState<ServiceCategory[]>([])
   const [loading, setLoading] = useState(true)
@@ -69,14 +66,6 @@ export default function ProductsPage() {
       // Types are optional until the SQL is run — stay quiet if the table is absent.
       const typesQ = await supabase.from('product_types').select('*').eq('user_id', user.id).order('name')
       setProductTypes((typesQ.data ?? []) as ProductType[])
-      try {
-        const [t, e] = await Promise.all([
-          supabase.from('tires').select('*'),
-          supabase.from('tire_events').select('*').eq('vehicle_id', vehicle.id),
-        ])
-        setTires((t.data ?? []) as Tire[])
-        setTireEvents((e.data ?? []) as TireEvent[])
-      } catch { /* migration not run yet */ }
       const combined: ProductWithLinks[] = (prods ?? []).map(p => ({
         ...p,
         links: (links ?? []).filter(l => l.product_id === p.id),
@@ -94,7 +83,7 @@ export default function ProductsPage() {
   // Deep link from the services page's tire summary.
   useEffect(() => {
     const t = new URLSearchParams(window.location.search).get('tab')
-    if (t === 'tires' || t === 'catalog' || t === 'inventory') setTab(t)
+    if (t === 'catalog' || t === 'inventory') setTab(t)
   }, [])
 
   // Close filter popup on outside click
@@ -134,6 +123,7 @@ export default function ProductsPage() {
       name: p.name,
       brand: p.brand ?? '',
       typeName: productTypes.find(t => t.id === p.product_type_id)?.name ?? '',
+      tireDirectional: Boolean((p as ProductWithLinks & { tire_directional?: boolean }).tire_directional),
       unit: (p as ProductWithLinks & { unit?: string }).unit ?? '',
       notes: p.notes ?? '',
       categoryIds: p.categoryIds,
@@ -182,6 +172,7 @@ export default function ProductsPage() {
       name: form.name.trim(),
       brand: form.brand.trim() || null,
       unit: form.unit.trim() || guessUnit(form.name),
+      tire_directional: /tire|tyre/i.test(form.typeName) ? form.tireDirectional : null,
       notes: form.notes.trim() || null,
     }
 
@@ -340,7 +331,7 @@ export default function ProductsPage() {
 
         {/* Tabs */}
         <div className="flex gap-2 mt-4">
-          {(['inventory', 'catalog', 'tires'] as const).map(t => (
+          {(['inventory', 'catalog'] as const).map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -353,16 +344,6 @@ export default function ProductsPage() {
           ))}
         </div>
       </div>
-
-      {tab === 'tires' && vehicle && (
-        <div className="max-w-6xl 2xl:max-w-7xl mx-auto px-4 lg:px-8 pt-4 pb-28 lg:pb-12">
-          <TirePanel
-            lives={allTireLives(tires, tireEvents, vehicle.odometer)}
-            currentOdometer={vehicle.odometer}
-            productName={id => products.find(x => x.id === id)?.name ?? 'Tire'}
-          />
-        </div>
-      )}
 
       {tab === 'inventory' && (
         <div className="max-w-6xl 2xl:max-w-7xl mx-auto px-4 lg:px-8 pt-4 pb-28 lg:pb-12">
@@ -534,6 +515,23 @@ export default function ProductsPage() {
                   Receipts and services are named by the type.
                 </p>
               </div>
+
+              {/* Directional tread is a property of the MODEL, so it lives here
+                  and every tire of this model inherits it. */}
+              {/tire|tyre/i.test(form.typeName) && (
+                <label className="flex items-start gap-2.5 bg-surface-2/50 border border-border rounded-xl p-3 cursor-pointer">
+                  <input type="checkbox" checked={form.tireDirectional}
+                    onChange={e => patchForm({ tireDirectional: e.target.checked })}
+                    className="mt-0.5 accent-[var(--color-accent)]" />
+                  <span>
+                    <span className="text-foreground text-sm font-medium block">Directional tread</span>
+                    <span className="text-faint text-xs">
+                      The tread turns one way, so these can only be rotated front-to-back on
+                      their own side — never crossed over.
+                    </span>
+                  </span>
+                </label>
+              )}
 
               {/* Unit — how inventory counts this thing */}
               <div>

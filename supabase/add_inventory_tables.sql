@@ -189,6 +189,14 @@ DROP TABLE IF EXISTS tire_installations CASCADE;
 -- intent, and "Tire Rotation" must not be confused with fitting new rubber.
 ALTER TABLE service_categories ADD COLUMN IF NOT EXISTS tracks_tires boolean NOT NULL DEFAULT false;
 
+-- Directional tread is a property of the TIRE MODEL, not of the car: the tread
+-- is cut to turn one way, so such a tire may only move front<->back on its own
+-- side. (A car CAN impose its own limit — staggered fitment, different sizes
+-- front and rear — but that's a separate constraint and this car doesn't have
+-- it.) Since a product IS the model, the flag belongs here and every instance
+-- inherits it.
+ALTER TABLE products ADD COLUMN IF NOT EXISTS tire_directional boolean;
+
 -- One physical tire. product_id is the MODEL it is an instance of, so a receipt
 -- line of "4 x CrossClimate2" spawns four of these and the existing product /
 -- receipt / cost machinery is reused rather than duplicated.

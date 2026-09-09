@@ -113,6 +113,7 @@ export interface Product {
   notes: string | null
   unit?: string            // inventory unit (gal, qt, each…); added with the inventory feature
   product_type_id?: string | null   // what it IS, e.g. "Transmission Fluid"
+  tire_directional?: boolean | null // tires only: tread turns one way, so no cross-rotation
   created_at: string
 }
 

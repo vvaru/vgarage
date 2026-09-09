@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { format } from 'date-fns'
 import { X, Plus, Receipt as ReceiptIcon, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react'
-import { supabase } from '@/lib/supabase'
+import { supabase, ensureFreshSession } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
 import { withRetry, write, warmUp } from '@/lib/recover'
@@ -176,6 +176,9 @@ export default function RecordWizard({
       // Filling in a receipt takes minutes, so the socket from page load is
       // usually dead by now. Spend it on a request that costs nothing, rather
       // than on the first of twenty writes and leaving the batch half-done.
+      // Refresh an expiring token NOW, where failure is visible — not implicitly
+      // inside the first write, which is the wedge that froze saves at "Saving…".
+      await ensureFreshSession()
       await warmUp(() => supabase.from('vehicles').select('id', { head: true, count: 'exact' }))
 
       // Lots created in this save, so product draws can be allocated against them.

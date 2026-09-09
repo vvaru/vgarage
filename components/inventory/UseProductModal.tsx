@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { format } from 'date-fns'
 import { X, Wrench, ArrowRight } from 'lucide-react'
-import { supabase } from '@/lib/supabase'
+import { supabase, ensureFreshSession } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
 import { withRetry, write, warmUp } from '@/lib/recover'
@@ -65,6 +65,9 @@ export default function UseProductModal({ stock, lotLabel, onClose, onSaved }: P
 
     try {
       // Spend a stale socket on a free request before the writes start.
+      // Refresh an expiring token NOW, where failure is visible — not implicitly
+      // inside the first write, which is the wedge that froze saves at "Saving…".
+      await ensureFreshSession()
       await warmUp(() => supabase.from('vehicles').select('id', { head: true, count: 'exact' }))
 
       // 1) The service record itself (idempotent on its id).

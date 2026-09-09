@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { format } from 'date-fns'
 import { X, Fuel } from 'lucide-react'
-import { supabase } from '@/lib/supabase'
+import { supabase, ensureFreshSession } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { withRetry, write } from '@/lib/recover'
 import { recomputeFuelMpg } from '@/lib/fuelMpg'
@@ -91,6 +91,9 @@ export default function FuelLogModal({ vehicle, log, onClose, onSaved }: Props) 
     setSaving(true)
     setError(null)
     try {
+      // Refresh an expiring token before writing, not implicitly mid-write.
+      await ensureFreshSession()
+
       const odo = odometer.trim() ? parseInt(odometer) : vehicle.odometer
 
       // Reconcile the three interdependent fields — derive whatever's missing.

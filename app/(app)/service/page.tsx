@@ -6,14 +6,14 @@ import {
   Plus, Pencil, Trash2, X, Wrench, Settings, FileText, Upload, Image,
   SlidersHorizontal, Paperclip, ChevronRight, ExternalLink, AlertTriangle,
 } from 'lucide-react'
+import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
 import { withRetry, withTimeout } from '@/lib/recover'
 import { getCache, setCache } from '@/lib/cache'
 import { useStock } from '@/lib/useStock'
-import { tireLife, type TireInstallation } from '@/lib/tires'
-import TireLifeCard from '@/components/tires/TireLifeCard'
+import { allTireLives, setHealth, worstMounted, type Tire, type TireEvent } from '@/lib/tires'
 import type { ServiceLog, ServiceCategory, ServiceCategoryProduct } from '@/lib/types'
 import dynamic from 'next/dynamic'
 
@@ -22,7 +22,6 @@ const CarfaxImportModal = dynamic(() => import('@/components/service/CarfaxImpor
 const ExportPdfModal = dynamic(() => import('@/components/service/ExportPdfModal'), { ssr: false })
 const ImageCropModal = dynamic(() => import('@/components/service/ImageCropModal'), { ssr: false })
 const RecordWizard = dynamic(() => import('@/components/records/RecordWizard'), { ssr: false })
-const TireDetailModal = dynamic(() => import('@/components/tires/TireDetailModal'), { ssr: false })
 const ReceiptViewer = dynamic(() => import('@/components/ui/ReceiptViewer'), { ssr: false })
 const ReceiptPreviewModal = dynamic(() => import('@/components/service/ReceiptPreviewModal'), { ssr: false })
 
@@ -172,8 +171,8 @@ export default function ServicePage() {
   const [showAddFlow, setShowAddFlow] = useState(false)
   // Stock for the wizard's "products used" step.
   const { products: invProducts, stock, reload: reloadStock } = useStock(user?.id)
-  const [tireInstalls, setTireInstalls] = useState<TireInstallation[]>([])
-  const [showTires, setShowTires] = useState(false)
+  const [tires, setTires] = useState<Tire[]>([])
+  const [tireEvents, setTireEvents] = useState<TireEvent[]>([])
   const [editLog, setEditLog] = useState<ServiceLog | null>(null)
   const [form, setForm] = useState(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
@@ -258,9 +257,13 @@ export default function ServicePage() {
     if (!vehicle) return
     void (async () => {
       try {
-        const { data } = await supabase.from('tire_installations').select('*').eq('vehicle_id', vehicle.id)
-        setTireInstalls((data ?? []) as TireInstallation[])
-      } catch { /* migration not run yet — the card just says 'not tracked' */ }
+        const [t, e] = await Promise.all([
+          supabase.from('tires').select('*'),
+          supabase.from('tire_events').select('*').eq('vehicle_id', vehicle.id),
+        ])
+        setTires((t.data ?? []) as Tire[])
+        setTireEvents((e.data ?? []) as TireEvent[])
+      } catch { /* migration not run yet — the strip just stays quiet */ }
     })()
   }, [vehicle?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -464,7 +467,13 @@ export default function ServicePage() {
   const allTypes = Array.from(new Set(logs.map(l => l.service_type))).sort()
   const categoryNames = new Set(categories.map(c => c.name))
   const uncategorizedTypes = allTypes.filter(t => !categoryNames.has(t))
-  const tireLives = tireLife(tireInstalls, estOdo)
+  const tireLives = allTireLives(tires, tireEvents, estOdo)
+  const tireHealth = setHealth(tireLives)
+  const worstTire = worstMounted(tireLives)
+  // Products whose type mentions tires — what a fitting can install.
+  const tireProductOptions = invProducts
+    .filter(p => /tire|tyre/i.test(p.name) || /tire|tyre/i.test(p.brand ?? ''))
+    .map(p => ({ id: p.id, name: [p.brand, p.name].filter(Boolean).join(' ') }))
 
   const cutoff = cutoffDate(costFilter)
   const timeFiltered = cutoff ? logs.filter(l => parseISO(l.date) >= cutoff) : logs
@@ -891,10 +900,21 @@ export default function ServicePage() {
                         <span className="text-faint text-[10px] mt-1">On schedule</span>
                       </div>
                     </div>
-                    {/* Tire life sits with the car it belongs to */}
-                    <div className="mt-3">
-                      <TireLifeCard lives={tireLives} onOpen={() => setShowTires(true)} />
-                    </div>
+                    {/* Tires live on Products — a tire is stock you swap onto the
+                        car. Here it's one line that links across, not a second copy. */}
+                    {tireHealth.mounted > 0 && (
+                      <Link href="/products?tab=tires" className="mt-3 flex items-center justify-between gap-2 bg-surface-2/50 border border-border rounded-xl px-3 py-2 hover:border-accent/40 transition-colors">
+                        <span className="min-w-0">
+                          <span className="text-foreground text-xs font-semibold block">
+                            Tires{tireHealth.pctLeft != null ? ` · ${Math.round(tireHealth.pctLeft)}% left` : ''}
+                          </span>
+                          <span className="text-faint text-[11px] truncate block">
+                            {worstTire ? `worst corner ${worstTire.miles.toLocaleString()} mi` : `${tireHealth.mounted} fitted`}
+                          </span>
+                        </span>
+                        <ChevronRight size={14} className="text-faint shrink-0" />
+                      </Link>
+                    )}
                   </div>
                 )}
                 {serviceStatuses.length > 0 && (
@@ -1347,16 +1367,14 @@ export default function ServicePage() {
       {showCarfaxImport && vehicle && <CarfaxImportModal vehicle={vehicle} categories={categories} onClose={() => setShowCarfaxImport(false)} onImported={load} />}
       {showExport && vehicle && <ExportPdfModal vehicle={vehicle} logs={logs} onClose={() => setShowExport(false)} />}
       {cropSourceFile && <ImageCropModal file={cropSourceFile} onConfirm={handleCropConfirm} onCancel={() => { setCropSourceFile(null); if (fileRef.current) fileRef.current.value = '' }} />}
-      {showTires && (
-        <TireDetailModal lives={tireLives} currentOdometer={estOdo} onClose={() => setShowTires(false)} />
-      )}
-
       {showAddFlow && vehicle && (
         <RecordWizard
           products={invProducts}
           categories={categories}
           logs={logs}
           stock={stock}
+          tireLives={tireLives}
+          tireProducts={tireProductOptions}
           onClose={() => setShowAddFlow(false)}
           onSaved={() => { setShowAddFlow(false); reloadStock(); load() }}
         />

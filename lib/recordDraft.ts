@@ -83,8 +83,12 @@ export interface ServiceGroup {
   shopEquivalent: string
   notes: string
   draws: { productKey: string; qty: string }[]
-  /** Only populated when the chosen category is flagged tracks_tires. */
-  tires: { positions: string[]; expectedLife: string; brand: string; model: string }
+  /**
+   * Only used when the chosen category is flagged tracks_tires.
+   * fitted maps a corner to a tire: an existing instance id, or `new:<productId>`
+   * to spawn one. Corners left out simply weren't touched by this service.
+   */
+  tires: { fitted: Record<string, string>; expectedLife: string; productId: string }
 }
 
 // Services this far apart are different visits even when they share a category.
@@ -143,7 +147,7 @@ export function groupServiceTags(receipts: ReceiptDraft[], categories: ServiceCa
         shopEquivalent: '',
         notes: '',
         draws: [],
-        tires: { positions: [], expectedLife: '', brand: '', model: '' },
+        tires: { fitted: {}, expectedLife: '', productId: '' },
       })
     }
   }

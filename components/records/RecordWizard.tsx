@@ -15,6 +15,7 @@ import {
 } from '@/lib/recordDraft'
 import { receiptTitle } from '@/lib/receipts'
 import { planDraw, type Lot, type LotBalance, type ProductStock } from '@/lib/inventory'
+import type { TireLife } from '@/lib/tires'
 import type { Product, Receipt, ReceiptItem, ServiceCategory, ServiceLog, ServiceProductUsage } from '@/lib/types'
 
 type ProductU = Product & { unit?: string }
@@ -39,12 +40,15 @@ interface Props {
   logs: ServiceLog[]
   usage?: ServiceProductUsage[]
   stock: Map<string, ProductStock>
+  /** Tires owned, so a fitting can pick a real instance and retire what it replaces. */
+  tireLives?: TireLife[]
+  tireProducts?: { id: string; name: string }[]
   onClose: () => void
   onSaved: () => void
 }
 
 export default function RecordWizard({
-  seed, products, categories, logs, usage = [], stock, onClose, onSaved,
+  seed, products, categories, logs, usage = [], stock, tireLives = [], tireProducts = [], onClose, onSaved,
 }: Props) {
   const { user } = useAuth()
   const { vehicle } = useVehicle()
@@ -143,7 +147,7 @@ export default function RecordWizard({
         shopEquivalent: l?.shop_equivalent_cost == null ? '' : String(l.shop_equivalent_cost),
         notes: l?.notes ?? '',
         draws: [],
-        tires: { positions: [], expectedLife: '', brand: '', model: '' },
+        tires: { fitted: {}, expectedLife: '', productId: '' },
       }
     })
   }
@@ -174,6 +178,8 @@ export default function RecordWizard({
       }
     }
     const ids = saveIds.current
+    // Snapshot of what's on the car, for working out what comes off.
+    const mountedNow = tireLives.filter(l => l.mounted)
 
     try {
       // Filling in a receipt takes minutes, so the socket from page load is
@@ -341,27 +347,70 @@ export default function RecordWizard({
             .upsert({ log_id: logId, receipt_id: ids.receipts[receiptKey] }))
         }
 
-        // Tires fitted by this service. One row per corner, ids from the
-        // save-scoped store so a retry rewrites rather than refits.
-        if (g.tires.positions.length > 0) {
+        // Tires fitted by this service.
+        //
+        // A corner named here gets an event; a corner left out wasn't touched
+        // and keeps whatever is on it. Anything that WAS on a named corner and
+        // isn't going back on gets a removal event, which is what pauses its
+        // mileage while it sits in the garage — the mechanism that makes a
+        // seasonal swap and a single damaged tire the same operation.
+        const fittedEntries = Object.entries(g.tires.fitted).filter(([, v]) => v)
+        if (fittedEntries.length > 0) {
           const life = num(g.tires.expectedLife)
           const odo = num(g.odometer) ?? vehicle.odometer
-          for (const position of g.tires.positions) {
-            const tKey = `${g.key}|${position}`
-            ids.tires[tKey] ??= crypto.randomUUID()
-            const { error: tErr } = await withRetry(() => write(supabase.from('tire_installations').upsert({
-              id: ids.tires[tKey],
+          const touched = new Set(fittedEntries.map(([pos]) => pos))
+          const goingOn = new Set<string>()
+
+          for (const [position, choice] of fittedEntries) {
+            let tireId = choice
+            if (choice.startsWith('new:')) {
+              const tKey = `${g.key}|tire|${position}`
+              ids.tires[tKey] ??= crypto.randomUUID()
+              tireId = ids.tires[tKey]
+              const { error: nErr } = await withRetry(() => write(supabase.from('tires').upsert({
+                id: tireId,
+                user_id: user.id,
+                product_id: choice.slice(4),
+                label: null,
+                expected_life_miles: life,
+                purchased_date: g.date,
+              })), 2, 2500)
+              if (nErr) throw new Error(nErr.message)
+            }
+            goingOn.add(tireId)
+
+            const eKey = `${g.key}|ev|${position}`
+            ids.tires[eKey] ??= crypto.randomUUID()
+            const { error: eErr } = await withRetry(() => write(supabase.from('tire_events').upsert({
+              id: ids.tires[eKey],
               user_id: user.id,
               vehicle_id: vehicle.id,
+              tire_id: tireId,
               log_id: logId,
               position,
-              installed_odometer: odo,
-              installed_date: g.date,
-              expected_life_miles: life,
-              brand: g.tires.brand.trim() || null,
-              model: g.tires.model.trim() || null,
+              odometer: odo,
+              date: g.date,
             })), 2, 2500)
-            if (tErr) throw new Error(tErr.message)
+            if (eErr) throw new Error(eErr.message)
+          }
+
+          // Whatever was on a touched corner and isn't going back on comes off.
+          for (const prev of mountedNow) {
+            if (!prev.position || !touched.has(prev.position)) continue
+            if (goingOn.has(prev.tire.id)) continue
+            const oKey = `${g.key}|off|${prev.tire.id}`
+            ids.tires[oKey] ??= crypto.randomUUID()
+            const { error: oErr } = await withRetry(() => write(supabase.from('tire_events').upsert({
+              id: ids.tires[oKey],
+              user_id: user.id,
+              vehicle_id: vehicle.id,
+              tire_id: prev.tire.id,
+              log_id: logId,
+              position: null,
+              odometer: odo,
+              date: g.date,
+            })), 2, 2500)
+            if (oErr) throw new Error(oErr.message)
           }
         }
 
@@ -480,7 +529,7 @@ export default function RecordWizard({
             onPatch={p => patchReceipt(draft.key, p)}
           />
         ) : (
-          <ServiceStep groups={groups} setGroups={setGroups} receipts={receipts} available={available} logs={logs} categories={categories} />
+          <ServiceStep groups={groups} setGroups={setGroups} receipts={receipts} available={available} logs={logs} categories={categories} tireLives={tireLives} tireProducts={tireProducts} />
         )}
 
         <div className="shrink-0 border-t border-border px-6 py-4 space-y-3">

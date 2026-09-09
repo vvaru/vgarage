@@ -172,38 +172,69 @@ CREATE INDEX IF NOT EXISTS inventory_adjustments_product_idx ON inventory_adjust
 
 -- =============================================================================
 -- Tire tracking
+--
+-- A tire is not like oil. Oil is fungible and consumed — 5 qt is 5 qt, FIFO
+-- works. A tire is an INDIVIDUAL (this one has 22k on it, that one is new) and
+-- it is not consumed: it comes off, sits in the garage, and goes back on next
+-- season carrying its history. So tires are instance-tracked, and mileage
+-- accrues only while a tire is actually mounted.
 -- =============================================================================
 
--- A category that installs tires reveals a tire sub-form when it's logged.
--- This is a FLAG, not a name match: "Tire Replacement", "Tires Replaced" and
--- "New Tires" are the same intent, while "Tire Rotation" must NOT trigger it.
--- Every other category's add-a-service flow is untouched.
+-- The install-once table from the first pass could express neither storage nor
+-- rotation. Superseded before it held anything real.
+DROP TABLE IF EXISTS tire_installations CASCADE;
+
+-- A category that fits tires reveals a tire picker when it's logged. A FLAG,
+-- not a name match: "Tire Replacement" / "Tires Replaced" / "New Tires" are one
+-- intent, and "Tire Rotation" must not be confused with fitting new rubber.
 ALTER TABLE service_categories ADD COLUMN IF NOT EXISTS tracks_tires boolean NOT NULL DEFAULT false;
 
--- One row per tire per fitting. The tire currently on a corner is simply the
--- newest row for that position — derived, so nothing has to be marked removed
--- and history can't drift out of sync with itself.
-CREATE TABLE IF NOT EXISTS tire_installations (
+-- One physical tire. product_id is the MODEL it is an instance of, so a receipt
+-- line of "4 x CrossClimate2" spawns four of these and the existing product /
+-- receipt / cost machinery is reused rather than duplicated.
+CREATE TABLE IF NOT EXISTS tires (
   id                  uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id             uuid REFERENCES auth.users NOT NULL,
-  vehicle_id          uuid REFERENCES vehicles(id) ON DELETE CASCADE NOT NULL,
-  log_id              uuid REFERENCES service_logs(id) ON DELETE CASCADE,
-  position            text NOT NULL,          -- FL | FR | RL | RR | SPARE
-  installed_odometer  integer NOT NULL,
-  installed_date      date NOT NULL,
+  product_id          uuid REFERENCES products(id) ON DELETE SET NULL,
+  receipt_item_id     uuid REFERENCES receipt_items(id) ON DELETE SET NULL,
+  label               text,          -- optional: DOT code, "winter #2", anything
   expected_life_miles integer,
-  brand               text,
-  model               text,
+  purchased_date      date,
+  retired_date        date,          -- set when it's scrapped; null = still owned
+  retired_reason      text,
   created_at          timestamptz DEFAULT now()
 );
 
-ALTER TABLE tire_installations ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "own tire_installations" ON tire_installations;
-CREATE POLICY "own tire_installations" ON tire_installations FOR ALL
+-- Where a tire is, over time. position NULL = taken off and stored, which is
+-- what makes seasonal swapping work: mileage stops accruing between a removal
+-- and the next fitting.
+CREATE TABLE IF NOT EXISTS tire_events (
+  id         uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id    uuid REFERENCES auth.users NOT NULL,
+  vehicle_id uuid REFERENCES vehicles(id) ON DELETE CASCADE NOT NULL,
+  tire_id    uuid REFERENCES tires(id) ON DELETE CASCADE NOT NULL,
+  log_id     uuid REFERENCES service_logs(id) ON DELETE SET NULL,
+  position   text,                   -- FL | FR | RL | RR, or NULL when removed
+  odometer   integer NOT NULL,
+  date       date NOT NULL,
+  created_at timestamptz DEFAULT now()
+);
+
+ALTER TABLE tires       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tire_events ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "own tires" ON tires;
+CREATE POLICY "own tires" ON tires FOR ALL
   USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON tire_installations TO authenticated;
-GRANT ALL ON tire_installations TO service_role;
+DROP POLICY IF EXISTS "own tire_events" ON tire_events;
+CREATE POLICY "own tire_events" ON tire_events FOR ALL
+  USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
-CREATE INDEX IF NOT EXISTS tire_installations_vehicle_idx ON tire_installations(vehicle_id, position, installed_odometer DESC);
-CREATE INDEX IF NOT EXISTS tire_installations_log_idx ON tire_installations(log_id);
+GRANT SELECT, INSERT, UPDATE, DELETE ON tires, tire_events TO authenticated;
+GRANT ALL ON tires, tire_events TO service_role;
+
+CREATE INDEX IF NOT EXISTS tires_product_idx ON tires(product_id);
+CREATE INDEX IF NOT EXISTS tire_events_tire_idx ON tire_events(tire_id, odometer);
+CREATE INDEX IF NOT EXISTS tire_events_vehicle_idx ON tire_events(vehicle_id, odometer DESC);
+CREATE INDEX IF NOT EXISTS tire_events_log_idx ON tire_events(log_id);

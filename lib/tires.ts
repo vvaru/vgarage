@@ -1,61 +1,101 @@
 import { differenceInCalendarDays, parseISO } from 'date-fns'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Tire life.
+// Tires, tracked as individuals.
 //
-// One row per tire per fitting. The tire currently on a corner is simply the
-// newest row for that position — derived rather than flagged, so nothing has to
-// be marked removed and the history cannot contradict itself. Wear is measured
-// in miles driven since fitting, against the life the tire was bought for.
+// A tire isn't fungible like oil and isn't consumed on use: it comes off, sits
+// in the garage, and goes back on next season carrying its history. So mileage
+// accrues ONLY across the stretches a tire was actually mounted — which makes
+// seasonal swapping, rotation, and one odd replacement the same mechanism
+// rather than three special cases.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const TIRE_POSITIONS = ['FL', 'FR', 'RL', 'RR'] as const
-export type TirePosition = (typeof TIRE_POSITIONS)[number] | 'SPARE'
+export type TirePosition = (typeof TIRE_POSITIONS)[number]
 
 export const POSITION_LABELS: Record<TirePosition, string> = {
-  FL: 'Front left',
-  FR: 'Front right',
-  RL: 'Rear left',
-  RR: 'Rear right',
-  SPARE: 'Spare',
+  FL: 'Front left', FR: 'Front right', RL: 'Rear left', RR: 'Rear right',
 }
-
 export const POSITION_SHORT: Record<TirePosition, string> = {
-  FL: 'FL', FR: 'FR', RL: 'RL', RR: 'RR', SPARE: 'SP',
+  FL: 'FL', FR: 'FR', RL: 'RL', RR: 'RR',
 }
+export const AXLES: { label: string; positions: [TirePosition, TirePosition] }[] = [
+  { label: 'Front', positions: ['FL', 'FR'] },
+  { label: 'Rear', positions: ['RL', 'RR'] },
+]
 
-export interface TireInstallation {
+export interface Tire {
   id: string
   user_id: string
-  vehicle_id: string
-  log_id: string | null
-  position: TirePosition
-  installed_odometer: number
-  installed_date: string
+  product_id: string | null
+  receipt_item_id: string | null
+  label: string | null
   expected_life_miles: number | null
-  brand: string | null
-  model: string | null
-  created_at?: string
+  purchased_date: string | null
+  retired_date: string | null
+  retired_reason: string | null
 }
 
-export type TireStatus = 'good' | 'worn' | 'due' | 'over' | 'unknown' | 'empty'
+/** position null = taken off and stored. */
+export interface TireEvent {
+  id: string
+  tire_id: string
+  vehicle_id: string
+  log_id: string | null
+  position: TirePosition | null
+  odometer: number
+  date: string
+}
+
+export type TireStatus = 'good' | 'worn' | 'due' | 'over' | 'unknown'
 
 /** Share of expected life used before a tire stops being simply "good". */
 export const WEAR_BANDS = { worn: 0.7, due: 0.9 }
 
+/**
+ * Two tires on the same axle differing by more than this is worth flagging —
+ * it's a handling concern, not just uneven wear. Used when neither tire records
+ * an expected life; otherwise the threshold is a share of that life.
+ */
+export const AXLE_MISMATCH_MILES = 5_000
+export const AXLE_MISMATCH_SHARE = 0.2
+
 export interface TireLife {
-  position: TirePosition
-  install: TireInstallation | null
-  milesOn: number | null      // driven since fitting
-  daysOn: number | null
+  tire: Tire
+  miles: number                 // accrued only while mounted
+  position: TirePosition | null // where it is now; null = in storage
+  mounted: boolean
+  retired: boolean
   expected: number | null
-  remaining: number | null    // miles left before the expected life is used up
-  pctUsed: number | null      // 0..100+, null when no expectation was recorded
+  remaining: number | null
+  pctUsed: number | null
   status: TireStatus
+  fittedOdometer: number | null // when it most recently went on
+  fittedDate: string | null
+  daysOwned: number | null
 }
 
-function statusFor(pctUsed: number | null, hasInstall: boolean): TireStatus {
-  if (!hasInstall) return 'empty'
+const byOdo = (a: TireEvent, b: TireEvent) =>
+  a.odometer - b.odometer || a.date.localeCompare(b.date)
+
+/**
+ * Miles a tire has actually turned: the sum of every stretch between going on
+ * and coming off. A rotation is mounted→mounted, so it accrues straight through;
+ * winter storage is mounted→null, so it pauses until the next fitting.
+ */
+export function tireMiles(events: TireEvent[], currentOdometer: number): number {
+  const sorted = [...events].sort(byOdo)
+  let miles = 0
+  for (let i = 0; i < sorted.length; i++) {
+    if (!sorted[i].position) continue           // stored from here until the next event
+    const next = sorted[i + 1]
+    const end = next ? next.odometer : currentOdometer
+    miles += Math.max(0, end - sorted[i].odometer)
+  }
+  return miles
+}
+
+function statusFor(pctUsed: number | null): TireStatus {
   if (pctUsed == null) return 'unknown'
   if (pctUsed >= 100) return 'over'
   if (pctUsed >= WEAR_BANDS.due * 100) return 'due'
@@ -63,73 +103,109 @@ function statusFor(pctUsed: number | null, hasInstall: boolean): TireStatus {
   return 'good'
 }
 
-/** The fitting currently on each corner: the newest row per position. */
-export function currentInstalls(installs: TireInstallation[]): Map<TirePosition, TireInstallation> {
-  const out = new Map<TirePosition, TireInstallation>()
-  for (const t of installs) {
-    const held = out.get(t.position)
-    if (!held) { out.set(t.position, t); continue }
-    // Odometer decides; date breaks a tie, then insertion order as a last resort.
-    const newer = t.installed_odometer > held.installed_odometer
-      || (t.installed_odometer === held.installed_odometer && t.installed_date > held.installed_date)
-    if (newer) out.set(t.position, t)
+export function tireLife(
+  tire: Tire,
+  events: TireEvent[],
+  currentOdometer: number,
+  now = new Date(),
+): TireLife {
+  const mine = events.filter(e => e.tire_id === tire.id).sort(byOdo)
+  const last = mine[mine.length - 1] ?? null
+  const miles = tireMiles(mine, currentOdometer)
+  const expected = tire.expected_life_miles && tire.expected_life_miles > 0 ? tire.expected_life_miles : null
+  const pctUsed = expected ? (miles / expected) * 100 : null
+
+  const fitted = last?.position ? last : null
+  let daysOwned: number | null = null
+  if (tire.purchased_date) {
+    try { daysOwned = Math.max(0, differenceInCalendarDays(now, parseISO(tire.purchased_date))) } catch { /* bad date */ }
+  }
+
+  return {
+    tire,
+    miles,
+    position: last?.position ?? null,
+    mounted: Boolean(last?.position) && !tire.retired_date,
+    retired: Boolean(tire.retired_date),
+    expected,
+    remaining: expected ? expected - miles : null,
+    pctUsed,
+    status: statusFor(pctUsed),
+    fittedOdometer: fitted?.odometer ?? null,
+    fittedDate: fitted?.date ?? null,
+    daysOwned,
+  }
+}
+
+export function allTireLives(tires: Tire[], events: TireEvent[], currentOdometer: number, now = new Date()): TireLife[] {
+  return tires.map(t => tireLife(t, events, currentOdometer, now))
+}
+
+/** What's on the car right now, by corner. */
+export function mountedByPosition(lives: TireLife[]): Map<TirePosition, TireLife> {
+  const out = new Map<TirePosition, TireLife>()
+  for (const l of lives) {
+    if (l.mounted && l.position) out.set(l.position, l)
   }
   return out
 }
 
-export function tireLife(
-  installs: TireInstallation[],
-  currentOdometer: number,
-  positions: TirePosition[] = [...TIRE_POSITIONS],
-  now = new Date(),
-): TireLife[] {
-  const current = currentInstalls(installs)
-  return positions.map(position => {
-    const install = current.get(position) ?? null
-    if (!install) {
-      return { position, install: null, milesOn: null, daysOn: null, expected: null, remaining: null, pctUsed: null, status: 'empty' as TireStatus }
-    }
-    // An odometer reading behind the fitting is bad data, not negative wear.
-    const milesOn = Math.max(0, currentOdometer - install.installed_odometer)
-    const expected = install.expected_life_miles && install.expected_life_miles > 0
-      ? install.expected_life_miles
-      : null
-    const pctUsed = expected ? (milesOn / expected) * 100 : null
-    let daysOn: number | null = null
-    try { daysOn = Math.max(0, differenceInCalendarDays(now, parseISO(install.installed_date))) } catch { /* unparseable date */ }
-
-    return {
-      position,
-      install,
-      milesOn,
-      daysOn,
-      expected,
-      remaining: expected ? expected - milesOn : null,
-      pctUsed,
-      status: statusFor(pctUsed, true),
-    }
-  })
+export interface AxleWarning {
+  axle: string
+  positions: [TirePosition, TirePosition]
+  differenceMiles: number
 }
 
-/** The worst corner — what the summary card should lead with. */
-export function worstTire(lives: TireLife[]): TireLife | null {
-  const rank: Record<TireStatus, number> = { over: 5, due: 4, worn: 3, good: 2, unknown: 1, empty: 0 }
-  const fitted = lives.filter(l => l.install)
-  if (fitted.length === 0) return null
-  return [...fitted].sort((a, b) =>
-    rank[b.status] - rank[a.status] || (b.pctUsed ?? -1) - (a.pctUsed ?? -1))[0]
-}
-
-/** A whole-set headline: lowest remaining life across the fitted corners. */
-export function setHealth(lives: TireLife[]): { pctLeft: number | null; status: TireStatus; fitted: number } {
-  const fitted = lives.filter(l => l.install)
-  const withPct = fitted.filter(l => l.pctUsed != null)
-  if (fitted.length === 0) return { pctLeft: null, status: 'empty', fitted: 0 }
-  if (withPct.length === 0) return { pctLeft: null, status: 'unknown', fitted: fitted.length }
-  const worstPctUsed = Math.max(...withPct.map(l => l.pctUsed as number))
-  return {
-    pctLeft: Math.max(0, 100 - worstPctUsed),
-    status: statusFor(worstPctUsed, true),
-    fitted: fitted.length,
+/**
+ * Two tires on one axle wearing very differently is a handling concern, so it's
+ * worth saying. A front-vs-rear difference is normal and deliberately ignored.
+ */
+export function axleWarnings(lives: TireLife[]): AxleWarning[] {
+  const mounted = mountedByPosition(lives)
+  const out: AxleWarning[] = []
+  for (const axle of AXLES) {
+    const a = mounted.get(axle.positions[0])
+    const b = mounted.get(axle.positions[1])
+    if (!a || !b) continue
+    const diff = Math.abs(a.miles - b.miles)
+    const expectations = [a.expected, b.expected].filter((v): v is number => v != null)
+    const threshold = expectations.length
+      ? (expectations.reduce((s, v) => s + v, 0) / expectations.length) * AXLE_MISMATCH_SHARE
+      : AXLE_MISMATCH_MILES
+    if (diff > threshold) {
+      out.push({ axle: axle.label, positions: axle.positions, differenceMiles: Math.round(diff) })
+    }
   }
+  return out
 }
+
+/** Headline for the summary card: the worst corner currently on the car. */
+export function worstMounted(lives: TireLife[]): TireLife | null {
+  const rank: Record<TireStatus, number> = { over: 4, due: 3, worn: 2, good: 1, unknown: 0 }
+  const mounted = lives.filter(l => l.mounted)
+  if (mounted.length === 0) return null
+  return [...mounted].sort((a, b) => rank[b.status] - rank[a.status] || (b.pctUsed ?? -1) - (a.pctUsed ?? -1))[0]
+}
+
+export interface SetHealth {
+  pctLeft: number | null
+  status: TireStatus | 'empty'
+  mounted: number
+  spare: number
+}
+
+export function setHealth(lives: TireLife[]): SetHealth {
+  const mounted = lives.filter(l => l.mounted)
+  const spare = lives.filter(l => !l.mounted && !l.retired).length
+  if (mounted.length === 0) return { pctLeft: null, status: 'empty', mounted: 0, spare }
+  const withPct = mounted.filter(l => l.pctUsed != null)
+  if (withPct.length === 0) return { pctLeft: null, status: 'unknown', mounted: mounted.length, spare }
+  const worstUsed = Math.max(...withPct.map(l => l.pctUsed as number))
+  return { pctLeft: Math.max(0, 100 - worstUsed), status: statusFor(worstUsed), mounted: mounted.length, spare }
+}
+
+/** A tire's display name: its label, else the model it's an instance of. */
+export const tireName = (life: TireLife, productName: (id: string) => string): string =>
+  life.tire.label?.trim()
+    || (life.tire.product_id ? productName(life.tire.product_id) : '')
+    || 'Tire'

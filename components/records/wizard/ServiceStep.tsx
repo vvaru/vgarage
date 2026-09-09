@@ -13,7 +13,7 @@ import {
   type AvailableProduct, type ReceiptDraft, type ServiceGroup, type TagRef,
 } from '@/lib/recordDraft'
 import type { ServiceCategory, ServiceLog } from '@/lib/types'
-import { TIRE_POSITIONS, POSITION_LABELS } from '@/lib/tires'
+import { TIRE_POSITIONS, POSITION_LABELS, type TireLife } from '@/lib/tires'
 
 const num = (s: string): number | null => {
   const n = parseFloat(s)
@@ -29,9 +29,12 @@ interface Props {
   available: AvailableProduct[]
   logs: ServiceLog[]
   categories: ServiceCategory[]
+  /** Tires you already own, for the fit picker. */
+  tireLives?: TireLife[]
+  tireProducts?: { id: string; name: string }[]
 }
 
-export default function ServiceStep({ groups, setGroups, receipts, available, logs, categories }: Props) {
+export default function ServiceStep({ groups, setGroups, receipts, available, logs, categories, tireLives = [], tireProducts = [] }: Props) {
   const [picking, setPicking] = useState<string | null>(null)
   const [filter, setFilter] = useState<ServiceFilterState>(EMPTY_FILTER)
   const [showFilters, setShowFilters] = useState(false)
@@ -281,44 +284,78 @@ export default function ServiceStep({ groups, setGroups, receipts, available, lo
             )}
 
             {/* Tires: revealed only by a category flagged tracks_tires, so no other
-                category's flow changes at all. */}
+                category's flow changes at all. A tire is an individual you own,
+                so this picks WHICH tire went on each corner — that's what makes
+                seasonal swaps and one-off replacements the same action. */}
             {categories.find(c => c.id === g.categoryId)?.tracks_tires && (
               <div className="bg-accent/5 border border-accent/20 rounded-2xl p-3 space-y-2.5">
                 <p className="text-[10px] uppercase tracking-wide text-accent font-semibold">Tires fitted</p>
-                <div className="flex flex-wrap gap-1.5">
+                <div className="space-y-2">
                   {TIRE_POSITIONS.map(pos => {
-                    const on = g.tires.positions.includes(pos)
+                    const chosen = g.tires.fitted[pos] ?? ''
+                    const spare = tireLives.filter(l => !l.mounted && !l.retired)
+                    const onCar = tireLives.filter(l => l.mounted && l.position !== pos)
                     return (
-                      <button
-                        key={pos}
-                        onClick={() => patch(g.key, { tires: { ...g.tires,
-                          positions: on ? g.tires.positions.filter(x => x !== pos) : [...g.tires.positions, pos] } })}
-                        className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors ${
-                          on ? 'bg-accent/20 text-accent border-accent/40' : 'bg-surface-2 text-muted border-border-strong'
-                        }`}
-                      >{POSITION_LABELS[pos]}</button>
+                      <div key={pos} className="flex items-center gap-2">
+                        <span className="text-muted text-xs w-20 shrink-0">{POSITION_LABELS[pos]}</span>
+                        <select
+                          value={chosen}
+                          onChange={e => {
+                            const next = { ...g.tires.fitted }
+                            if (e.target.value) next[pos] = e.target.value
+                            else delete next[pos]
+                            patch(g.key, { tires: { ...g.tires, fitted: next } })
+                          }}
+                          className={`${inputCls} flex-1`}
+                        >
+                          <option value="">Not touched</option>
+                          {tireProducts.length > 0 && (
+                            <optgroup label="Fit a new tire">
+                              {tireProducts.map(tp => (
+                                <option key={tp.id} value={`new:${tp.id}`}>New — {tp.name}</option>
+                              ))}
+                            </optgroup>
+                          )}
+                          {spare.length > 0 && (
+                            <optgroup label="From storage">
+                              {spare.map(l => (
+                                <option key={l.tire.id} value={l.tire.id}>
+                                  {l.tire.label || 'Tire'} — {l.miles.toLocaleString()} mi on it
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                          {onCar.length > 0 && (
+                            <optgroup label="Move from another corner">
+                              {onCar.map(l => (
+                                <option key={l.tire.id} value={l.tire.id}>
+                                  {l.tire.label || 'Tire'} — currently {l.position}
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                        </select>
+                      </div>
                     )
                   })}
-                  <button
-                    onClick={() => patch(g.key, { tires: { ...g.tires,
-                      positions: g.tires.positions.length === TIRE_POSITIONS.length ? [] : [...TIRE_POSITIONS] } })}
-                    className="px-2.5 py-1 rounded-lg text-[11px] font-medium text-faint hover:text-accent transition-colors"
-                  >{g.tires.positions.length === TIRE_POSITIONS.length ? 'Clear' : 'All four'}</button>
                 </div>
-                {g.tires.positions.length > 0 && (
+                {Object.keys(g.tires.fitted).length > 0 && (
                   <>
-                    <div className="grid grid-cols-3 gap-2">
-                      <input type="number" inputMode="numeric" placeholder="Expected life (mi)" value={g.tires.expectedLife}
-                        onChange={e => patch(g.key, { tires: { ...g.tires, expectedLife: e.target.value } })} className={inputCls} />
-                      <input type="text" placeholder="Brand" value={g.tires.brand}
-                        onChange={e => patch(g.key, { tires: { ...g.tires, brand: e.target.value } })} className={inputCls} />
-                      <input type="text" placeholder="Model" value={g.tires.model}
-                        onChange={e => patch(g.key, { tires: { ...g.tires, model: e.target.value } })} className={inputCls} />
-                    </div>
+                    {Object.values(g.tires.fitted).some(v => v.startsWith('new:')) && (
+                      <input type="number" inputMode="numeric" placeholder="Expected life for the new tires (mi)"
+                        value={g.tires.expectedLife}
+                        onChange={e => patch(g.key, { tires: { ...g.tires, expectedLife: e.target.value } })}
+                        className={inputCls} />
+                    )}
                     <p className="text-faint text-[11px]">
-                      Wear counts from the odometer above, so that field matters more than usual here.
+                      Mileage counts from the odometer above, and pauses for any tire taken off.
                     </p>
                   </>
+                )}
+                {tireProducts.length === 0 && (
+                  <p className="text-faint text-[11px]">
+                    No tire products yet — add one in the catalogue with type “Tires” to fit new rubber.
+                  </p>
                 )}
               </div>
             )}

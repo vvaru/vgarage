@@ -8,6 +8,8 @@ import { useVehicle } from '@/components/vehicle/VehicleContext'
 import InventoryTab from '@/components/inventory/InventoryTab'
 import { UNIT_GROUPS, guessUnit, fmtQty } from '@/lib/units'
 import { findType, guessProductType, type ProductType } from '@/lib/productTypes'
+import { allTireLives, type Tire, type TireEvent } from '@/lib/tires'
+import TirePanel from '@/components/tires/TirePanel'
 import type { Product, ProductLink, ServiceCategory } from '@/lib/types'
 
 interface ProductWithLinks extends Product {
@@ -31,7 +33,9 @@ export default function ProductsPage() {
   const { user } = useAuth()
   const { vehicle } = useVehicle()
 
-  const [tab, setTab] = useState<'inventory' | 'catalog'>('inventory')
+  const [tab, setTab] = useState<'inventory' | 'catalog' | 'tires'>('inventory')
+  const [tires, setTires] = useState<Tire[]>([])
+  const [tireEvents, setTireEvents] = useState<TireEvent[]>([])
   const [products, setProducts] = useState<ProductWithLinks[]>([])
   const [categories, setCategories] = useState<ServiceCategory[]>([])
   const [loading, setLoading] = useState(true)
@@ -65,6 +69,14 @@ export default function ProductsPage() {
       // Types are optional until the SQL is run — stay quiet if the table is absent.
       const typesQ = await supabase.from('product_types').select('*').eq('user_id', user.id).order('name')
       setProductTypes((typesQ.data ?? []) as ProductType[])
+      try {
+        const [t, e] = await Promise.all([
+          supabase.from('tires').select('*'),
+          supabase.from('tire_events').select('*').eq('vehicle_id', vehicle.id),
+        ])
+        setTires((t.data ?? []) as Tire[])
+        setTireEvents((e.data ?? []) as TireEvent[])
+      } catch { /* migration not run yet */ }
       const combined: ProductWithLinks[] = (prods ?? []).map(p => ({
         ...p,
         links: (links ?? []).filter(l => l.product_id === p.id),
@@ -78,6 +90,12 @@ export default function ProductsPage() {
   }, [vehicle, user?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { load() }, [load])
+
+  // Deep link from the services page's tire summary.
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get('tab')
+    if (t === 'tires' || t === 'catalog' || t === 'inventory') setTab(t)
+  }, [])
 
   // Close filter popup on outside click
   useEffect(() => {
@@ -322,7 +340,7 @@ export default function ProductsPage() {
 
         {/* Tabs */}
         <div className="flex gap-2 mt-4">
-          {(['inventory', 'catalog'] as const).map(t => (
+          {(['inventory', 'catalog', 'tires'] as const).map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -335,6 +353,16 @@ export default function ProductsPage() {
           ))}
         </div>
       </div>
+
+      {tab === 'tires' && vehicle && (
+        <div className="max-w-6xl 2xl:max-w-7xl mx-auto px-4 lg:px-8 pt-4 pb-28 lg:pb-12">
+          <TirePanel
+            lives={allTireLives(tires, tireEvents, vehicle.odometer)}
+            currentOdometer={vehicle.odometer}
+            productName={id => products.find(x => x.id === id)?.name ?? 'Tire'}
+          />
+        </div>
+      )}
 
       {tab === 'inventory' && (
         <div className="max-w-6xl 2xl:max-w-7xl mx-auto px-4 lg:px-8 pt-4 pb-28 lg:pb-12">

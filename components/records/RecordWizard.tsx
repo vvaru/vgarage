@@ -92,6 +92,7 @@ export default function RecordWizard({
     lines: Record<string, string>
     logs: Record<string, string>
     usage: Record<string, string>
+    tires: Record<string, string>
     adjustments: Record<string, string>
     uploads: Record<string, string>
   } | null>(null)
@@ -142,6 +143,7 @@ export default function RecordWizard({
         shopEquivalent: l?.shop_equivalent_cost == null ? '' : String(l.shop_equivalent_cost),
         notes: l?.notes ?? '',
         draws: [],
+        tires: { positions: [], expectedLife: '', brand: '', model: '' },
       }
     })
   }
@@ -166,6 +168,7 @@ export default function RecordWizard({
         lines: Object.fromEntries(receipts.flatMap(r => r.lines.map(l => [`${r.key}:${l.key}`, l.itemId ?? crypto.randomUUID()]))),
         logs: Object.fromEntries(groups.map(g => [g.key, g.linkedLogId ?? crypto.randomUUID()])),
         usage: {},
+        tires: {},
         adjustments: {},
         uploads: {},
       }
@@ -338,6 +341,30 @@ export default function RecordWizard({
             .upsert({ log_id: logId, receipt_id: ids.receipts[receiptKey] }))
         }
 
+        // Tires fitted by this service. One row per corner, ids from the
+        // save-scoped store so a retry rewrites rather than refits.
+        if (g.tires.positions.length > 0) {
+          const life = num(g.tires.expectedLife)
+          const odo = num(g.odometer) ?? vehicle.odometer
+          for (const position of g.tires.positions) {
+            const tKey = `${g.key}|${position}`
+            ids.tires[tKey] ??= crypto.randomUUID()
+            const { error: tErr } = await withRetry(() => write(supabase.from('tire_installations').upsert({
+              id: ids.tires[tKey],
+              user_id: user.id,
+              vehicle_id: vehicle.id,
+              log_id: logId,
+              position,
+              installed_odometer: odo,
+              installed_date: g.date,
+              expected_life_miles: life,
+              brand: g.tires.brand.trim() || null,
+              model: g.tires.model.trim() || null,
+            })), 2, 2500)
+            if (tErr) throw new Error(tErr.message)
+          }
+        }
+
         // Using a product in a categorised service says what it's for, so the
         // catalogue tag comes free rather than being asked for on the receipt.
         if (g.categoryId) {
@@ -453,7 +480,7 @@ export default function RecordWizard({
             onPatch={p => patchReceipt(draft.key, p)}
           />
         ) : (
-          <ServiceStep groups={groups} setGroups={setGroups} receipts={receipts} available={available} logs={logs} />
+          <ServiceStep groups={groups} setGroups={setGroups} receipts={receipts} available={available} logs={logs} categories={categories} />
         )}
 
         <div className="shrink-0 border-t border-border px-6 py-4 space-y-3">

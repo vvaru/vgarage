@@ -12,6 +12,8 @@ import { useVehicle } from '@/components/vehicle/VehicleContext'
 import { withRetry, withTimeout } from '@/lib/recover'
 import { getCache, setCache } from '@/lib/cache'
 import { useStock } from '@/lib/useStock'
+import { tireLife, type TireInstallation } from '@/lib/tires'
+import TireLifeCard from '@/components/tires/TireLifeCard'
 import type { ServiceLog, ServiceCategory, ServiceCategoryProduct } from '@/lib/types'
 import dynamic from 'next/dynamic'
 
@@ -20,6 +22,7 @@ const CarfaxImportModal = dynamic(() => import('@/components/service/CarfaxImpor
 const ExportPdfModal = dynamic(() => import('@/components/service/ExportPdfModal'), { ssr: false })
 const ImageCropModal = dynamic(() => import('@/components/service/ImageCropModal'), { ssr: false })
 const RecordWizard = dynamic(() => import('@/components/records/RecordWizard'), { ssr: false })
+const TireDetailModal = dynamic(() => import('@/components/tires/TireDetailModal'), { ssr: false })
 const ReceiptViewer = dynamic(() => import('@/components/ui/ReceiptViewer'), { ssr: false })
 const ReceiptPreviewModal = dynamic(() => import('@/components/service/ReceiptPreviewModal'), { ssr: false })
 
@@ -169,6 +172,8 @@ export default function ServicePage() {
   const [showAddFlow, setShowAddFlow] = useState(false)
   // Stock for the wizard's "products used" step.
   const { products: invProducts, stock, reload: reloadStock } = useStock(user?.id)
+  const [tireInstalls, setTireInstalls] = useState<TireInstallation[]>([])
+  const [showTires, setShowTires] = useState(false)
   const [editLog, setEditLog] = useState<ServiceLog | null>(null)
   const [form, setForm] = useState(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
@@ -247,6 +252,17 @@ export default function ServicePage() {
   }, [vehicle])
 
   useEffect(() => { load() }, [load])
+
+  // Tire fittings for the life card. Quiet when the migration hasn't run.
+  useEffect(() => {
+    if (!vehicle) return
+    void (async () => {
+      try {
+        const { data } = await supabase.from('tire_installations').select('*').eq('vehicle_id', vehicle.id)
+        setTireInstalls((data ?? []) as TireInstallation[])
+      } catch { /* migration not run yet — the card just says 'not tracked' */ }
+    })()
+  }, [vehicle?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (selectedGroup) {
@@ -448,6 +464,8 @@ export default function ServicePage() {
   const allTypes = Array.from(new Set(logs.map(l => l.service_type))).sort()
   const categoryNames = new Set(categories.map(c => c.name))
   const uncategorizedTypes = allTypes.filter(t => !categoryNames.has(t))
+  const tireLives = tireLife(tireInstalls, estOdo)
+
   const cutoff = cutoffDate(costFilter)
   const timeFiltered = cutoff ? logs.filter(l => parseISO(l.date) >= cutoff) : logs
   const filteredCost = timeFiltered.reduce((s, l) => s + Number(l.cost ?? 0), 0)
@@ -872,6 +890,10 @@ export default function ServicePage() {
                         </div>
                         <span className="text-faint text-[10px] mt-1">On schedule</span>
                       </div>
+                    </div>
+                    {/* Tire life sits with the car it belongs to */}
+                    <div className="mt-3">
+                      <TireLifeCard lives={tireLives} onOpen={() => setShowTires(true)} />
                     </div>
                   </div>
                 )}
@@ -1325,6 +1347,10 @@ export default function ServicePage() {
       {showCarfaxImport && vehicle && <CarfaxImportModal vehicle={vehicle} categories={categories} onClose={() => setShowCarfaxImport(false)} onImported={load} />}
       {showExport && vehicle && <ExportPdfModal vehicle={vehicle} logs={logs} onClose={() => setShowExport(false)} />}
       {cropSourceFile && <ImageCropModal file={cropSourceFile} onConfirm={handleCropConfirm} onCancel={() => { setCropSourceFile(null); if (fileRef.current) fileRef.current.value = '' }} />}
+      {showTires && (
+        <TireDetailModal lives={tireLives} currentOdometer={estOdo} onClose={() => setShowTires(false)} />
+      )}
+
       {showAddFlow && vehicle && (
         <RecordWizard
           products={invProducts}

@@ -169,3 +169,41 @@ CREATE INDEX IF NOT EXISTS service_product_usage_product_idx ON service_product_
 CREATE INDEX IF NOT EXISTS service_product_usage_log_idx ON service_product_usage(log_id);
 CREATE INDEX IF NOT EXISTS service_product_usage_lot_idx ON service_product_usage(receipt_item_id);
 CREATE INDEX IF NOT EXISTS inventory_adjustments_product_idx ON inventory_adjustments(product_id);
+
+-- =============================================================================
+-- Tire tracking
+-- =============================================================================
+
+-- A category that installs tires reveals a tire sub-form when it's logged.
+-- This is a FLAG, not a name match: "Tire Replacement", "Tires Replaced" and
+-- "New Tires" are the same intent, while "Tire Rotation" must NOT trigger it.
+-- Every other category's add-a-service flow is untouched.
+ALTER TABLE service_categories ADD COLUMN IF NOT EXISTS tracks_tires boolean NOT NULL DEFAULT false;
+
+-- One row per tire per fitting. The tire currently on a corner is simply the
+-- newest row for that position — derived, so nothing has to be marked removed
+-- and history can't drift out of sync with itself.
+CREATE TABLE IF NOT EXISTS tire_installations (
+  id                  uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id             uuid REFERENCES auth.users NOT NULL,
+  vehicle_id          uuid REFERENCES vehicles(id) ON DELETE CASCADE NOT NULL,
+  log_id              uuid REFERENCES service_logs(id) ON DELETE CASCADE,
+  position            text NOT NULL,          -- FL | FR | RL | RR | SPARE
+  installed_odometer  integer NOT NULL,
+  installed_date      date NOT NULL,
+  expected_life_miles integer,
+  brand               text,
+  model               text,
+  created_at          timestamptz DEFAULT now()
+);
+
+ALTER TABLE tire_installations ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "own tire_installations" ON tire_installations;
+CREATE POLICY "own tire_installations" ON tire_installations FOR ALL
+  USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON tire_installations TO authenticated;
+GRANT ALL ON tire_installations TO service_role;
+
+CREATE INDEX IF NOT EXISTS tire_installations_vehicle_idx ON tire_installations(vehicle_id, position, installed_odometer DESC);
+CREATE INDEX IF NOT EXISTS tire_installations_log_idx ON tire_installations(log_id);

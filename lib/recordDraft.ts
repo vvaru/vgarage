@@ -83,6 +83,8 @@ export interface ServiceGroup {
   shopEquivalent: string
   notes: string
   draws: { productKey: string; qty: string }[]
+  /** Only populated when the chosen category is flagged tracks_tires. */
+  tires: { positions: string[]; expectedLife: string; brand: string; model: string }
 }
 
 // Services this far apart are different visits even when they share a category.
@@ -141,6 +143,7 @@ export function groupServiceTags(receipts: ReceiptDraft[], categories: ServiceCa
         shopEquivalent: '',
         notes: '',
         draws: [],
+        tires: { positions: [], expectedLife: '', brand: '', model: '' },
       })
     }
   }
@@ -160,6 +163,7 @@ export function mergeGroupEdits(fresh: ServiceGroup[], previous: ServiceGroup[])
       shopEquivalent: old.shopEquivalent,
       notes: old.notes,
       draws: old.draws,
+      tires: old.tires ?? g.tires,
       // A cost the user typed over wins; otherwise take the recomputed sum.
       cost: old.cost !== '' && old.cost !== g.cost ? old.cost : g.cost,
     }

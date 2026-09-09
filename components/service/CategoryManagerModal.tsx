@@ -12,7 +12,7 @@ interface Props {
   onUpdated: () => void
 }
 
-const EMPTY_CAT = { name: '', interval_miles: '', interval_days: '', sub_type: 'service' as 'service' | 'check', category_type: 'maintenance' as 'maintenance' | 'repair' }
+const EMPTY_CAT = { name: '', interval_miles: '', interval_days: '', sub_type: 'service' as 'service' | 'check', category_type: 'maintenance' as 'maintenance' | 'repair', tracks_tires: false }
 const EMPTY_PROD = { name: '', product_url: '', last_price: '' }
 
 export default function CategoryManagerModal({ vehicle, onClose, onUpdated }: Props) {
@@ -77,6 +77,7 @@ export default function CategoryManagerModal({ vehicle, onClose, onUpdated }: Pr
       interval_days: cat.interval_days != null ? String(cat.interval_days) : '',
       sub_type: cat.sub_type ?? 'service',
       category_type: cat.category_type,
+      tracks_tires: Boolean(cat.tracks_tires),
     })
     setRenameWarn(false)
   }
@@ -100,6 +101,7 @@ export default function CategoryManagerModal({ vehicle, onClose, onUpdated }: Pr
         sub_type: catForm.category_type === 'maintenance' ? catForm.sub_type : null,
         interval_miles: catForm.interval_miles ? parseInt(catForm.interval_miles) : null,
         interval_days: catForm.interval_days ? parseInt(catForm.interval_days) : null,
+        tracks_tires: catForm.tracks_tires,
       })
     } else if (editCat) {
       const nameChanged = catForm.name.trim() !== editCat.name
@@ -108,6 +110,7 @@ export default function CategoryManagerModal({ vehicle, onClose, onUpdated }: Pr
         sub_type: editCat.category_type === 'maintenance' ? catForm.sub_type : null,
         interval_miles: catForm.interval_miles ? parseInt(catForm.interval_miles) : null,
         interval_days: catForm.interval_days ? parseInt(catForm.interval_days) : null,
+        tracks_tires: catForm.tracks_tires,
       }).eq('id', editCat.id)
 
       if (nameChanged) {
@@ -269,6 +272,15 @@ export default function CategoryManagerModal({ vehicle, onClose, onUpdated }: Pr
                   className="w-full bg-surface-2 border border-border-strong rounded-xl px-3 py-2 text-foreground text-sm focus:outline-none focus:border-accent/70 transition-all" />
               </div>
             </div>
+                        <label className="flex items-start gap-2.5 bg-surface-2/50 border border-border rounded-xl p-2.5 cursor-pointer mt-3">
+              <input type="checkbox" checked={catForm.tracks_tires}
+                onChange={e => setCatForm(f => ({ ...f, tracks_tires: e.target.checked }))}
+                className="mt-0.5 accent-[var(--color-accent)]" />
+              <span>
+                <span className="text-foreground text-xs font-medium block">This one replaces tires</span>
+                <span className="text-faint text-[11px]">Logging it asks which corners were fitted, so tire life can be tracked.</span>
+              </span>
+            </label>
             <div className="flex gap-2">
               <button onClick={() => { setEditCat(null); setRenameWarn(false) }} className="flex-1 bg-surface-2 hover:bg-faint text-foreground text-sm font-medium rounded-xl py-2 transition-colors">Cancel</button>
               <button onClick={saveCat} disabled={catSaving || !catForm.name.trim()} className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-40 text-white text-sm font-bold rounded-xl py-2 transition-colors">{catSaving ? 'Saving…' : 'Save'}</button>

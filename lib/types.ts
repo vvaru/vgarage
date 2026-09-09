@@ -23,6 +23,7 @@ export interface ServiceCategory {
   interval_days: number | null
   global_category_id?: string | null
   is_visible?: boolean
+  tracks_tires?: boolean   // logging this category asks which tires were fitted
   created_at: string
 }
 

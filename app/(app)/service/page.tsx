@@ -13,7 +13,11 @@ import { useVehicle } from '@/components/vehicle/VehicleContext'
 import { withRetry, withTimeout } from '@/lib/recover'
 import { getCache, setCache } from '@/lib/cache'
 import { useStock } from '@/lib/useStock'
-import { allTireLives, setHealth, worstMounted, type Tire, type TireEvent } from '@/lib/tires'
+import { allTireLives, setHealth, worstMounted, setView, mountedByPosition, tireProductChoices, type Tire, type TireEvent, type TireLife, type TirePosition } from '@/lib/tires'
+import { zoneFor, zoneStates, LEVEL_COLOR as LEVEL_COLOR_MAP, type ZoneItem, type ZoneLevel } from '@/lib/carZones'
+import { useRouter } from 'next/navigation'
+import CarHealthMap from '@/components/service/CarHealthMap'
+import CarHealthPanel from '@/components/service/CarHealthPanel'
 import type { ServiceLog, ServiceCategory, ServiceCategoryProduct } from '@/lib/types'
 import dynamic from 'next/dynamic'
 
@@ -156,6 +160,7 @@ const EMPTY_FORM = {
 
 export default function ServicePage() {
   const { user } = useAuth()
+  const router = useRouter()
   const { vehicle } = useVehicle()
   const [logs, setLogs] = useState<ServiceLog[]>([])
   const [categories, setCategories] = useState<ServiceCategory[]>([])
@@ -173,6 +178,7 @@ export default function ServicePage() {
   const { products: invProducts, stock, reload: reloadStock } = useStock(user?.id)
   const [tires, setTires] = useState<Tire[]>([])
   const [tireEvents, setTireEvents] = useState<TireEvent[]>([])
+  const [productTypes, setProductTypes] = useState<{ id: string; name: string }[]>([])
   const [editLog, setEditLog] = useState<ServiceLog | null>(null)
   const [form, setForm] = useState(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
@@ -257,12 +263,14 @@ export default function ServicePage() {
     if (!vehicle) return
     void (async () => {
       try {
-        const [t, e] = await Promise.all([
+        const [t, e, pt] = await Promise.all([
           supabase.from('tires').select('*'),
           supabase.from('tire_events').select('*').eq('vehicle_id', vehicle.id),
+          supabase.from('product_types').select('id,name'),
         ])
         setTires((t.data ?? []) as Tire[])
         setTireEvents((e.data ?? []) as TireEvent[])
+        setProductTypes((pt.data ?? []) as { id: string; name: string }[])
       } catch { /* migration not run yet — the strip just stays quiet */ }
     })()
   }, [vehicle?.id]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -470,10 +478,54 @@ export default function ServicePage() {
   const tireLives = allTireLives(tires, tireEvents, estOdo)
   const tireHealth = setHealth(tireLives)
   const worstTire = worstMounted(tireLives)
-  // Products whose type mentions tires — what a fitting can install.
-  const tireProductOptions = invProducts
-    .filter(p => /tire|tyre/i.test(p.name) || /tire|tyre/i.test(p.brand ?? ''))
-    .map(p => ({ id: p.id, name: [p.brand, p.name].filter(Boolean).join(' ') }))
+
+  // ── Vehicle health map ────────────────────────────────────────────────────
+  // An inspection coming due is yellow; a service overdue is red. A check can't
+  // go red on its own — being late to LOOK at something isn't the same as the
+  // part having reached the end of its life.
+  const levelForStatus = (st: CategoryWithStatus): Exclude<ZoneLevel, 'none'> => {
+    if (st.cat.sub_type === 'check') return st.isOverdue || st.isDueSoon ? 'soon' : 'ok'
+    return st.isOverdue ? 'due' : st.isDueSoon ? 'soon' : 'ok'
+  }
+  const detailForStatus = (st: CategoryWithStatus): string | null => {
+    if (st.milesLeft != null) {
+      return st.milesLeft <= 0
+        ? `overdue by ${Math.abs(st.milesLeft).toLocaleString()} mi`
+        : `${st.milesLeft.toLocaleString()} mi left`
+    }
+    if (st.daysLeft != null) return st.daysLeft < 0 ? `overdue by ${Math.abs(st.daysLeft)} days` : `${st.daysLeft} days left`
+    return null
+  }
+  const tireLevel = (l: TireLife): Exclude<ZoneLevel, 'none'> =>
+    l.status === 'over' ? 'due' : l.status === 'due' ? 'soon' : 'ok'
+
+  const zoneItems: (ZoneItem & { zone: ReturnType<typeof zoneFor> })[] = [
+    ...scheduledStatuses.map(st => ({
+      id: st.cat.id, name: st.cat.name, level: levelForStatus(st), detail: detailForStatus(st), zone: zoneFor(st.cat.name),
+    })),
+    // Tire wear comes from the tires themselves, not a schedule.
+    ...(worstTire ? [{
+      id: 'tires:life',
+      name: 'Tire life',
+      level: tireLevel(worstTire),
+      detail: tireHealth.pctLeft != null ? `${Math.round(tireHealth.pctLeft)}% left on the worst tire` : `${tireHealth.mounted} fitted`,
+      zone: 'tires' as const,
+    }] : []),
+  ]
+  const healthStates = zoneStates(zoneItems)
+  // Corners only diverge in colour when the tires on them actually differ.
+  const tireSet = setView(tireLives)
+  const tireCorners: Map<TirePosition, ZoneLevel> | null = tireSet.shape === 'mixed'
+    ? new Map([...mountedByPosition(tireLives)].map(([pos, l]) => [pos, tireLevel(l)]))
+    : null
+
+  function openHealthItem(item: ZoneItem) {
+    if (item.id === 'tires:life') { router.push('/products?tires=1'); return }
+    const st = scheduledStatuses.find(x => x.cat.id === item.id)
+    if (st) setSelectedStatus(st)
+  }
+  // What a fitting can install: products typed as tires (name match as fallback).
+  const tireProductOptions = tireProductChoices(invProducts, productTypes)
 
   const cutoff = cutoffDate(costFilter)
   const timeFiltered = cutoff ? logs.filter(l => parseISO(l.date) >= cutoff) : logs
@@ -900,21 +952,33 @@ export default function ServicePage() {
                         <span className="text-faint text-[10px] mt-1">On schedule</span>
                       </div>
                     </div>
-                    {/* Tires live on Products — a tire is stock you swap onto the
-                        car. Here it's one line that links across, not a second copy. */}
-                    {tireHealth.mounted > 0 && (
-                      <Link href="/products?tab=tires" className="mt-3 flex items-center justify-between gap-2 bg-surface-2/50 border border-border rounded-xl px-3 py-2 hover:border-accent/40 transition-colors">
-                        <span className="min-w-0">
-                          <span className="text-foreground text-xs font-semibold block">
-                            Tires{tireHealth.pctLeft != null ? ` · ${Math.round(tireHealth.pctLeft)}% left` : ''}
-                          </span>
-                          <span className="text-faint text-[11px] truncate block">
-                            {worstTire ? `worst corner ${worstTire.miles.toLocaleString()} mi` : `${tireHealth.mounted} fitted`}
-                          </span>
-                        </span>
-                        <ChevronRight size={14} className="text-faint shrink-0" />
-                      </Link>
-                    )}
+                    {/* Small screens get the big-ticket regions only; the full map
+                        lives in the desktop detail pane. */}
+                    <div className="lg:hidden mt-3 flex items-center gap-4 bg-surface-2/40 border border-border rounded-2xl p-3">
+                      <div className="w-[88px] h-[160px] shrink-0">
+                        <CarHealthMap
+                          compact
+                          states={healthStates}
+                          tireCorners={tireCorners}
+                          onZone={z => { const it = healthStates.get(z)?.items[0]; if (it) openHealthItem(it) }}
+                        />
+                      </div>
+                      <div className="min-w-0 flex-1 space-y-2">
+                        {(['engine', 'tires'] as const).map(z => {
+                          const st = healthStates.get(z)!
+                          const top = st.items[0]
+                          return (
+                            <button key={z} onClick={() => top && openHealthItem(top)} disabled={!top}
+                              className="w-full text-left disabled:cursor-default">
+                              <span className="text-foreground text-xs font-semibold block">{st.zone.label}</span>
+                              <span className="text-[11px] block truncate" style={{ color: top ? LEVEL_COLOR_MAP[st.level] : undefined }}>
+                                {top ? `${top.name}${top.detail ? ` · ${top.detail}` : ''}` : <span className="text-faint">Not tracked</span>}
+                              </span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
                   </div>
                 )}
                 {serviceStatuses.length > 0 && (
@@ -987,13 +1051,12 @@ export default function ServicePage() {
                 {renderCategoryDetail(selectedStatus)}
               </div>
             ) : (
-              <div className="flex-1 flex items-center justify-center">
-                <div className="text-center">
-                  <Wrench size={40} className="text-border-strong mx-auto mb-3" />
-                  <p className="text-faint font-medium">Select a category</p>
-                  <p className="text-faint text-sm mt-1">to see its schedule, products, and history</p>
-                </div>
-              </div>
+              <CarHealthPanel
+                states={healthStates}
+                tireCorners={tireCorners}
+                onItem={openHealthItem}
+                heading={vehicle ? `${vehicle.year} ${vehicle.make} ${vehicle.model}` : 'Your car'}
+              />
             )}
           </div>
 

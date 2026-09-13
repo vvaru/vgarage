@@ -10,12 +10,12 @@ import { withRetry, write, warmUp } from '@/lib/recover'
 import ReceiptStep from './wizard/ReceiptStep'
 import ServiceStep from './wizard/ServiceStep'
 import {
-  availableProducts, emptyLine, emptyReceipt, groupServiceTags, mergeGroupEdits, isPending, tagLabel,
+  availableProducts, emptyLine, emptyReceipt, groupServiceTags, mergeGroupEdits, isPending, tagLabel, emptyTireDraft,
   type ReceiptDraft, type ServiceGroup,
 } from '@/lib/recordDraft'
 import { receiptTitle } from '@/lib/receipts'
 import { planDraw, type Lot, type LotBalance, type ProductStock } from '@/lib/inventory'
-import type { TireLife } from '@/lib/tires'
+import { TIRE_POSITIONS, storedSets, planFitting, type TireLife, type TirePosition } from '@/lib/tires'
 import type { Product, Receipt, ReceiptItem, ServiceCategory, ServiceLog, ServiceProductUsage } from '@/lib/types'
 
 type ProductU = Product & { unit?: string }
@@ -147,7 +147,7 @@ export default function RecordWizard({
         shopEquivalent: l?.shop_equivalent_cost == null ? '' : String(l.shop_equivalent_cost),
         notes: l?.notes ?? '',
         draws: [],
-        tires: { fitted: {}, expectedLife: '', productId: '' },
+        tires: emptyTireDraft(),
       }
     })
   }
@@ -178,8 +178,6 @@ export default function RecordWizard({
       }
     }
     const ids = saveIds.current
-    // Snapshot of what's on the car, for working out what comes off.
-    const mountedNow = tireLives.filter(l => l.mounted)
 
     try {
       // Filling in a receipt takes minutes, so the socket from page load is
@@ -347,70 +345,66 @@ export default function RecordWizard({
             .upsert({ log_id: logId, receipt_id: ids.receipts[receiptKey] }))
         }
 
-        // Tires fitted by this service.
-        //
-        // A corner named here gets an event; a corner left out wasn't touched
-        // and keeps whatever is on it. Anything that WAS on a named corner and
-        // isn't going back on gets a removal event, which is what pauses its
-        // mileage while it sits in the garage — the mechanism that makes a
-        // seasonal swap and a single damaged tire the same operation.
-        const fittedEntries = Object.entries(g.tires.fitted).filter(([, v]) => v)
-        if (fittedEntries.length > 0) {
-          const life = num(g.tires.expectedLife)
+        // Tires fitted by this service, via the same planner the tests cover.
+        // A whole set goes on by default; a few corners when one got damaged.
+        // Whatever comes off is either scrapped — retired and no longer shown —
+        // or kept, which pauses its mileage in storage until it goes back on.
+        const td = g.tires
+        const wantsFitting = td.source === 'new'
+          ? Boolean(td.productId)
+          : td.scope === 'all' ? Boolean(td.storedSetKey) : Object.keys(td.storedPicks).length > 0
+        if (wantsFitting) {
           const odo = num(g.odometer) ?? vehicle.odometer
-          const touched = new Set(fittedEntries.map(([pos]) => pos))
-          const goingOn = new Set<string>()
+          const corners = (td.scope === 'all' ? [...TIRE_POSITIONS] : td.corners)
+            .filter((c): c is TirePosition => (TIRE_POSITIONS as readonly string[]).includes(c))
+          const incoming: Partial<Record<TirePosition, string>> = {}
+          if (td.source === 'new') {
+            for (const c of corners) incoming[c] = 'new'
+          } else if (td.scope === 'all') {
+            const set = storedSets(tireLives).find(x => x.key === td.storedSetKey)
+            set?.tires.slice(0, TIRE_POSITIONS.length).forEach((l, i) => { incoming[TIRE_POSITIONS[i]] = l.tire.id })
+          } else {
+            for (const c of corners) if (td.storedPicks[c]) incoming[c] = td.storedPicks[c]
+          }
 
-          for (const [position, choice] of fittedEntries) {
-            let tireId = choice
-            if (choice.startsWith('new:')) {
-              const tKey = `${g.key}|tire|${position}`
-              ids.tires[tKey] ??= crypto.randomUUID()
-              tireId = ids.tires[tKey]
+          const plan = planFitting(tireLives, incoming, td.oldFate)
+          const life = num(td.expectedLife)
+
+          for (const m of plan.mounts) {
+            let tireId = m.tireId
+            if (!tireId) {
+              const nKey = `${g.key}|new|${m.position}`
+              ids.tires[nKey] ??= crypto.randomUUID()
+              tireId = ids.tires[nKey]
               const { error: nErr } = await withRetry(() => write(supabase.from('tires').upsert({
-                id: tireId,
-                user_id: user.id,
-                product_id: choice.slice(4),
-                label: null,
-                expected_life_miles: life,
-                purchased_date: g.date,
+                id: tireId, user_id: user.id, product_id: td.productId,
+                expected_life_miles: life, purchased_date: g.date,
               })), 2, 2500)
               if (nErr) throw new Error(nErr.message)
             }
-            goingOn.add(tireId)
-
-            const eKey = `${g.key}|ev|${position}`
+            const eKey = `${g.key}|on|${m.position}`
             ids.tires[eKey] ??= crypto.randomUUID()
             const { error: eErr } = await withRetry(() => write(supabase.from('tire_events').upsert({
-              id: ids.tires[eKey],
-              user_id: user.id,
-              vehicle_id: vehicle.id,
-              tire_id: tireId,
-              log_id: logId,
-              position,
-              odometer: odo,
-              date: g.date,
+              id: ids.tires[eKey], user_id: user.id, vehicle_id: vehicle.id, tire_id: tireId,
+              log_id: logId, position: m.position, odometer: odo, date: g.date,
             })), 2, 2500)
             if (eErr) throw new Error(eErr.message)
           }
 
-          // Whatever was on a touched corner and isn't going back on comes off.
-          for (const prev of mountedNow) {
-            if (!prev.position || !touched.has(prev.position)) continue
-            if (goingOn.has(prev.tire.id)) continue
-            const oKey = `${g.key}|off|${prev.tire.id}`
+          for (const o of plan.offs) {
+            // A removal event freezes its mileage either way; scrapping also retires it.
+            const oKey = `${g.key}|off|${o.tireId}`
             ids.tires[oKey] ??= crypto.randomUUID()
             const { error: oErr } = await withRetry(() => write(supabase.from('tire_events').upsert({
-              id: ids.tires[oKey],
-              user_id: user.id,
-              vehicle_id: vehicle.id,
-              tire_id: prev.tire.id,
-              log_id: logId,
-              position: null,
-              odometer: odo,
-              date: g.date,
+              id: ids.tires[oKey], user_id: user.id, vehicle_id: vehicle.id, tire_id: o.tireId,
+              log_id: logId, position: null, odometer: odo, date: g.date,
             })), 2, 2500)
             if (oErr) throw new Error(oErr.message)
+            if (o.fate === 'scrapped') {
+              const { error: rErr } = await withRetry(() => write(supabase.from('tires')
+                .update({ retired_date: g.date, retired_reason: 'Replaced' }).eq('id', o.tireId)), 2, 2500)
+              if (rErr) throw new Error(rErr.message)
+            }
           }
         }
 

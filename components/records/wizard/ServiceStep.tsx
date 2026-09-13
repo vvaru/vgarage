@@ -13,7 +13,8 @@ import {
   type AvailableProduct, type ReceiptDraft, type ServiceGroup, type TagRef,
 } from '@/lib/recordDraft'
 import type { ServiceCategory, ServiceLog } from '@/lib/types'
-import { TIRE_POSITIONS, POSITION_LABELS, type TireLife } from '@/lib/tires'
+import { TIRE_POSITIONS, POSITION_LABELS, storedSets, mountedByPosition, type TireLife, type TirePosition } from '@/lib/tires'
+import type { TireDraft } from '@/lib/recordDraft'
 
 const num = (s: string): number | null => {
   const n = parseFloat(s)
@@ -283,82 +284,138 @@ export default function ServiceStep({ groups, setGroups, receipts, available, lo
               </div>
             )}
 
-            {/* Tires: revealed only by a category flagged tracks_tires, so no other
-                category's flow changes at all. A tire is an individual you own,
-                so this picks WHICH tire went on each corner — that's what makes
-                seasonal swaps and one-off replacements the same action. */}
-            {categories.find(c => c.id === g.categoryId)?.tracks_tires && (
-              <div className="bg-accent/5 border border-accent/20 rounded-2xl p-3 space-y-2.5">
-                <p className="text-[10px] uppercase tracking-wide text-accent font-semibold">Tires fitted</p>
-                <div className="space-y-2">
-                  {TIRE_POSITIONS.map(pos => {
-                    const chosen = g.tires.fitted[pos] ?? ''
-                    const spare = tireLives.filter(l => !l.mounted && !l.retired)
-                    const onCar = tireLives.filter(l => l.mounted && l.position !== pos)
-                    return (
-                      <div key={pos} className="flex items-center gap-2">
-                        <span className="text-muted text-xs w-20 shrink-0">{POSITION_LABELS[pos]}</span>
-                        <select
-                          value={chosen}
-                          onChange={e => {
-                            const next = { ...g.tires.fitted }
-                            if (e.target.value) next[pos] = e.target.value
-                            else delete next[pos]
-                            patch(g.key, { tires: { ...g.tires, fitted: next } })
-                          }}
-                          className={`${inputCls} flex-1`}
-                        >
-                          <option value="">Not touched</option>
-                          {tireProducts.length > 0 && (
-                            <optgroup label="Fit a new tire">
-                              {tireProducts.map(tp => (
-                                <option key={tp.id} value={`new:${tp.id}`}>New — {tp.name}</option>
-                              ))}
-                            </optgroup>
-                          )}
-                          {spare.length > 0 && (
-                            <optgroup label="From storage">
-                              {spare.map(l => (
-                                <option key={l.tire.id} value={l.tire.id}>
-                                  {l.tire.label || 'Tire'} — {l.miles.toLocaleString()} mi on it
-                                </option>
-                              ))}
-                            </optgroup>
-                          )}
-                          {onCar.length > 0 && (
-                            <optgroup label="Move from another corner">
-                              {onCar.map(l => (
-                                <option key={l.tire.id} value={l.tire.id}>
-                                  {l.tire.label || 'Tire'} — currently {l.position}
-                                </option>
-                              ))}
-                            </optgroup>
-                          )}
+            {/* Tires: revealed only by a category flagged tracks_tires. Asks the
+                way a fitting actually happens — a whole set unless one got damaged —
+                and only raises "what about the old ones" when something comes off. */}
+            {categories.find(c => c.id === g.categoryId)?.tracks_tires && (() => {
+              const td = g.tires
+              const setTd = (p: Partial<TireDraft>) => patch(g.key, { tires: { ...td, ...p } })
+              const sets = storedSets(tireLives)
+              const stored = tireLives.filter(l => !l.mounted && !l.retired)
+              const onCar = mountedByPosition(tireLives)
+              const corners = (td.scope === 'all' ? [...TIRE_POSITIONS] : td.corners) as TirePosition[]
+              const displacing = corners.filter(c => onCar.has(c)).length
+              const chip = (on: boolean) => `px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                on ? 'bg-accent/15 text-accent border-accent/30' : 'bg-surface-2 text-muted border-border-strong hover:text-foreground'}`
+              const productLabel = tireProducts.find(p => p.id === td.productId)?.name
+              const nameOf = (productId: string | null) =>
+                (productId && tireProducts.find(p => p.id === productId)?.name) || 'Tires'
+
+              return (
+                <div className="bg-accent/5 border border-accent/20 rounded-2xl p-3 space-y-3">
+                  <p className="text-[10px] uppercase tracking-wide text-accent font-semibold">Tires</p>
+
+                  <div>
+                    <p className="text-muted text-xs mb-1.5">Which tires?</p>
+                    <div className="flex gap-1.5">
+                      <button onClick={() => setTd({ scope: 'all' })} className={chip(td.scope === 'all')}>All four</button>
+                      <button onClick={() => setTd({ scope: 'some' })} className={chip(td.scope === 'some')}>Only some</button>
+                    </div>
+                    {td.scope === 'some' && (
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        {TIRE_POSITIONS.map(pos => {
+                          const on = td.corners.includes(pos)
+                          return (
+                            <button key={pos} className={chip(on)}
+                              onClick={() => setTd({ corners: on ? td.corners.filter(x => x !== pos) : [...td.corners, pos] })}>
+                              {POSITION_LABELS[pos]}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <p className="text-muted text-xs mb-1.5">What went on?</p>
+                    <div className="flex gap-1.5">
+                      <button onClick={() => setTd({ source: 'new' })} className={chip(td.source === 'new')}>New tires</button>
+                      <button onClick={() => setTd({ source: 'storage' })} disabled={stored.length === 0}
+                        className={`${chip(td.source === 'storage')} disabled:opacity-40`}
+                        title={stored.length === 0 ? 'Nothing in storage yet' : undefined}>From storage</button>
+                    </div>
+                  </div>
+
+                  {td.source === 'new' && (
+                    tireProducts.length === 0 ? (
+                      <p className="text-faint text-[11px]">
+                        No tire products yet. Add one with type &ldquo;Tires&rdquo; &mdash; it can be a receipt line in step 1.
+                      </p>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-2">
+                        <select value={td.productId} onChange={e => setTd({ productId: e.target.value })} className={inputCls}>
+                          <option value="">Pick the tire…</option>
+                          {tireProducts.map(tp => <option key={tp.id} value={tp.id}>{tp.name}</option>)}
                         </select>
+                        <input type="number" inputMode="numeric" placeholder="Expected life (mi)" value={td.expectedLife}
+                          onChange={e => setTd({ expectedLife: e.target.value })} className={inputCls} />
                       </div>
                     )
-                  })}
-                </div>
-                {Object.keys(g.tires.fitted).length > 0 && (
-                  <>
-                    {Object.values(g.tires.fitted).some(v => v.startsWith('new:')) && (
-                      <input type="number" inputMode="numeric" placeholder="Expected life for the new tires (mi)"
-                        value={g.tires.expectedLife}
-                        onChange={e => patch(g.key, { tires: { ...g.tires, expectedLife: e.target.value } })}
-                        className={inputCls} />
-                    )}
+                  )}
+
+                  {td.source === 'storage' && td.scope === 'all' && (
+                    <select value={td.storedSetKey} onChange={e => setTd({ storedSetKey: e.target.value })} className={inputCls}>
+                      <option value="">Pick the set…</option>
+                      {sets.map(set => (
+                        <option key={set.key} value={set.key}>
+                          {nameOf(set.productId)} · {set.tires.length} tire{set.tires.length === 1 ? '' : 's'} · {set.miles.toLocaleString()} mi on them
+                        </option>
+                      ))}
+                    </select>
+                  )}
+
+                  {td.source === 'storage' && td.scope === 'some' && td.corners.length > 0 && (
+                    <div className="space-y-1.5">
+                      {(td.corners as TirePosition[]).map(pos => (
+                        <div key={pos} className="flex items-center gap-2">
+                          <span className="text-muted text-xs w-20 shrink-0">{POSITION_LABELS[pos]}</span>
+                          <select value={td.storedPicks[pos] ?? ''} className={`${inputCls} flex-1`}
+                            onChange={e => {
+                              const next = { ...td.storedPicks }
+                              if (e.target.value) next[pos] = e.target.value
+                              else delete next[pos]
+                              setTd({ storedPicks: next })
+                            }}>
+                            <option value="">Pick a stored tire…</option>
+                            {stored.map(l => (
+                              <option key={l.tire.id} value={l.tire.id}
+                                disabled={Object.entries(td.storedPicks).some(([k, v]) => k !== pos && v === l.tire.id)}>
+                                {nameOf(l.tire.product_id)} · {l.miles.toLocaleString()} mi
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Only when tires are actually coming off. */}
+                  {displacing > 0 && (
+                    <div>
+                      <p className="text-muted text-xs mb-1.5">
+                        {displacing === 4 ? 'The old set' : `The ${displacing} old tire${displacing === 1 ? '' : 's'}`} coming off:
+                      </p>
+                      <div className="flex gap-1.5">
+                        <button onClick={() => setTd({ oldFate: 'scrapped' })} className={chip(td.oldFate === 'scrapped')}>Scrapped</button>
+                        <button onClick={() => setTd({ oldFate: 'kept' })} className={chip(td.oldFate === 'kept')}>Kept in storage</button>
+                      </div>
+                      <p className="text-faint text-[11px] mt-1.5">
+                        {td.oldFate === 'scrapped'
+                          ? 'They stop being tracked entirely.'
+                          : 'They move to storage with their mileage paused, ready to go back on.'}
+                      </p>
+                    </div>
+                  )}
+
+                  {td.source === 'new' && productLabel && corners.length > 0 && (
                     <p className="text-faint text-[11px]">
-                      Mileage counts from the odometer above, and pauses for any tire taken off.
+                      {corners.length === 4 ? 'Four' : corners.length} new {productLabel} go on at the odometer above
+                      {displacing > 0 && (td.oldFate === 'scrapped' ? '; the old ones are scrapped' : '; the old ones go to storage')}.
                     </p>
-                  </>
-                )}
-                {tireProducts.length === 0 && (
-                  <p className="text-faint text-[11px]">
-                    No tire products yet — add one in the catalogue with type “Tires” to fit new rubber.
-                  </p>
-                )}
-              </div>
-            )}
+                  )}
+                </div>
+              )
+            })()}
 
             <div>
               <label className="block text-[10px] uppercase tracking-wide text-faint mb-1">Notes</label>

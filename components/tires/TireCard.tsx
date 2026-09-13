@@ -2,7 +2,7 @@
 
 import { CircleGauge, AlertTriangle } from 'lucide-react'
 import TireDiagram, { STATUS_COLOR, STATUS_LABEL } from './TireDiagram'
-import { mountedByPosition, axleWarnings, setHealth, worstMounted, POSITION_LABELS, type TireLife } from '@/lib/tires'
+import { mountedByPosition, axleWarnings, setHealth, worstMounted, setView, POSITION_LABELS, type TireLife } from '@/lib/tires'
 
 /**
  * Tires as one more thing on the shelf — first card in "On hand", because a
@@ -12,7 +12,9 @@ export default function TireCard({ lives, onOpen, trackPositions = true }: { liv
   const mounted = mountedByPosition(lives)
   const health = setHealth(lives)
   const worst = worstMounted(lives)
-  const warnings = trackPositions ? axleWarnings(lives) : []
+  const mixed = setView(lives).shape === 'mixed'
+  const perCorner = trackPositions && mixed
+  const warnings = perCorner ? axleWarnings(lives) : []
   const slot = health.status === 'empty' ? 'empty' : health.status
 
   return (
@@ -28,7 +30,7 @@ export default function TireCard({ lives, onOpen, trackPositions = true }: { liv
       <div className="flex items-center gap-3">
         <div className="shrink-0">
           <TireDiagram mounted={mounted} size={54}
-            unlocated={trackPositions ? null : { status: health.status, pctLeft: health.pctLeft }} />
+            unlocated={perCorner ? null : { status: health.status, pctLeft: health.pctLeft }} />
         </div>
         <div className="min-w-0 flex-1">
           {health.mounted === 0 ? (
@@ -44,7 +46,7 @@ export default function TireCard({ lives, onOpen, trackPositions = true }: { liv
                 {health.pctLeft != null ? `${Math.round(health.pctLeft)}%` : STATUS_LABEL[slot]}
               </p>
               <p className="text-faint text-xs mt-0.5">
-                {health.pctLeft != null ? `left on the worst ${trackPositions ? 'corner' : 'tire'}` : `${health.mounted} fitted`}
+                {health.pctLeft != null ? (mixed ? `left on the worst ${trackPositions ? 'corner' : 'tire'}` : 'left on the set') : `${health.mounted} fitted`}
                 {health.spare > 0 && ` · ${health.spare} spare`}
               </p>
             </>
@@ -52,7 +54,7 @@ export default function TireCard({ lives, onOpen, trackPositions = true }: { liv
         </div>
       </div>
 
-      {trackPositions && worst?.position && worst.miles > 0 && (
+      {perCorner && worst?.position && worst.miles > 0 && (
         <p className="text-faint text-[11px] mt-2 truncate">
           {POSITION_LABELS[worst.position]} · {worst.miles.toLocaleString()} mi
           {worst.remaining != null && (worst.remaining > 0

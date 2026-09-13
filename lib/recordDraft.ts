@@ -69,6 +69,8 @@ export const emptyReceipt = (date: string): ReceiptDraft => ({
 
 export interface TagRef { receiptKey: string; tagKey: string }
 
+export const emptyTireDraft = (): TireDraft => ({ scope: 'all', corners: [], source: 'new', productId: '', storedSetKey: '', storedPicks: {}, expectedLife: '', oldFate: 'scrapped' })
+
 export interface ServiceGroup {
   key: string
   label: string
@@ -83,12 +85,24 @@ export interface ServiceGroup {
   shopEquivalent: string
   notes: string
   draws: { productKey: string; qty: string }[]
-  /**
-   * Only used when the chosen category is flagged tracks_tires.
-   * fitted maps a corner to a tire: an existing instance id, or `new:<productId>`
-   * to spawn one. Corners left out simply weren't touched by this service.
-   */
-  tires: { fitted: Record<string, string>; expectedLife: string; productId: string }
+  /** Only used when the chosen category is flagged tracks_tires. */
+  tires: TireDraft
+}
+
+/**
+ * A tire fitting, described the way it happens: a whole set by default, a few
+ * corners when one got damaged, new rubber or a set out of storage — and what
+ * became of whatever came off.
+ */
+export interface TireDraft {
+  scope: 'all' | 'some'
+  corners: string[]                    // when scope is 'some'
+  source: 'new' | 'storage'
+  productId: string                    // source 'new'
+  storedSetKey: string                 // source 'storage', scope 'all'
+  storedPicks: Record<string, string>  // source 'storage', scope 'some': corner -> tire id
+  expectedLife: string
+  oldFate: 'scrapped' | 'kept'
 }
 
 // Services this far apart are different visits even when they share a category.
@@ -147,7 +161,7 @@ export function groupServiceTags(receipts: ReceiptDraft[], categories: ServiceCa
         shopEquivalent: '',
         notes: '',
         draws: [],
-        tires: { fitted: {}, expectedLife: '', productId: '' },
+        tires: emptyTireDraft(),
       })
     }
   }

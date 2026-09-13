@@ -325,3 +325,120 @@ export function applyRotation(
   }
   return out
 }
+
+// ── Sets vs individuals ─────────────────────────────────────────────────────
+//
+// Most of the time four tires go on together, wear together and come off
+// together — and then per-tire tracking is noise: four identical rows, a
+// rotation button that changes nothing, corner labels on identical tires. The
+// individual view only earns its place once the bunch DIFFERS: one tire
+// replaced after damage, or a set mixed with tires from storage. Until then
+// the UI treats the four as one set.
+
+/** Tires within this many miles of each other count as having gone on together. */
+export const SAME_SET_TOLERANCE_MILES = 500
+
+export type SetShape = 'empty' | 'uniform' | 'mixed'
+
+export interface SetView {
+  shape: SetShape
+  mounted: TireLife[]
+  /** Why it's mixed, in words, for the one line that explains the switch. */
+  reason: string | null
+}
+
+export function setView(lives: TireLife[]): SetView {
+  const mounted = lives.filter(l => l.mounted)
+  if (mounted.length === 0) return { shape: 'empty', mounted, reason: null }
+  if (mounted.length < TIRE_POSITIONS.length) {
+    return { shape: 'mixed', mounted, reason: `${mounted.length} of ${TIRE_POSITIONS.length} corners recorded` }
+  }
+  const models = new Set(mounted.map(l => l.tire.product_id ?? ''))
+  if (models.size > 1) return { shape: 'mixed', mounted, reason: 'different tire models on the car' }
+  const miles = mounted.map(l => l.miles)
+  const spread = Math.max(...miles) - Math.min(...miles)
+  if (spread > SAME_SET_TOLERANCE_MILES) {
+    return { shape: 'mixed', mounted, reason: `tires ${spread.toLocaleString()} mi apart in wear` }
+  }
+  return { shape: 'uniform', mounted, reason: null }
+}
+
+export interface StoredSet {
+  key: string
+  productId: string | null
+  tires: TireLife[]
+  miles: number   // the set's typical mileage
+}
+
+/**
+ * Tires in the garage, grouped back into the sets they came off the car as —
+ * same model, roughly the same miles — so a seasonal swap is "put the winter
+ * set on", not four separate picks.
+ */
+export function storedSets(lives: TireLife[]): StoredSet[] {
+  const stored = lives.filter(l => !l.mounted && !l.retired).sort((a, b) => a.miles - b.miles)
+  const sets: StoredSet[] = []
+  for (const l of stored) {
+    const home = sets.find(s =>
+      s.productId === (l.tire.product_id ?? null)
+      && Math.abs(s.miles - l.miles) <= SAME_SET_TOLERANCE_MILES)
+    if (home) {
+      home.tires.push(l)
+      home.miles = Math.round(home.tires.reduce((sum, t) => sum + t.miles, 0) / home.tires.length)
+    } else {
+      sets.push({ key: `${l.tire.product_id ?? 'x'}|${l.tire.id}`, productId: l.tire.product_id ?? null, tires: [l], miles: l.miles })
+    }
+  }
+  return sets
+}
+
+/** What happens to the tires a fitting displaces. */
+export type OldTireFate = 'scrapped' | 'kept'
+
+export interface FittingPlan {
+  /** tireId null = a brand-new tire to create for that corner. */
+  mounts: { position: TirePosition; tireId: string | null }[]
+  /** Tires coming off the corners being fitted, and where they go. */
+  offs: { tireId: string; from: TirePosition; fate: OldTireFate }[]
+}
+
+/**
+ * Turn "which corners, with what, and what became of the old ones" into the
+ * exact moves to record. Pure, so the rules can be tested without a database.
+ */
+export function planFitting(
+  lives: TireLife[],
+  incoming: Partial<Record<TirePosition, string | 'new'>>,
+  oldFate: OldTireFate,
+): FittingPlan {
+  const mountedHere = mountedByPosition(lives)
+  const goingOn = new Set(Object.values(incoming).filter((v): v is string => Boolean(v) && v !== 'new'))
+  const mounts: FittingPlan['mounts'] = []
+  const offs: FittingPlan['offs'] = []
+
+  for (const position of TIRE_POSITIONS) {
+    const choice = incoming[position]
+    if (!choice) continue
+    mounts.push({ position, tireId: choice === 'new' ? null : choice })
+    const current = mountedHere.get(position)
+    // A tire staying put (re-seated on its own corner) isn't displaced.
+    if (current && !goingOn.has(current.tire.id)) {
+      offs.push({ tireId: current.tire.id, from: position, fate: oldFate })
+    }
+  }
+  return { mounts, offs }
+}
+
+/**
+ * Products a fitting can install: anything typed as tires, with a name match as
+ * a fallback for products created before types existed.
+ */
+export function tireProductChoices(
+  products: { id: string; name: string; brand: string | null; product_type_id?: string | null }[],
+  types: { id: string; name: string }[],
+): { id: string; name: string }[] {
+  const tireTypes = new Set(types.filter(t => /\b(tires?|tyres?)\b/i.test(t.name)).map(t => t.id))
+  return products
+    .filter(p => (p.product_type_id && tireTypes.has(p.product_type_id)) || /\b(tires?|tyres?)\b/i.test(p.name))
+    .map(p => ({ id: p.id, name: [p.brand, p.name].filter(Boolean).join(' ') }))
+}

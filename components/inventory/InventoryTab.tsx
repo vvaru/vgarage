@@ -11,7 +11,7 @@ import { computeStock, lotBalancesByItem, type LotBalance, type ProductStock } f
 import { fmtQty, fmtNum } from '@/lib/units'
 import { receiptTitle, receiptWhere } from '@/lib/receipts'
 import type { ProductType } from '@/lib/productTypes'
-import { allTireLives, type Tire, type TireEvent } from '@/lib/tires'
+import { allTireLives, tireProductChoices, type Tire, type TireEvent } from '@/lib/tires'
 import TireCard from '@/components/tires/TireCard'
 import TirePanel from '@/components/tires/TirePanel'
 import RotateTiresModal from '@/components/tires/RotateTiresModal'
@@ -160,6 +160,11 @@ export default function InventoryTab({ onEditProduct }: InventoryTabProps = {}) 
 
   useEffect(() => { load() }, [load])
 
+  // The Services health map sends tire clicks here.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('tires') === '1') setShowTires(true)
+  }, [])
+
   const logDates = useMemo(() => Object.fromEntries(allLogs.map(l => [l.id, l.date])), [allLogs])
   const stock = useMemo(
     () => computeStock(products, receipts, items, usage, adjustments, id => logDates[id] ?? null),
@@ -181,7 +186,8 @@ export default function InventoryTab({ onEditProduct }: InventoryTabProps = {}) 
 
   const tracked = [...stock.values()].filter(s => s.purchased > 0 || s.consumed > 0)
   const tireLives = allTireLives(tires, tireEvents, vehicle?.odometer ?? 0)
-  const hasTireData = tireLives.length > 0
+  const hasTireData = tireLives.some(l => !l.retired)
+  const tireProducts = tireProductChoices(products, productTypes)
 
   // What a receipt actually carries, for the Products / Services / Both flag.
   const itemsByReceipt = useMemo(() => {
@@ -439,6 +445,8 @@ export default function InventoryTab({ onEditProduct }: InventoryTabProps = {}) 
           categories={categories}
           logs={allLogs}
           stock={stock}
+          tireLives={tireLives}
+          tireProducts={tireProducts}
           onClose={() => setModal(null)}
           onSaved={() => { setModal(null); load() }}
         />
@@ -456,6 +464,8 @@ export default function InventoryTab({ onEditProduct }: InventoryTabProps = {}) 
           logs={allLogs}
           usage={usage}
           stock={stock}
+          tireLives={tireLives}
+          tireProducts={tireProducts}
           onClose={() => setDetail(null)}
           onSaved={() => { setDetail(null); load() }}
         />

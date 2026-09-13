@@ -28,7 +28,10 @@ export default function CarHealthPanel({
 
   // Regions with something to say first, worst first; untracked ones last.
   const rank: Record<ZoneLevel, number> = { due: 3, soon: 2, ok: 1, none: 0 }
-  const ordered = ZONES.map(z => states.get(z.id)!).sort((a, b) => rank[b.level] - rank[a.level])
+  // General has no part on the drawing, so it only earns a row when something's in it.
+  const ordered = ZONES.map(z => states.get(z.id)!)
+    .filter(st => st.zone.drawn || st.items.length > 0)
+    .sort((a, b) => rank[b.level] - rank[a.level])
 
   return (
     <div className="flex-1 min-h-0 flex flex-col xl:flex-row gap-6 p-6 lg:p-8">

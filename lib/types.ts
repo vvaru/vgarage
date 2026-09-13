@@ -25,6 +25,7 @@ export interface ServiceCategory {
   global_category_id?: string | null
   is_visible?: boolean
   tracks_tires?: boolean   // logging this category asks which tires were fitted
+  component?: string | null // major component of the car, see lib/carZones.ts
   created_at: string
 }
 

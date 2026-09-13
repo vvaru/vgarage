@@ -14,7 +14,7 @@ import { withRetry, withTimeout } from '@/lib/recover'
 import { getCache, setCache } from '@/lib/cache'
 import { useStock } from '@/lib/useStock'
 import { allTireLives, setHealth, worstMounted, setView, mountedByPosition, tireProductChoices, type Tire, type TireEvent, type TireLife, type TirePosition } from '@/lib/tires'
-import { zoneFor, zoneStates, LEVEL_COLOR as LEVEL_COLOR_MAP, type ZoneItem, type ZoneLevel } from '@/lib/carZones'
+import { componentOf, zoneStates, LEVEL_COLOR as LEVEL_COLOR_MAP, type ZoneId, type ZoneItem, type ZoneLevel } from '@/lib/carZones'
 import { useRouter } from 'next/navigation'
 import CarHealthMap from '@/components/service/CarHealthMap'
 import CarHealthPanel from '@/components/service/CarHealthPanel'
@@ -499,9 +499,9 @@ export default function ServicePage() {
   const tireLevel = (l: TireLife): Exclude<ZoneLevel, 'none'> =>
     l.status === 'over' ? 'due' : l.status === 'due' ? 'soon' : 'ok'
 
-  const zoneItems: (ZoneItem & { zone: ReturnType<typeof zoneFor> })[] = [
+  const zoneItems: (ZoneItem & { zone: ZoneId })[] = [
     ...scheduledStatuses.map(st => ({
-      id: st.cat.id, name: st.cat.name, level: levelForStatus(st), detail: detailForStatus(st), zone: zoneFor(st.cat.name),
+      id: st.cat.id, name: st.cat.name, level: levelForStatus(st), detail: detailForStatus(st), zone: componentOf(st.cat),
     })),
     // Tire wear comes from the tires themselves, not a schedule.
     ...(worstTire ? [{

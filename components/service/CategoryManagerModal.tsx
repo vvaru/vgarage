@@ -1,6 +1,7 @@
 ﻿'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { ZONES, zoneById, zoneFor, componentOf, type ZoneId } from '@/lib/carZones'
 import { X, Plus, Pencil, Trash2, Check, ChevronDown, ChevronRight, ExternalLink, AlertCircle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
@@ -12,7 +13,7 @@ interface Props {
   onUpdated: () => void
 }
 
-const EMPTY_CAT = { name: '', interval_miles: '', interval_days: '', sub_type: 'service' as 'service' | 'check', category_type: 'maintenance' as 'maintenance' | 'repair', tracks_tires: false }
+const EMPTY_CAT = { name: '', interval_miles: '', interval_days: '', sub_type: 'service' as 'service' | 'check', category_type: 'maintenance' as 'maintenance' | 'repair', tracks_tires: false, component: '' }
 const EMPTY_PROD = { name: '', product_url: '', last_price: '' }
 
 export default function CategoryManagerModal({ vehicle, onClose, onUpdated }: Props) {
@@ -78,6 +79,7 @@ export default function CategoryManagerModal({ vehicle, onClose, onUpdated }: Pr
       sub_type: cat.sub_type ?? 'service',
       category_type: cat.category_type,
       tracks_tires: Boolean(cat.tracks_tires),
+      component: cat.component ?? '',
     })
     setRenameWarn(false)
   }
@@ -102,6 +104,7 @@ export default function CategoryManagerModal({ vehicle, onClose, onUpdated }: Pr
         interval_miles: catForm.interval_miles ? parseInt(catForm.interval_miles) : null,
         interval_days: catForm.interval_days ? parseInt(catForm.interval_days) : null,
         tracks_tires: catForm.tracks_tires,
+        component: catForm.component || zoneFor(catForm.name) || 'general',
       })
     } else if (editCat) {
       const nameChanged = catForm.name.trim() !== editCat.name
@@ -111,6 +114,7 @@ export default function CategoryManagerModal({ vehicle, onClose, onUpdated }: Pr
         interval_miles: catForm.interval_miles ? parseInt(catForm.interval_miles) : null,
         interval_days: catForm.interval_days ? parseInt(catForm.interval_days) : null,
         tracks_tires: catForm.tracks_tires,
+        component: catForm.component || zoneFor(catForm.name) || 'general',
       }).eq('id', editCat.id)
 
       if (nameChanged) {
@@ -272,6 +276,21 @@ export default function CategoryManagerModal({ vehicle, onClose, onUpdated }: Pr
                   className="w-full bg-surface-2 border border-border-strong rounded-xl px-3 py-2 text-foreground text-sm focus:outline-none focus:border-accent/70 transition-all" />
               </div>
             </div>
+            {/* Which part of the car this is. Suggested from the name until picked. */}
+            <div>
+              <label className="block text-xs text-muted mb-1.5">Part of the car</label>
+              <select
+                value={catForm.component || zoneFor(catForm.name) || 'general'}
+                onChange={e => setCatForm(f => ({ ...f, component: e.target.value }))}
+                className="w-full bg-surface-2 border border-border-strong rounded-xl px-3 py-2.5 text-foreground text-sm focus:outline-none focus:border-accent/70 transition-all"
+              >
+                {ZONES.map(z => <option key={z.id} value={z.id}>{z.label}</option>)}
+              </select>
+              <p className="text-faint text-[11px] mt-1">
+                {zoneById((catForm.component || zoneFor(catForm.name) || 'general') as ZoneId).hint}
+                {!catForm.component && catForm.name.trim() && ' · suggested from the name'}
+              </p>
+            </div>
                         <label className="flex items-start gap-2.5 bg-surface-2/50 border border-border rounded-xl p-2.5 cursor-pointer mt-3">
               <input type="checkbox" checked={catForm.tracks_tires}
                 onChange={e => setCatForm(f => ({ ...f, tracks_tires: e.target.checked }))}
@@ -295,6 +314,11 @@ export default function CategoryManagerModal({ vehicle, onClose, onUpdated }: Pr
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <p className="font-medium text-foreground text-sm">{cat.name}</p>
+                  <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md border shrink-0 ${
+                    cat.component ? 'bg-surface-2 text-muted border-border-strong' : 'bg-surface-2/50 text-faint border-dashed border-border'
+                  }`} title={cat.component ? undefined : 'Suggested from the name — edit to confirm'}>
+                    {zoneById(componentOf(cat)).label}
+                  </span>
                   {isDuplicate && <span className="text-xs font-semibold px-1.5 py-0.5 rounded-md bg-danger/15 text-danger border border-danger/25 shrink-0">Duplicate</span>}
                   {!isDuplicate && noInterval && <span className="text-xs font-semibold px-1.5 py-0.5 rounded-md bg-accent/15 text-accent border border-accent/25 shrink-0">No interval</span>}
                 </div>
@@ -469,6 +493,21 @@ export default function CategoryManagerModal({ vehicle, onClose, onUpdated }: Pr
                 className="w-full bg-surface-2 border border-border-strong rounded-xl px-3 py-2.5 text-foreground text-sm focus:outline-none focus:border-accent/70 transition-all"
                 autoFocus
               />
+              {/* Which part of the car this is. Suggested from the name until picked. */}
+            <div>
+              <label className="block text-xs text-muted mb-1.5">Part of the car</label>
+              <select
+                value={catForm.component || zoneFor(catForm.name) || 'general'}
+                onChange={e => setCatForm(f => ({ ...f, component: e.target.value }))}
+                className="w-full bg-surface-2 border border-border-strong rounded-xl px-3 py-2.5 text-foreground text-sm focus:outline-none focus:border-accent/70 transition-all"
+              >
+                {ZONES.map(z => <option key={z.id} value={z.id}>{z.label}</option>)}
+              </select>
+              <p className="text-faint text-[11px] mt-1">
+                {zoneById((catForm.component || zoneFor(catForm.name) || 'general') as ZoneId).hint}
+                {!catForm.component && catForm.name.trim() && ' · suggested from the name'}
+              </p>
+            </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block text-xs text-muted mb-1">Every X miles</label>

@@ -189,6 +189,12 @@ DROP TABLE IF EXISTS tire_installations CASCADE;
 -- intent, and "Tire Rotation" must not be confused with fitting new rubber.
 ALTER TABLE service_categories ADD COLUMN IF NOT EXISTS tracks_tires boolean NOT NULL DEFAULT false;
 
+-- Which major component of the car a category belongs to (engine, brakes,
+-- tires…). Chosen when the category is created and drives the health map.
+-- Nullable: older categories fall back to a suggestion from their name until
+-- someone picks one. Values are defined in lib/carZones.ts.
+ALTER TABLE service_categories ADD COLUMN IF NOT EXISTS component text;
+
 -- Directional tread is a property of the TIRE MODEL, not of the car: the tread
 -- is cut to turn one way, so such a tire may only move front<->back on its own
 -- side. (A car CAN impose its own limit — staggered fitment, different sizes

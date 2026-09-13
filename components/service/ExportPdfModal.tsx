@@ -1,14 +1,16 @@
-﻿'use client'
+'use client'
 
 import { useState } from 'react'
 import { X, Download } from 'lucide-react'
 import { format, parseISO, differenceInDays } from 'date-fns'
 import { supabase } from '@/lib/supabase'
-import type { Vehicle, ServiceLog } from '@/lib/types'
+import type { Vehicle, ServiceLog, ServiceCategory } from '@/lib/types'
+import { ZONES, componentOf, zoneFor, type ZoneId } from '@/lib/carZones'
 
 interface Props {
   vehicle: Vehicle
   logs: ServiceLog[]
+  categories: ServiceCategory[]
   onClose: () => void
 }
 
@@ -53,13 +55,46 @@ function computeAverages(sortedLogs: ServiceLog[]) {
   }
 }
 
-export default function ExportPdfModal({ vehicle, logs, onClose }: Props) {
+/** A log's part of the car: its category's component, else a guess from its name. */
+function componentOfLog(log: ServiceLog, catById: Map<string, ServiceCategory>): ZoneId {
+  const cat = log.category_id ? catById.get(log.category_id) : undefined
+  return cat ? componentOf(cat) : zoneFor(log.service_type) ?? 'general'
+}
+
+interface ServiceGroup { name: string; logs: ServiceLog[] }
+interface ComponentSection { id: ZoneId; label: string; services: ServiceGroup[]; repairs: ServiceLog[]; count: number }
+
+/**
+ * The report's structure: one section per part of the car, in the same order as
+ * the category picker, holding each maintenance service and then any repairs.
+ */
+function buildSections(logs: ServiceLog[], categories: ServiceCategory[]): ComponentSection[] {
+  const catById = new Map(categories.map(c => [c.id, c]))
+  return ZONES.map(z => {
+    const mine = logs.filter(l => componentOfLog(l, catById) === z.id)
+    const byName = new Map<string, ServiceLog[]>()
+    for (const l of mine.filter(l => l.record_type !== 'repair')) {
+      const name = (l.category_id && catById.get(l.category_id)?.name) || l.service_type
+      byName.set(name, [...(byName.get(name) ?? []), l])
+    }
+    return {
+      id: z.id,
+      label: z.label,
+      services: [...byName.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([name, logs]) => ({ name, logs })),
+      repairs: mine.filter(l => l.record_type === 'repair'),
+      count: mine.length,
+    }
+  }).filter(sec => sec.count > 0)
+}
+
+export default function ExportPdfModal({ vehicle, logs, categories, onClose }: Props) {
   const [generating, setGenerating] = useState(false)
   const [progress, setProgress] = useState('')
 
   const maintenanceLogs = logs.filter(l => l.record_type !== 'repair')
   const repairLogs = logs.filter(l => l.record_type === 'repair')
   const receiptCount = logs.filter(l => l.receipt_url).length
+  const sections = buildSections(logs, categories)
 
   async function generate() {
     setGenerating(true)
@@ -86,8 +121,12 @@ export default function ExportPdfModal({ vehicle, logs, onClose }: Props) {
         if (log.receipt_url) receiptRefMap.set(log.id, `A${refIdx++}`)
       }
 
+      // Several tables can end on one page; stamp its footer once.
+      const footed = new Set<number>()
       function addFooter() {
         const pg = doc.getNumberOfPages()
+        if (footed.has(pg)) return
+        footed.add(pg)
         doc.setFontSize(7.5)
         doc.setTextColor(150, 150, 150)
         doc.text(`${vehicleName}  ·  Page ${pg}`, pageW / 2, pageH - 5, { align: 'center' })
@@ -107,7 +146,7 @@ export default function ExportPdfModal({ vehicle, logs, onClose }: Props) {
         }
       }
 
-      function drawServiceTable(logsForTable: ServiceLog[], startY: number, includeServiceCol: boolean) {
+      function drawServiceTable(logsForTable: ServiceLog[], startY: number, includeServiceCol: boolean, contTitle: string) {
         const sorted = [...logsForTable].sort((a, b) => a.date.localeCompare(b.date))
         const rows = sorted.map(log => {
           const ref = receiptRefMap.get(log.id) ?? '—'
@@ -123,9 +162,12 @@ export default function ExportPdfModal({ vehicle, logs, onClose }: Props) {
           ]
         })
 
+        // Fixed widths for the short columns; Shop / Location takes the rest, so
+        // every table spans the page.
+        const SHOP = 'auto' as const
         const baseColWidths = includeServiceCol
-          ? [22, 20, 36, 12, 34, 10, 18]  // with service col
-          : [24, 22, 12, 42, 10, 18]       // without (Date Odo By Shop Ref Verified)
+          ? [24, 22, 50, 12, SHOP, 12, 20]  // Date Odo Service By Shop Ref Verified
+          : [26, 26, 14, SHOP, 14, 22]      // Date Odo By Shop Ref Verified
 
         autoTable(doc, {
           head: [
@@ -137,12 +179,13 @@ export default function ExportPdfModal({ vehicle, logs, onClose }: Props) {
           ],
           body: rows,
           startY,
-          margin: { left: 10, right: 10 },
+          margin: { left: 10, right: 10, top: 22, bottom: 12 },
+          tableWidth: pageW - 20,
           headStyles: { fillColor: NAVY, textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
           bodyStyles: { fontSize: 7.5, cellPadding: 2 },
           columnStyles: Object.fromEntries(baseColWidths.map((w, i) => [i, { cellWidth: w }])),
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          willDrawCell: (data: any) => {
+          didParseCell: (data: any) => {
             if (data.section !== 'body') return
             const log = sorted[data.row.index]
             if (!log) return
@@ -157,7 +200,10 @@ export default function ExportPdfModal({ vehicle, logs, onClose }: Props) {
             }
           },
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          didDrawPage: (_data: any) => { addFooter() },
+          didDrawPage: (data: any) => {
+            if (data.pageNumber > 1) addPageHeader(contTitle)
+            addFooter()
+          },
         })
 
         // Return finalY
@@ -179,6 +225,7 @@ export default function ExportPdfModal({ vehicle, logs, onClose }: Props) {
       doc.text(`Generated ${format(new Date(), 'MMMM d, yyyy')}`, pageW / 2, 37, { align: 'center' })
       if (vehicle.vin) doc.text(`VIN: ${vehicle.vin}`, pageW / 2, 44, { align: 'center' })
 
+      let appendixPage = 0
       let sy = 62
       doc.setTextColor(30, 41, 59)
       doc.setFontSize(10)
@@ -206,55 +253,64 @@ export default function ExportPdfModal({ vehicle, logs, onClose }: Props) {
         sy += 8
       }
 
-      sy += 4
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(30, 41, 59)
-      doc.text('CONTENTS', 14, sy); sy += 6
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(100, 116, 139)
-      maintTypes.forEach((t, i) => { doc.text(`${i + 2}. ${t}`, 14, sy); sy += 5 })
-      if (repairLogs.length > 0) { doc.text(`${maintTypes.length + 2}. Repair History`, 14, sy); sy += 5 }
-      if (receiptCount > 0) { doc.text(`${maintTypes.length + (repairLogs.length > 0 ? 3 : 2)}. Appendix — Receipts`, 14, sy) }
-
+      // Contents are filled in once the sections are drawn and their pages known.
+      const contentsY = sy + 4
       addFooter()
 
-      // ── ONE PAGE PER MAINTENANCE TYPE ─────────────────────────────────────────
-      for (const svcType of maintTypes) {
-        setProgress(`Building: ${svcType}…`)
-        const typeLogs = maintenanceLogs
-          .filter(l => l.service_type === svcType)
-          .sort((a, b) => a.date.localeCompare(b.date))
-
+      // ── ONE SECTION PER PART OF THE CAR ──────────────────────────────────────
+      // Each part starts on a new page; its services follow one another and
+      // flow onto further pages as needed.
+      const sectionPages: { label: string; page: number; names: string[] }[] = []
+      for (const sec of sections) {
+        setProgress(`Building: ${sec.label}…`)
+        const title = sec.label.toUpperCase()
+        const cont = `${title} (cont.)`
         doc.addPage()
-        addPageHeader(svcType.toUpperCase(), `${typeLogs.length} record${typeLogs.length !== 1 ? 's' : ''}`)
+        addPageHeader(title, `${sec.count} record${sec.count !== 1 ? 's' : ''}`)
+        sectionPages.push({
+          label: sec.label,
+          page: doc.getNumberOfPages(),
+          names: [...sec.services.map(g => g.name), ...(sec.repairs.length ? ['Repairs'] : [])],
+        })
+        let y = 26
 
-        const finalY = drawServiceTable(typeLogs, 22, false)
-
-        const avgs = computeAverages(typeLogs)
-        if (avgs.avgMiles || avgs.avgDays) {
-          const ay = finalY + 8
-          if (ay < pageH - 20) {
-            doc.setFontSize(8.5); doc.setFont('helvetica', 'bold'); doc.setTextColor(30, 41, 59)
-            doc.text('AVERAGE INTERVAL', 10, ay)
-            doc.setFont('helvetica', 'normal'); doc.setTextColor(100, 116, 139)
-            const parts: string[] = []
-            if (avgs.avgMiles) parts.push(`${avgs.avgMiles.toLocaleString()} mi between services`)
-            if (avgs.avgDays) parts.push(`${Math.round(avgs.avgDays / 30)} months between services`)
-            doc.text(parts.join('   ·   '), 10, ay + 5.5)
+        const subheading = (name: string, count: number, note: string | null) => {
+          if (y > pageH - 40) {
+            doc.addPage()
+            addPageHeader(cont)
+            addFooter()
+            y = 26
           }
+          doc.setFontSize(9.5); doc.setFont('helvetica', 'bold'); doc.setTextColor(30, 41, 59)
+          doc.text(name, 10, y)
+          const nameW = doc.getTextWidth(name)
+          doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(100, 116, 139)
+          doc.text(`${count} record${count !== 1 ? 's' : ''}`, 10 + nameW + 3, y)
+          if (note) doc.text(note, pageW - 10, y, { align: 'right' })
+          y += 3
         }
-      }
 
-      // ── REPAIR HISTORY PAGE ──────────────────────────────────────────────────
-      if (repairLogs.length > 0) {
-        setProgress('Building repair history…')
-        doc.addPage()
-        addPageHeader('REPAIR HISTORY', `${repairLogs.length} record${repairLogs.length !== 1 ? 's' : ''}`)
-        drawServiceTable(repairLogs, 22, true)
+        for (const group of sec.services) {
+          const avgs = computeAverages([...group.logs].sort((a, b) => a.date.localeCompare(b.date)))
+          const avg = [
+            avgs.avgMiles ? `${avgs.avgMiles.toLocaleString()} mi` : null,
+            avgs.avgDays ? `${Math.round(avgs.avgDays / 30)} months` : null,
+          ].filter(Boolean).join(' · ')
+          subheading(group.name, group.logs.length, avg ? `Average interval: ${avg}` : null)
+          y = drawServiceTable(group.logs, y, false, cont) + 9
+        }
+
+        if (sec.repairs.length > 0) {
+          subheading('Repairs', sec.repairs.length, null)
+          y = drawServiceTable(sec.repairs, y, true, cont) + 9
+        }
       }
 
       // ── APPENDIX: RECEIPTS ──────────────────────────────────────────────────
       if (receiptCount > 0) {
         setProgress(`Loading ${receiptCount} receipt${receiptCount !== 1 ? 's' : ''}…`)
         doc.addPage()
+        appendixPage = doc.getNumberOfPages()
         addPageHeader('APPENDIX — SERVICE RECEIPTS')
         let ay = 22
 
@@ -295,6 +351,30 @@ export default function ExportPdfModal({ vehicle, logs, onClose }: Props) {
           }
         }
         addFooter()
+      }
+
+      // ── CONTENTS, back on the cover ──────────────────────────────────────────
+      doc.setPage(1)
+      let cy = contentsY
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(30, 41, 59)
+      doc.text('CONTENTS', 14, cy); cy += 6
+      const contents = [
+        ...sectionPages,
+        ...(receiptCount > 0 ? [{ label: 'Appendix — Receipts', page: appendixPage, names: [] as string[] }] : []),
+      ]
+      for (const entry of contents) {
+        if (cy > pageH - 14) break
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(15, 23, 42)
+        doc.text(entry.label, 14, cy)
+        doc.setFont('helvetica', 'normal'); doc.setTextColor(100, 116, 139)
+        doc.text(`p. ${entry.page}`, pageW - 14, cy, { align: 'right' })
+        cy += 4.2
+        if (entry.names.length) {
+          doc.setFontSize(7.5); doc.setTextColor(148, 163, 184)
+          const lines = doc.splitTextToSize(entry.names.join(', '), pageW - 40) as string[]
+          for (const ln of lines.slice(0, 2)) { doc.text(ln, 18, cy); cy += 3.6 }
+        }
+        cy += 1.8
       }
 
       setProgress('Saving PDF…')
@@ -342,8 +422,8 @@ export default function ExportPdfModal({ vehicle, logs, onClose }: Props) {
           <p className="text-foreground text-sm font-medium">Report includes:</p>
           {[
             'Cover with summary & table of contents',
-            'One page per maintenance type with interval averages',
-            repairLogs.length > 0 ? `Repair history page (${repairLogs.length})` : null,
+            `Grouped by part of the car (${sections.length}), each service with its average interval`,
+            repairLogs.length > 0 ? `Repairs listed under the part they were on (${repairLogs.length})` : null,
             'Verified column for receipted services',
             receiptCount > 0 ? `Appendix: ${receiptCount} receipt image${receiptCount !== 1 ? 's' : ''}` : null,
           ].filter(Boolean).map(item => (

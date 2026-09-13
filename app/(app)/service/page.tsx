@@ -1434,7 +1434,7 @@ export default function ServicePage() {
 
       {showCategoryManager && vehicle && <CategoryManagerModal vehicle={vehicle} onClose={() => setShowCategoryManager(false)} onUpdated={load} />}
       {showCarfaxImport && vehicle && <CarfaxImportModal vehicle={vehicle} categories={categories} onClose={() => setShowCarfaxImport(false)} onImported={load} />}
-      {showExport && vehicle && <ExportPdfModal vehicle={vehicle} logs={logs} onClose={() => setShowExport(false)} />}
+      {showExport && vehicle && <ExportPdfModal vehicle={vehicle} logs={logs} categories={categories} onClose={() => setShowExport(false)} />}
       {cropSourceFile && <ImageCropModal file={cropSourceFile} onConfirm={handleCropConfirm} onCancel={() => { setCropSourceFile(null); if (fileRef.current) fileRef.current.value = '' }} />}
       {showAddFlow && vehicle && (
         <RecordWizard

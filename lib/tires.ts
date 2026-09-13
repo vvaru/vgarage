@@ -255,20 +255,61 @@ export const ROTATION_PATTERNS: RotationPattern[] = [
   },
 ]
 
+/** What's known about a tire model's tread: true, false, or never said. */
+export type Directionality = boolean | null
+
+export interface RotationOptions {
+  /**
+   * 'directional'     — at least one mounted tire can't cross; the pattern is decided
+   * 'non-directional' — every mounted tire is known to cross safely; a pattern is recommended
+   * 'unknown'         — nothing rules crossing out, but at least one tire's tread was never
+   *                     recorded, so the app can't choose for you
+   */
+  known: 'directional' | 'non-directional' | 'unknown'
+  patterns: RotationPattern[]
+  recommended: RotationPattern | null
+  /** Models whose directionality was never set, for "set it on the product". */
+  unknownProductIds: string[]
+}
+
 /**
- * Patterns this car can actually use. One directional tire on the car rules out
- * every crossing pattern — you can't cross half a set.
+ * Which patterns apply, and whether the app can pick one on its own.
+ *
+ * One directional tire decides it outright — you can't cross half a set — even
+ * if other tires on the car are unknown. Only when nothing is known to be
+ * directional AND something is unknown does the choice fall back to the user.
+ * Unknown is never quietly treated as non-directional: guessing wrong runs a
+ * tread backwards.
  */
-export function legalRotations(
+export function rotationOptions(
   lives: TireLife[],
-  isDirectional: (productId: string | null) => boolean,
-): { patterns: RotationPattern[]; blockedByDirectional: boolean } {
+  directionality: (productId: string | null) => Directionality,
+): RotationOptions {
   const mounted = lives.filter(l => l.mounted)
-  const anyDirectional = mounted.some(l => isDirectional(l.tire.product_id))
-  return {
-    patterns: anyDirectional ? ROTATION_PATTERNS.filter(p => !p.crosses) : ROTATION_PATTERNS,
-    blockedByDirectional: anyDirectional,
+  const values = mounted.map(l => ({ id: l.tire.product_id, d: directionality(l.tire.product_id) }))
+  const unknownProductIds = [...new Set(values.filter(v => v.d == null && v.id).map(v => v.id as string))]
+  const frontBack = ROTATION_PATTERNS.find(p => p.key === 'front-back')!
+
+  if (values.some(v => v.d === true)) {
+    return { known: 'directional', patterns: [frontBack], recommended: frontBack, unknownProductIds }
   }
+  if (values.some(v => v.d == null)) {
+    return { known: 'unknown', patterns: ROTATION_PATTERNS, recommended: null, unknownProductIds }
+  }
+  // Every tire can cross. X works regardless of drivetrain, which the app doesn't know.
+  const x = ROTATION_PATTERNS.find(p => p.key === 'x-pattern')!
+  return { known: 'non-directional', patterns: ROTATION_PATTERNS, recommended: x, unknownProductIds }
+}
+
+/**
+ * A rotation dated before a tire's last recorded move would reorder its history
+ * and corrupt its mileage, so it's refused rather than saved.
+ */
+export function rotationOdometerFloor(lives: TireLife[], events: TireEvent[]): number {
+  const mountedIds = new Set(lives.filter(l => l.mounted).map(l => l.tire.id))
+  return events
+    .filter(e => mountedIds.has(e.tire_id))
+    .reduce((max, e) => Math.max(max, e.odometer), 0)
 }
 
 /** Where each mounted tire ends up under a pattern. Corners with no tire are skipped. */

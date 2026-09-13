@@ -9,6 +9,7 @@ export interface Vehicle {
   vin: string | null
   license_plate: string | null
   details_confirmed?: boolean
+  track_tire_positions?: boolean   // false = count tire miles, but don't track corners
   created_at: string
 }
 
@@ -113,7 +114,7 @@ export interface Product {
   notes: string | null
   unit?: string            // inventory unit (gal, qt, each…); added with the inventory feature
   product_type_id?: string | null   // what it IS, e.g. "Transmission Fluid"
-  tire_directional?: boolean | null // tires only: tread turns one way, so no cross-rotation
+  tire_directional?: boolean | null // tires only: true / false / null = never said
   created_at: string
 }
 

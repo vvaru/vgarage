@@ -21,7 +21,7 @@ const EMPTY_FORM = {
   name: '',
   brand: '',
   typeName: '',        // what it IS; free text so a new type can be named inline
-  tireDirectional: false,
+  tireDirectional: 'unknown' as 'yes' | 'no' | 'unknown',   // optional — unknown is a real answer
   unit: '',            // blank = follow the name-based guess until edited by hand
   notes: '',
   categoryIds: [] as string[],
@@ -123,7 +123,7 @@ export default function ProductsPage() {
       name: p.name,
       brand: p.brand ?? '',
       typeName: productTypes.find(t => t.id === p.product_type_id)?.name ?? '',
-      tireDirectional: Boolean((p as ProductWithLinks & { tire_directional?: boolean }).tire_directional),
+      tireDirectional: p.tire_directional === true ? 'yes' : p.tire_directional === false ? 'no' : 'unknown',
       unit: (p as ProductWithLinks & { unit?: string }).unit ?? '',
       notes: p.notes ?? '',
       categoryIds: p.categoryIds,
@@ -172,7 +172,9 @@ export default function ProductsPage() {
       name: form.name.trim(),
       brand: form.brand.trim() || null,
       unit: form.unit.trim() || guessUnit(form.name),
-      tire_directional: /tire|tyre/i.test(form.typeName) ? form.tireDirectional : null,
+      tire_directional: /tire|tyre/i.test(form.typeName) && form.tireDirectional !== 'unknown'
+        ? form.tireDirectional === 'yes'
+        : null,
       notes: form.notes.trim() || null,
     }
 
@@ -519,18 +521,28 @@ export default function ProductsPage() {
               {/* Directional tread is a property of the MODEL, so it lives here
                   and every tire of this model inherits it. */}
               {/tire|tyre/i.test(form.typeName) && (
-                <label className="flex items-start gap-2.5 bg-surface-2/50 border border-border rounded-xl p-3 cursor-pointer">
-                  <input type="checkbox" checked={form.tireDirectional}
-                    onChange={e => patchForm({ tireDirectional: e.target.checked })}
-                    className="mt-0.5 accent-[var(--color-accent)]" />
-                  <span>
-                    <span className="text-foreground text-sm font-medium block">Directional tread</span>
-                    <span className="text-faint text-xs">
-                      The tread turns one way, so these can only be rotated front-to-back on
-                      their own side — never crossed over.
-                    </span>
-                  </span>
-                </label>
+                <div>
+                  <label className="block text-sm font-medium text-muted mb-1.5">Tread direction <span className="text-faint font-normal">(optional)</span></label>
+                  <div className="flex gap-1.5">
+                    {([
+                      ['yes', 'Directional'],
+                      ['no', 'Non-directional'],
+                      ['unknown', 'Not sure'],
+                    ] as const).map(([v, label]) => (
+                      <button key={v} type="button" onClick={() => patchForm({ tireDirectional: v })}
+                        className={`flex-1 py-2 rounded-xl text-xs font-semibold border transition-colors ${
+                          form.tireDirectional === v
+                            ? 'bg-accent/15 text-accent border-accent/30'
+                            : 'bg-surface-2 text-muted border-border-strong hover:text-foreground'
+                        }`}>{label}</button>
+                    ))}
+                  </div>
+                  <p className="text-faint text-xs mt-1.5">
+                    {form.tireDirectional === 'yes' && 'Look for a rotation arrow on the sidewall. These only rotate front-to-back on their own side, so Rotate picks that for you.'}
+                    {form.tireDirectional === 'no' && 'These can cross sides, so Rotate will recommend a pattern you can change.'}
+                    {form.tireDirectional === 'unknown' && 'Fine to leave. When you rotate, you’ll pick the pattern yourself — or skip tracking corners.'}
+                  </p>
+                </div>
               )}
 
               {/* Unit — how inventory counts this thing */}

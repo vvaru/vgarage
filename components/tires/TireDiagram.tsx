@@ -26,13 +26,18 @@ export const STATUS_LABEL: Record<Slot, string> = {
  * tell you WHICH corner you're looking at, nothing more.
  */
 export default function TireDiagram({
-  mounted, size = 200, onPick, activePosition,
+  mounted, size = 200, onPick, activePosition, unlocated = null,
 }: {
   /** What's on each corner right now; a missing corner renders as empty. */
   mounted: Map<TirePosition, TireLife>
   size?: number
   onPick?: (position: TirePosition) => void
   activePosition?: TirePosition | null
+  /**
+   * Corners untracked: every wheel is tinted by the whole set's worst status and
+   * carries no label, so the drawing never implies it knows which tire is where.
+   */
+  unlocated?: { status: TireStatus | 'empty'; pctLeft: number | null } | null
 }) {
   const corners: { pos: TirePosition; x: number; y: number }[] = [
     { pos: 'FL', x: 12, y: 30 },
@@ -63,18 +68,20 @@ export default function TireDiagram({
       <line x1="26" y1="147" x2="94" y2="147" stroke="#3b82f6" strokeOpacity="0.2" strokeWidth="0.8" />
 
       {corners.map(c => {
-        const life = mounted.get(c.pos)
-        const slot: Slot = life ? life.status : 'empty'
+        const life = unlocated ? undefined : mounted.get(c.pos)
+        const slot: Slot = unlocated ? unlocated.status : life ? life.status : 'empty'
         const color = STATUS_COLOR[slot]
-        const pctLeft = life?.pctUsed != null ? Math.max(0, Math.min(100, 100 - life.pctUsed)) : null
+        const pctLeft = unlocated
+          ? unlocated.pctLeft
+          : life?.pctUsed != null ? Math.max(0, Math.min(100, 100 - life.pctUsed)) : null
         const active = activePosition === c.pos
         const loud = slot === 'over' || slot === 'due' || active
         const H = 38
         return (
           <g
             key={c.pos}
-            onClick={onPick ? () => onPick(c.pos) : undefined}
-            className={onPick ? 'cursor-pointer' : undefined}
+            onClick={onPick && !unlocated ? () => onPick(c.pos) : undefined}
+            className={onPick && !unlocated ? 'cursor-pointer' : undefined}
             filter={loud ? 'url(#tire-glow)' : undefined}
           >
             <rect
@@ -90,11 +97,11 @@ export default function TireDiagram({
                 rx={3} fill={color} fillOpacity={0.55}
               />
             )}
-            <text
+            {!unlocated && <text
               x={c.x + 10} y={c.y + H / 2 + 3.5}
               textAnchor="middle" fontSize="9" fontWeight="700"
               fill={slot === 'empty' ? '#71717a' : '#fafafa'}
-            >{POSITION_SHORT[c.pos]}</text>
+            >{POSITION_SHORT[c.pos]}</text>}
           </g>
         )
       })}

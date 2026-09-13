@@ -195,7 +195,16 @@ ALTER TABLE service_categories ADD COLUMN IF NOT EXISTS tracks_tires boolean NOT
 -- front and rear — but that's a separate constraint and this car doesn't have
 -- it.) Since a product IS the model, the flag belongs here and every instance
 -- inherits it.
+-- Deliberately nullable with no default: NULL means "never said", which is a
+-- different answer from false. Treating unknown as non-directional would let the
+-- app recommend a crossing pattern that runs a directional tread backwards.
 ALTER TABLE products ADD COLUMN IF NOT EXISTS tire_directional boolean;
+
+-- Some people don't want to say which corner each tire is on. Turning this off
+-- keeps tracking mileage (that doesn't depend on corners) but stops showing and
+-- asking for positions. Per car, because it's a property of how you keep THIS
+-- car's records.
+ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS track_tire_positions boolean NOT NULL DEFAULT true;
 
 -- One physical tire. product_id is the MODEL it is an instance of, so a receipt
 -- line of "4 x CrossClimate2" spawns four of these and the existing product /

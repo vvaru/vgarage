@@ -14,6 +14,7 @@ import type { ProductType } from '@/lib/productTypes'
 import { allTireLives, type Tire, type TireEvent } from '@/lib/tires'
 import TireCard from '@/components/tires/TireCard'
 import TirePanel from '@/components/tires/TirePanel'
+import RotateTiresModal from '@/components/tires/RotateTiresModal'
 import { getCache, setCache } from '@/lib/cache'
 import type {
   Product, Receipt, ReceiptItem, InventoryAdjustment, ServiceProductUsage, ServiceLog, ServiceCategory,
@@ -42,7 +43,7 @@ interface InventoryTabProps {
 
 export default function InventoryTab({ onEditProduct }: InventoryTabProps = {}) {
   const { user } = useAuth()
-  const { vehicle } = useVehicle()
+  const { vehicle, refresh: refreshVehicle } = useVehicle()
   const [loading, setLoading] = useState(true)
   const [tablesReady, setTablesReady] = useState(true)
   const [products, setProducts] = useState<ProductU[]>([])
@@ -62,6 +63,7 @@ export default function InventoryTab({ onEditProduct }: InventoryTabProps = {}) 
   const [tires, setTires] = useState<Tire[]>([])
   const [tireEvents, setTireEvents] = useState<TireEvent[]>([])
   const [showTires, setShowTires] = useState(false)
+  const [showRotate, setShowRotate] = useState(false)
   const [productLinks, setProductLinks] = useState<ProductLink[]>([])
   const [catLinks, setCatLinks] = useState<{ product_id: string; category_id: string }[]>([])
   const router = useRouter()
@@ -259,7 +261,7 @@ export default function InventoryTab({ onEditProduct }: InventoryTabProps = {}) 
           <h3 className="text-sm font-bold text-foreground mb-3">On hand</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {/* Tires first: the most valuable stock most garages hold. */}
-            {hasTireData && <TireCard lives={tireLives} onOpen={() => setShowTires(true)} />}
+            {hasTireData && <TireCard lives={tireLives} onOpen={() => setShowTires(true)} trackPositions={vehicle?.track_tire_positions !== false} />}
             {tracked.map(s => {
               const empty = s.onHand <= 0
               const lotCount = s.lots.filter(b => b.remaining > 0).length
@@ -491,10 +493,31 @@ export default function InventoryTab({ onEditProduct }: InventoryTabProps = {}) 
                 lives={tireLives}
                 currentOdometer={vehicle.odometer}
                 productName={id => products.find(x => x.id === id)?.name ?? 'Tire'}
+                trackPositions={vehicle.track_tire_positions !== false}
+                onRotate={() => setShowRotate(true)}
+                onResumeTracking={async () => {
+                  // Positions resume from the last recorded corners, which may be
+                  // stale if rotations happened while tracking was off.
+                  await supabase.from('vehicles').update({ track_tire_positions: true }).eq('id', vehicle.id)
+                  await refreshVehicle()
+                }}
               />
             </div>
           </div>
         </div>
+      )}
+
+      {showRotate && vehicle && (
+        <RotateTiresModal
+          vehicle={vehicle}
+          lives={tireLives}
+          events={tireEvents}
+          products={products}
+          categories={categories}
+          onClose={() => setShowRotate(false)}
+          onSaved={async () => { setShowRotate(false); await refreshVehicle(); load() }}
+          onEditProduct={id => { setShowTires(false); onEditProduct?.(id) }}
+        />
       )}
 
       {useStock && (

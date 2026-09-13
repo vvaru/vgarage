@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { format, parseISO } from 'date-fns'
-import { CircleGauge, AlertTriangle, Archive } from 'lucide-react'
+import { CircleGauge, AlertTriangle, Archive, RotateCw } from 'lucide-react'
 import TireDiagram, { STATUS_COLOR, STATUS_LABEL } from './TireDiagram'
 import {
   mountedByPosition, axleWarnings, setHealth, tireName,
@@ -14,15 +14,20 @@ import {
  * shelf and swap onto the car, so it belongs with the rest of the inventory.
  */
 export default function TirePanel({
-  lives, currentOdometer, productName,
+  lives, currentOdometer, productName, trackPositions = true, onRotate, onResumeTracking,
 }: {
   lives: TireLife[]
   currentOdometer: number
   productName: (id: string) => string
+  /** false = mileage still counts, but corners aren't shown or asked for. */
+  trackPositions?: boolean
+  onRotate?: () => void
+  onResumeTracking?: () => void
 }) {
   const [picked, setPicked] = useState<TirePosition | null>(null)
   const mounted = mountedByPosition(lives)
-  const warnings = axleWarnings(lives)
+  // Axle comparison needs to know which tires share an axle — meaningless untracked.
+  const warnings = trackPositions ? axleWarnings(lives) : []
   const health = setHealth(lives)
   const stored = lives.filter(l => !l.mounted && !l.retired)
   const retired = lives.filter(l => l.retired)
@@ -65,15 +70,27 @@ export default function TirePanel({
   return (
     <div className="space-y-4">
       <div className="bg-surface border border-border rounded-2xl p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <CircleGauge size={14} className="text-accent" />
-          <p className="text-xs font-semibold uppercase tracking-widest text-faint">On the car</p>
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <div className="flex items-center gap-2">
+            <CircleGauge size={14} className="text-accent" />
+            <p className="text-xs font-semibold uppercase tracking-widest text-faint">On the car</p>
+          </div>
+          {onRotate && health.mounted > 0 && (
+            <button onClick={onRotate}
+              className="flex items-center gap-1.5 bg-accent/10 text-accent border border-accent/20 rounded-xl px-3 py-1.5 text-xs font-semibold hover:bg-accent/20 transition-colors">
+              <RotateCw size={12} /> Rotate tires
+            </button>
+          )}
         </div>
 
         <div className="flex flex-col sm:flex-row gap-5">
           <div className="shrink-0 self-center">
-            <TireDiagram mounted={mounted} size={150} onPick={p => setPicked(p === picked ? null : p)} activePosition={picked} />
-            <p className="text-faint text-[11px] text-center mt-2">Tap a corner</p>
+            <TireDiagram
+              mounted={mounted} size={150}
+              onPick={p => setPicked(p === picked ? null : p)} activePosition={picked}
+              unlocated={trackPositions ? null : { status: health.status, pctLeft: health.pctLeft }}
+            />
+            <p className="text-faint text-[11px] text-center mt-2">{trackPositions ? 'Tap a corner' : 'Corners not tracked'}</p>
           </div>
 
           <div className="flex-1 min-w-0 space-y-2">
@@ -87,19 +104,26 @@ export default function TirePanel({
                   {health.pctLeft != null ? `${Math.round(health.pctLeft)}%` : STATUS_LABEL[health.status === 'empty' ? 'empty' : health.status]}
                 </p>
                 <p className="text-muted text-xs -mt-1">
-                  life left on the worst corner
+                  life left on the worst {trackPositions ? 'corner' : 'tire'}
                   {health.spare > 0 && <span className="text-faint"> · {health.spare} more in storage</span>}
                 </p>
-                {TIRE_POSITIONS.map(pos => {
-                  const l = mounted.get(pos)
-                  return l
-                    ? row(l, POSITION_LABELS[pos])
-                    : (
-                      <div key={pos} className="rounded-2xl border border-dashed border-border p-3">
-                        <p className="text-faint text-xs">{POSITION_LABELS[pos]} — nothing recorded</p>
-                      </div>
-                    )
-                })}
+                {trackPositions
+                  ? TIRE_POSITIONS.map(pos => {
+                      const l = mounted.get(pos)
+                      return l
+                        ? row(l, POSITION_LABELS[pos])
+                        : (
+                          <div key={pos} className="rounded-2xl border border-dashed border-border p-3">
+                            <p className="text-faint text-xs">{POSITION_LABELS[pos]} — nothing recorded</p>
+                          </div>
+                        )
+                    })
+                  : lives.filter(l => l.mounted).map(l => row(l, 'On the car'))}
+                {!trackPositions && onResumeTracking && (
+                  <button onClick={onResumeTracking} className="text-accent text-xs font-medium pt-1">
+                    Track corners again →
+                  </button>
+                )}
               </>
             )}
           </div>

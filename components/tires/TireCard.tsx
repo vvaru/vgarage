@@ -8,11 +8,11 @@ import { mountedByPosition, axleWarnings, setHealth, worstMounted, POSITION_LABE
  * Tires as one more thing on the shelf — first card in "On hand", because a
  * set of tires is the most valuable stock most garages hold.
  */
-export default function TireCard({ lives, onOpen }: { lives: TireLife[]; onOpen: () => void }) {
+export default function TireCard({ lives, onOpen, trackPositions = true }: { lives: TireLife[]; onOpen: () => void; trackPositions?: boolean }) {
   const mounted = mountedByPosition(lives)
   const health = setHealth(lives)
   const worst = worstMounted(lives)
-  const warnings = axleWarnings(lives)
+  const warnings = trackPositions ? axleWarnings(lives) : []
   const slot = health.status === 'empty' ? 'empty' : health.status
 
   return (
@@ -27,7 +27,8 @@ export default function TireCard({ lives, onOpen }: { lives: TireLife[]; onOpen:
 
       <div className="flex items-center gap-3">
         <div className="shrink-0">
-          <TireDiagram mounted={mounted} size={54} />
+          <TireDiagram mounted={mounted} size={54}
+            unlocated={trackPositions ? null : { status: health.status, pctLeft: health.pctLeft }} />
         </div>
         <div className="min-w-0 flex-1">
           {health.mounted === 0 ? (
@@ -43,7 +44,7 @@ export default function TireCard({ lives, onOpen }: { lives: TireLife[]; onOpen:
                 {health.pctLeft != null ? `${Math.round(health.pctLeft)}%` : STATUS_LABEL[slot]}
               </p>
               <p className="text-faint text-xs mt-0.5">
-                {health.pctLeft != null ? 'left on the worst corner' : `${health.mounted} fitted`}
+                {health.pctLeft != null ? `left on the worst ${trackPositions ? 'corner' : 'tire'}` : `${health.mounted} fitted`}
                 {health.spare > 0 && ` · ${health.spare} spare`}
               </p>
             </>
@@ -51,7 +52,7 @@ export default function TireCard({ lives, onOpen }: { lives: TireLife[]; onOpen:
         </div>
       </div>
 
-      {worst?.position && worst.miles > 0 && (
+      {trackPositions && worst?.position && worst.miles > 0 && (
         <p className="text-faint text-[11px] mt-2 truncate">
           {POSITION_LABELS[worst.position]} · {worst.miles.toLocaleString()} mi
           {worst.remaining != null && (worst.remaining > 0

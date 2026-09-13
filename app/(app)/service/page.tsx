@@ -937,7 +937,13 @@ export default function ServicePage() {
                   <div className="p-4 border-b border-border">
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="text-base font-bold text-foreground truncate">{vehicle.make} {vehicle.model}</p>
+                        {/* The car's name is the way home: clears any open category so the
+                            full vehicle view comes back. */}
+                        <button
+                          onClick={() => { setSelectedStatus(null); setActiveTab('schedule') }}
+                          title="Back to the vehicle overview"
+                          className="block max-w-full text-left text-base font-bold text-foreground truncate hover:text-accent transition-colors"
+                        >{vehicle.make} {vehicle.model}</button>
                         <p className="text-muted text-sm">{vehicle.year}{vehicle.trim ? ` · ${vehicle.trim}` : ''}</p>
                         <p className="text-foreground font-semibold mt-0.5 tabular-nums text-sm">{estOdo.toLocaleString()} mi</p>
                       </div>
@@ -955,7 +961,7 @@ export default function ServicePage() {
                     {/* Small screens get the big-ticket regions only; the full map
                         lives in the desktop detail pane. */}
                     <div className="lg:hidden mt-3 flex items-center gap-4 bg-surface-2/40 border border-border rounded-2xl p-3">
-                      <div className="w-[88px] h-[160px] shrink-0">
+                      <div className="w-[78px] h-[184px] shrink-0">
                         <CarHealthMap
                           compact
                           states={healthStates}

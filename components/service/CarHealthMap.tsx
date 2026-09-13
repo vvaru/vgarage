@@ -4,13 +4,18 @@ import { LEVEL_COLOR, LEVEL_LABEL, ZONES, type ZoneId, type ZoneLevel, type Zone
 import type { TirePosition } from '@/lib/tires'
 
 /**
- * Top-down car, each region tinted by the state of the services that touch it:
- * yellow when something's coming up, red — glowing and clickable — when it needs
- * doing. Drawn as inline SVG so every region is data-driven and stays crisp at
- * any size, from a phone header to a full desktop pane.
+ * Top-down X-ray of the car. The body is a translucent shell and the parts that
+ * services act on show through it, each drawn roughly to scale and tinted by
+ * state: yellow when something's coming up, red — glowing and clickable — when
+ * it needs doing.
+ *
+ * Proportions follow a compact sedan (≈4.7 m long, 1.8 m wide, 2.7 m wheelbase,
+ * transverse engine): a cabin air filter is palm-sized behind the glovebox, not
+ * a slab across the interior. Small parts carry invisible, larger hit areas so
+ * being true to size doesn't make them hard to tap.
  *
  * `compact` keeps only the big-ticket regions (tires, engine) live, for small
- * screens where a detailed drawing would just be noise.
+ * screens where detail would just be noise.
  */
 export default function CarHealthMap({
   states, compact = false, onZone, activeZone = null, tireCorners = null,
@@ -22,31 +27,37 @@ export default function CarHealthMap({
   /** Per-corner tint, only when the tires on the car differ from each other. */
   tireCorners?: Map<TirePosition, ZoneLevel> | null
 }) {
-  const live = (id: ZoneId) => !compact || ZONES.find(z => z.id === id)?.compact
+  const live = (id: ZoneId) => !compact || Boolean(ZONES.find(z => z.id === id)?.compact)
   const levelOf = (id: ZoneId): ZoneLevel => states.get(id)?.level ?? 'none'
   const clickable = (id: ZoneId) => Boolean(onZone && live(id) && (states.get(id)?.items.length ?? 0) > 0)
 
-  // Shared look for a region: dim outline when idle, tinted fill when it has a
-  // state, glow + slow pulse when it needs doing.
+  const BLUE = '#60a5fa'
+
   const zoneProps = (id: ZoneId, level: ZoneLevel = levelOf(id)) => {
     const isLive = live(id)
-    const color = isLive ? LEVEL_COLOR[level] : '#3b82f6'
-    const active = activeZone === id
     const tracked = isLive && level !== 'none'
+    const color = tracked ? LEVEL_COLOR[level] : BLUE
+    const active = activeZone === id
     return {
       fill: color,
-      fillOpacity: !isLive ? 0.03 : active ? 0.34 : tracked ? (level === 'ok' ? 0.12 : 0.22) : 0.06,
+      fillOpacity: !isLive ? 0.04 : active ? 0.42 : tracked ? (level === 'ok' ? 0.16 : 0.3) : 0.08,
       stroke: color,
-      strokeOpacity: !isLive ? 0.18 : active ? 1 : tracked ? 0.8 : 0.35,
-      strokeWidth: active ? 2.2 : 1.3,
+      strokeOpacity: !isLive ? 0.22 : active ? 1 : tracked ? 0.9 : 0.45,
+      strokeWidth: active ? 1.8 : 1.1,
+      strokeLinejoin: 'round' as const,
       filter: isLive && (level === 'due' || active) ? 'url(#hm-glow)' : undefined,
       className: [
         clickable(id) ? 'cursor-pointer' : '',
         isLive && level === 'due' && !active ? 'animate-pulse' : '',
-      ].join(' '),
+      ].join(' ').trim() || undefined,
       onClick: clickable(id) ? () => onZone!(id) : undefined,
     }
   }
+
+  /** An invisible target around a small part, so true-to-size stays tappable. */
+  const Hit = (p: { x: number; y: number; w: number; h: number }) => (
+    <rect x={p.x} y={p.y} width={p.w} height={p.h} rx={6} fillOpacity={0} strokeOpacity={0} />
+  )
 
   const title = (id: ZoneId) => {
     const st = states.get(id)
@@ -55,111 +66,166 @@ export default function CarHealthMap({
     return <title>{`${st.zone.label} — ${LEVEL_LABEL[st.level]}${first ? `: ${first.name}${first.detail ? ` (${first.detail})` : ''}` : ''}`}</title>
   }
 
-  const wheels: { pos: TirePosition; x: number; y: number }[] = [
-    { pos: 'FL', x: 28, y: 72 }, { pos: 'FR', x: 190, y: 72 },
-    { pos: 'RL', x: 28, y: 302 }, { pos: 'RR', x: 190, y: 302 },
+  // Wheel centres: front axle ~0.95 m behind the bumper, 2.7 m wheelbase.
+  const wheels: { pos: TirePosition; cx: number; cy: number; inboard: 1 | -1 }[] = [
+    { pos: 'FL', cx: 34, cy: 128, inboard: 1 },
+    { pos: 'FR', cx: 186, cy: 128, inboard: -1 },
+    { pos: 'RL', cx: 34, cy: 432, inboard: 1 },
+    { pos: 'RR', cx: 186, cy: 432, inboard: -1 },
   ]
-  const brakes: { pos: TirePosition; cx: number; cy: number }[] = [
-    { pos: 'FL', cx: 64, cy: 102 }, { pos: 'FR', cx: 176, cy: 102 },
-    { pos: 'RL', cx: 64, cy: 332 }, { pos: 'RR', cx: 176, cy: 332 },
-  ]
+  const TIRE_W = 22
+  const TIRE_L = 70
+
+  const body =
+    'M60 22 C80 13 140 13 160 22 C178 28 188 44 192 70 L197 106 C200 124 200 150 197 170 ' +
+    'L195 250 C194 300 194 352 197 402 C200 418 200 446 198 462 L194 500 C190 526 178 538 160 543 ' +
+    'C140 549 80 549 60 543 C42 538 30 526 26 500 L22 462 C20 446 20 418 23 402 ' +
+    'C26 352 26 300 25 250 L23 170 C20 150 20 124 23 106 L28 70 C32 44 42 28 60 22 Z'
 
   return (
-    <svg viewBox="0 0 240 440" className="w-full h-full overflow-visible" role="img" aria-label="Vehicle health map">
+    <svg viewBox="-4 0 228 560" className="w-full h-full overflow-visible" role="img" aria-label="Vehicle health map">
       <defs>
-        <linearGradient id="hm-body" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.16" />
-          <stop offset="55%" stopColor="#3b82f6" stopOpacity="0.05" />
-          <stop offset="100%" stopColor="#3b82f6" stopOpacity="0.12" />
+        <linearGradient id="hm-shell" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={BLUE} stopOpacity="0.14" />
+          <stop offset="45%" stopColor={BLUE} stopOpacity="0.04" />
+          <stop offset="100%" stopColor={BLUE} stopOpacity="0.1" />
         </linearGradient>
-        <filter id="hm-glow" x="-60%" y="-60%" width="220%" height="220%">
-          <feGaussianBlur stdDeviation="4" result="b" />
+        <radialGradient id="hm-glass" cx="50%" cy="30%" r="70%">
+          <stop offset="0%" stopColor={BLUE} stopOpacity="0.16" />
+          <stop offset="100%" stopColor={BLUE} stopOpacity="0.04" />
+        </radialGradient>
+        <filter id="hm-glow" x="-80%" y="-80%" width="260%" height="260%">
+          <feGaussianBlur stdDeviation="3.2" result="b" />
           <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
         </filter>
-        {/* Faint scan lines — the "holographic" read, kept well below the data */}
-        <pattern id="hm-scan" width="4" height="4" patternUnits="userSpaceOnUse">
-          <line x1="0" y1="0" x2="4" y2="0" stroke="#3b82f6" strokeOpacity="0.07" strokeWidth="1" />
+        <pattern id="hm-scan" width="3" height="3" patternUnits="userSpaceOnUse">
+          <line x1="0" y1="0" x2="3" y2="0" stroke={BLUE} strokeOpacity="0.06" strokeWidth="0.8" />
         </pattern>
+        <clipPath id="hm-body-clip"><path d={body} /></clipPath>
       </defs>
 
-      {/* Body */}
-      <path
-        d="M72 20 Q120 6 168 20 L186 66 Q193 110 191 150 L191 296 Q193 346 186 382 L168 420 Q120 434 72 420 L54 382 Q47 346 49 296 L49 150 Q47 110 54 66 Z"
-        fill="url(#hm-body)" stroke="#3b82f6" strokeOpacity="0.5" strokeWidth="1.4"
-      />
-      <path
-        d="M72 20 Q120 6 168 20 L186 66 Q193 110 191 150 L191 296 Q193 346 186 382 L168 420 Q120 434 72 420 L54 382 Q47 346 49 296 L49 150 Q47 110 54 66 Z"
-        fill="url(#hm-scan)"
-      />
-
-      {/* Glass: windshield and rear window, orientation only */}
-      <path d="M74 176 L84 146 Q120 136 156 146 L166 176 Q120 168 74 176 Z" fill="#3b82f6" fillOpacity="0.08" stroke="#3b82f6" strokeOpacity="0.3" strokeWidth="0.9" />
-      <path d="M78 300 Q120 308 162 300 L154 326 Q120 332 86 326 Z" fill="#3b82f6" fillOpacity="0.07" stroke="#3b82f6" strokeOpacity="0.25" strokeWidth="0.9" />
-
-      {/* Engine bay */}
-      <g {...zoneProps('engine')}>
-        {title('engine')}
-        <rect x="84" y="38" width="72" height="68" rx="12" />
-        {/* block detail */}
-        <rect x="98" y="52" width="44" height="40" rx="6" fillOpacity={0} strokeOpacity={0.5} />
-        <line x1="104" y1="62" x2="136" y2="62" strokeOpacity={0.45} />
-        <line x1="104" y1="72" x2="136" y2="72" strokeOpacity={0.45} />
-        <line x1="104" y1="82" x2="136" y2="82" strokeOpacity={0.45} />
-      </g>
-
-      {/* Battery */}
-      <g {...zoneProps('battery')}>
-        {title('battery')}
-        <rect x="62" y="46" width="16" height="22" rx="3" />
-        <line x1="66" y1="44" x2="66" y2="47" strokeOpacity={0.7} />
-        <line x1="74" y1="44" x2="74" y2="47" strokeOpacity={0.7} />
-      </g>
-
-      {/* Transmission */}
-      <g {...zoneProps('transmission')}>
-        {title('transmission')}
-        <rect x="106" y="112" width="28" height="30" rx="6" />
-      </g>
-
-      {/* Wipers */}
-      <g {...zoneProps('wipers')}>
-        {title('wipers')}
-        <rect x="74" y="168" width="92" height="18" rx="6" fillOpacity={0} strokeOpacity={0} />
-        <line x1="86" y1="178" x2="116" y2="170" strokeWidth={2.4} strokeLinecap="round" />
-        <line x1="124" y1="170" x2="154" y2="178" strokeWidth={2.4} strokeLinecap="round" />
-      </g>
-
-      {/* Cabin */}
-      <g {...zoneProps('cabin')}>
-        {title('cabin')}
-        <rect x="66" y="194" width="108" height="98" rx="16" />
-        <rect x="78" y="206" width="36" height="32" rx="7" fillOpacity={0} strokeOpacity={0.4} />
-        <rect x="126" y="206" width="36" height="32" rx="7" fillOpacity={0} strokeOpacity={0.4} />
-        <rect x="78" y="252" width="84" height="28" rx="7" fillOpacity={0} strokeOpacity={0.4} />
-      </g>
-
-      {/* Tires — per corner when the set is mixed, as one set otherwise */}
+      {/* ── Tires sit under the shell, so they're drawn first ──────────────── */}
       {wheels.map(w => {
         const level = tireCorners?.get(w.pos) ?? levelOf('tires')
+        const x = w.cx - TIRE_W / 2
+        const y = w.cy - TIRE_L / 2
         return (
-          <g key={w.pos} {...zoneProps('tires', level)}>
+          <g key={`tire-${w.pos}`} {...zoneProps('tires', level)}>
             {title('tires')}
-            <rect x={w.x} y={w.y} width="22" height="60" rx="7" />
-            {[14, 24, 34, 44].map(dy => (
-              <line key={dy} x1={w.x + 4} y1={w.y + dy} x2={w.x + 18} y2={w.y + dy} strokeOpacity={0.35} />
+            <rect x={x} y={y} width={TIRE_W} height={TIRE_L} rx={8} />
+            {/* sidewall + tread, faint */}
+            <rect x={x + 3} y={y + 4} width={TIRE_W - 6} height={TIRE_L - 8} rx={5} fillOpacity={0} strokeOpacity={0.35} strokeWidth={0.7} />
+            {[-24, -16, -8, 0, 8, 16, 24].map(d => (
+              <path key={d} d={`M${x + 4} ${w.cy + d - 2} L${x + TIRE_W / 2} ${w.cy + d + 2} L${x + TIRE_W - 4} ${w.cy + d - 2}`}
+                fillOpacity={0} strokeOpacity={0.28} strokeWidth={0.7} />
             ))}
           </g>
         )
       })}
 
-      {/* Brakes */}
-      {brakes.map(b => (
-        <g key={b.pos} {...zoneProps('brakes')}>
-          {title('brakes')}
-          <circle cx={b.cx} cy={b.cy} r="10" />
-          <circle cx={b.cx} cy={b.cy} r="4" fillOpacity={0} strokeOpacity={0.55} />
-        </g>
-      ))}
+      {/* ── Shell ───────────────────────────────────────────────────────────── */}
+      <path d={body} fill="url(#hm-shell)" stroke={BLUE} strokeOpacity="0.55" strokeWidth="1.3" />
+      <path d={body} fill="url(#hm-scan)" />
+      {/* mirrors */}
+      <path d="M195 196 C205 194 214 198 214 204 C214 210 205 212 195 210 Z" fill={BLUE} fillOpacity="0.08" stroke={BLUE} strokeOpacity="0.4" strokeWidth="0.9" />
+      <path d="M25 196 C15 194 6 198 6 204 C6 210 15 212 25 210 Z" fill={BLUE} fillOpacity="0.08" stroke={BLUE} strokeOpacity="0.4" strokeWidth="0.9" />
+
+      {/* ── Orientation detail, clipped to the body and kept faint ─────────── */}
+      <g clipPath="url(#hm-body-clip)" fill="none" stroke={BLUE} strokeLinecap="round">
+        {/* hood creases */}
+        <path d="M86 36 C84 100 82 150 80 204" strokeOpacity="0.16" strokeWidth="0.8" />
+        <path d="M134 36 C136 100 138 150 140 204" strokeOpacity="0.16" strokeWidth="0.8" />
+        {/* door shut lines */}
+        <path d="M24 300 L196 300" strokeOpacity="0.1" strokeWidth="0.8" strokeDasharray="2 3" />
+        {/* trunk shut line */}
+        <path d="M58 426 C90 433 130 433 162 426" strokeOpacity="0.2" strokeWidth="0.8" />
+      </g>
+
+      {/* glass */}
+      <path d="M42 212 C80 201 140 201 178 212 L168 262 C140 255 80 255 52 262 Z" fill="url(#hm-glass)" stroke={BLUE} strokeOpacity="0.35" strokeWidth="0.9" />
+      <path d="M52 266 C80 260 140 260 168 266 L170 372 C140 378 80 378 50 372 Z" fill={BLUE} fillOpacity="0.025" stroke={BLUE} strokeOpacity="0.18" strokeWidth="0.8" />
+      <path d="M50 376 C80 382 140 382 170 376 L160 420 C140 426 80 426 60 420 Z" fill="url(#hm-glass)" stroke={BLUE} strokeOpacity="0.3" strokeWidth="0.9" />
+
+      {/* cabin furniture — context only, never a zone */}
+      <g fill="none" stroke={BLUE} strokeOpacity="0.22" strokeWidth="0.8">
+        <path d="M46 284 C80 276 140 276 174 284" />
+        <ellipse cx="80" cy="298" rx="14" ry="5" />
+        <rect x="58" y="312" width="38" height="44" rx="10" />
+        <rect x="124" y="312" width="38" height="44" rx="10" />
+        <path d="M110 312 L110 360" strokeDasharray="2 3" />
+        <rect x="56" y="380" width="108" height="34" rx="10" />
+      </g>
+
+      {/* ── Engine bay (transverse) ────────────────────────────────────────── */}
+      <g {...zoneProps('engine')}>
+        {title('engine')}
+        <Hit x={98} y={26} w={82} h={120} />
+        {/* radiator across the nose */}
+        <rect x="56" y="30" width="108" height="8" rx="3" />
+        {/* engine air box */}
+        <rect x="140" y="48" width="30" height="24" rx="6" />
+        <path d="M140 60 C130 60 128 78 126 94" fillOpacity={0} />
+        {/* block with four cylinders */}
+        <rect x="100" y="94" width="60" height="48" rx="9" />
+        {[111, 124, 137, 150].map(cx => (
+          <circle key={cx} cx={cx} cy="118" r="4" fillOpacity={0} strokeOpacity={0.7} />
+        ))}
+        {/* oil filler cap */}
+        <circle cx="131" cy="101" r="3" />
+        {/* coolant reservoir */}
+        <rect x="165" y="78" width="14" height="20" rx="5" />
+      </g>
+
+      {/* ── Transmission, driver's side of the engine ──────────────────────── */}
+      <g {...zoneProps('transmission')}>
+        {title('transmission')}
+        <Hit x={58} y={92} w={42} h={56} />
+        <path d="M100 100 L78 100 C66 100 60 108 60 120 C60 132 66 140 78 140 L100 140 Z" />
+        <circle cx="76" cy="120" r="7" fillOpacity={0} strokeOpacity={0.6} />
+      </g>
+
+      {/* ── Battery, front-left of the bay ─────────────────────────────────── */}
+      <g {...zoneProps('battery')}>
+        {title('battery')}
+        <Hit x={40} y={42} w={42} h={38} />
+        <rect x="46" y="50" width="30" height="20" rx="3" />
+        <circle cx="52" cy="54" r="1.8" strokeOpacity={0.8} />
+        <circle cx="70" cy="54" r="1.8" strokeOpacity={0.8} />
+      </g>
+
+      {/* ── Wipers, parked at the base of the windshield ───────────────────── */}
+      <g {...zoneProps('wipers')}>
+        {title('wipers')}
+        <Hit x={44} y={196} w={132} h={26} />
+        <path d="M58 214 L104 205" strokeWidth={2.2} strokeLinecap="round" fillOpacity={0} />
+        <path d="M114 205 L160 214" strokeWidth={2.2} strokeLinecap="round" fillOpacity={0} />
+      </g>
+
+      {/* ── Cabin: HVAC unit behind the dash, filter behind the glovebox ───── */}
+      <g {...zoneProps('cabin')}>
+        {title('cabin')}
+        <Hit x={92} y={262} w={70} h={30} />
+        <rect x="99" y="270" width="22" height="12" rx="3" />
+        <rect x="134" y="271" width="18" height="11" rx="2" />
+        {[138, 142, 146, 150].map(x => (
+          <line key={x} x1={x} y1={273} x2={x} y2={280} strokeOpacity={0.6} strokeWidth={0.6} />
+        ))}
+      </g>
+
+      {/* ── Brakes: rotor edge-on just inboard of each wheel, caliper on it ─ */}
+      {wheels.map(w => {
+        const rotorX = w.cx + w.inboard * (TIRE_W / 2 + 2)       // inner face of the rotor
+        const rx = w.inboard === 1 ? rotorX : rotorX - 5
+        const cx = w.inboard === 1 ? rotorX + 3 : rotorX - 3 - 9
+        return (
+          <g key={`brake-${w.pos}`} {...zoneProps('brakes')}>
+            {title('brakes')}
+            <Hit x={Math.min(rx, cx) - 5} y={w.cy - 30} w={24} h={60} />
+            <rect x={rx} y={w.cy - 25} width={5} height={50} rx={2.5} />
+            <rect x={cx} y={w.cy - 10} width={9} height={20} rx={3.5} />
+          </g>
+        )
+      })}
     </svg>
   )
 }

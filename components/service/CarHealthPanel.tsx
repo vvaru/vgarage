@@ -43,7 +43,7 @@ export default function CarHealthPanel({
             {counts.due === 0 && counts.soon === 0 && 'Nothing pressing'}
           </p>
         </div>
-        <div className="w-full max-w-[380px] flex-1 min-h-[420px] max-h-[74vh] py-2">
+        <div className="w-full max-w-[340px] flex-1 min-h-[460px] max-h-[74vh] py-2">
           <CarHealthMap
             states={states}
             tireCorners={tireCorners}

@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { X, Copy, Check, Upload, AlertCircle, Pencil } from 'lucide-react'
-import { supabase } from '@/lib/supabase'
+import { supabase, ensureFreshSession } from '@/lib/supabase'
+import { write, saveMessage } from '@/lib/recover'
 import { useAuth } from '@/components/auth/AuthProvider'
 import type { ServiceCategory, Vehicle } from '@/lib/types'
 
@@ -170,6 +171,10 @@ export default function CarfaxImportModal({ vehicle, categories, onClose, onImpo
     let success = 0, skipped = 0, replaced = 0, errors = 0
     let lastError: string | undefined
 
+    // An import is a long batch of writes. Refresh the token up front — the same
+    // wedge that used to freeze a save would otherwise stall it partway through.
+    await ensureFreshSession()
+
     // Pre-generate one session_id UUID per unique session_key.
     // Only used if the session_id column exists in the DB (detected on first insert attempt).
     const sessionIdMap = new Map<number, string>()
@@ -187,7 +192,9 @@ export default function CarfaxImportModal({ vehicle, categories, onClose, onImpo
 
       // Replace: delete the existing log first
       if (row.action === 'replace' && row.duplicateLogId) {
-        await supabase.from('service_logs').delete().eq('id', row.duplicateLogId)
+        const { error: dErr } = await write(supabase.from('service_logs').delete().eq('id', row.duplicateLogId))
+          .catch(e => ({ error: { message: saveMessage(e) } }))
+        if (dErr) { errors++; lastError ??= dErr.message; continue }
         replaced++
       }
 
@@ -214,12 +221,16 @@ export default function CarfaxImportModal({ vehicle, categories, onClose, onImpo
         ? { ...basePayload, session_id: sessionId }
         : basePayload
 
-      let { error } = await supabase.from('service_logs').insert(withSession)
+      // Bounded: a row that can't be written fails and is counted, so one bad
+      // row can never leave the import spinning.
+      let { error } = await write(supabase.from('service_logs').insert(withSession))
+        .catch(e => ({ error: { message: saveMessage(e) } as { message: string } }))
 
       // If session_id column doesn't exist, retry without it
       if (error && error.message.includes('session_id')) {
         sessionIdSupported = false
-        const retry = await supabase.from('service_logs').insert(basePayload)
+        const retry = await write(supabase.from('service_logs').insert(basePayload))
+          .catch(e => ({ error: { message: saveMessage(e) } as { message: string } }))
         error = retry.error
       } else if (!error && sessionId !== null) {
         sessionIdSupported = true

@@ -1,7 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { supabase } from '@/lib/supabase'
+import { supabase, ensureFreshSession } from '@/lib/supabase'
+import { read, write, saveMessage } from '@/lib/recover'
+import { componentOf } from '@/lib/carZones'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
 
@@ -44,22 +46,24 @@ export default function VehicleSetupModal() {
       details_confirmed: true,
     }
 
+    await ensureFreshSession()
+
     if (isConfirmMode) {
-      const { error: uErr } = await supabase
+      const { error: uErr } = await write(supabase
         .from('vehicles')
         .update(payload)
-        .eq('id', vehicle.id)
+        .eq('id', vehicle.id))
 
       if (uErr) {
         setError(uErr.message)
         return
       }
     } else {
-      const { data: newVehicle, error: vErr } = await supabase
+      const { data: newVehicle, error: vErr } = await write(supabase
         .from('vehicles')
         .insert(payload)
         .select()
-        .single()
+        .single())
 
       if (vErr || !newVehicle) {
         setError(vErr?.message ?? 'Failed to create vehicle')
@@ -67,11 +71,11 @@ export default function VehicleSetupModal() {
       }
 
       // Seed categories from global templates; fall back to hardcoded defaults
-      const { data: globalCats } = await supabase
+      const { data: globalCats } = await read(supabase
         .from('global_categories')
         .select('*')
         .eq('is_active', true)
-        .order('name')
+        .order('name'))
 
       const source = globalCats && globalCats.length > 0
         ? globalCats.map(gc => ({
@@ -81,6 +85,7 @@ export default function VehicleSetupModal() {
             category_type: gc.category_type as 'maintenance',
             interval_miles: gc.interval_miles,
             interval_days: gc.interval_days,
+            component: componentOf({ name: gc.name }),
             global_category_id: gc.id,
           }))
         : [
@@ -98,15 +103,16 @@ export default function VehicleSetupModal() {
             category_type: 'maintenance' as const,
             interval_miles: c.interval_miles,
             interval_days: c.interval_days,
+            component: componentOf({ name: c.name }),
             global_category_id: null,
           }))
 
-      await supabase.from('service_categories').insert(source)
+      await write(supabase.from('service_categories').insert(source))
     }
 
     await refresh()
-    } catch {
-      setError('Something went wrong. Please try again.')
+    } catch (e) {
+      setError(saveMessage(e))
     } finally {
       setLoading(false)
     }

@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ExternalLink, Plus, Pencil, Trash2, X, Package, Link as LinkIcon, Tag, SlidersHorizontal, Check } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { read, runSave, step } from '@/lib/recover'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
 import InventoryTab from '@/components/inventory/InventoryTab'
+import ActionError from '@/components/ui/ActionError'
 import { UNIT_GROUPS, guessUnit, fmtQty } from '@/lib/units'
 import { findType, guessProductType, type ProductType } from '@/lib/productTypes'
 import type { Product, ProductLink, ServiceCategory } from '@/lib/types'
@@ -45,6 +47,7 @@ export default function ProductsPage() {
   const [form, setForm] = useState(EMPTY_FORM)
   const [hasEdited, setHasEdited] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [productTypes, setProductTypes] = useState<ProductType[]>([])
   const [assigning, setAssigning] = useState<string | null>(null)
@@ -55,16 +58,16 @@ export default function ProductsPage() {
     if (!vehicle || !user) return
     setLoading(true)
     try {
-      const [{ data: prods }, { data: links }, { data: catLinks }, { data: cats }] = await Promise.all([
+      const [{ data: prods }, { data: links }, { data: catLinks }, { data: cats }] = await read(Promise.all([
         // Garage-wide: products bought on a receipt are created with vehicle_id
         // NULL, so scoping this to the vehicle hid them from the catalog entirely.
         supabase.from('products').select('*').eq('user_id', user!.id).order('name'),
         supabase.from('product_links').select('*'),
         supabase.from('product_category_links').select('*'),
         supabase.from('service_categories').select('*').eq('vehicle_id', vehicle.id).order('name'),
-      ])
+      ]))
       // Types are optional until the SQL is run — stay quiet if the table is absent.
-      const typesQ = await supabase.from('product_types').select('*').eq('user_id', user.id).order('name')
+      const typesQ = await read(supabase.from('product_types').select('*').eq('user_id', user.id).order('name'))
       setProductTypes((typesQ.data ?? []) as ProductType[])
       const combined: ProductWithLinks[] = (prods ?? []).map(p => ({
         ...p,
@@ -150,25 +153,12 @@ export default function ProductsPage() {
   async function handleSave() {
     if (!user || !vehicle) return
     setSaving(true)
-
-    // Resolve the typed name to a type row, creating it if it's a new one.
-    let typeId: string | null = null
-    const wantedType = form.typeName.trim()
-    if (wantedType) {
-      const existing = findType(productTypes, wantedType)
-      if (existing) {
-        typeId = existing.id
-      } else {
-        const { data } = await supabase.from('product_types')
-          .insert({ user_id: user.id, name: wantedType }).select('id').single()
-        typeId = data?.id ?? null
-      }
-    }
+    setError(null)
 
     const payload = {
       user_id: user.id,
       vehicle_id: null,     // garage-wide, matching the inventory model
-      product_type_id: typeId,
+      product_type_id: null as string | null,   // resolved from the typed name below
       name: form.name.trim(),
       brand: form.brand.trim() || null,
       unit: form.unit.trim() || guessUnit(form.name),
@@ -178,36 +168,55 @@ export default function ProductsPage() {
       notes: form.notes.trim() || null,
     }
 
-    let productId: string
-    if (editProduct) {
-      await supabase.from('products').update(payload).eq('id', editProduct.id)
-      productId = editProduct.id
-      await supabase.from('product_links').delete().eq('product_id', productId)
-      await supabase.from('product_category_links').delete().eq('product_id', productId)
-    } else {
-      const { data } = await supabase.from('products').insert(payload).select('id').single()
-      productId = data!.id
-    }
+    const res = await runSave(async () => {
+      // Resolve the typed name to a type row, creating it if it's a new one.
+      const wantedType = form.typeName.trim()
+      if (wantedType) {
+        const existing = findType(productTypes, wantedType)
+        if (existing) {
+          payload.product_type_id = existing.id
+        } else {
+          const { data } = await step(() => supabase.from('product_types')
+            .insert({ user_id: user.id, name: wantedType }).select('id').single())
+          payload.product_type_id = data?.id ?? null
+        }
+      }
 
-    const validLinks = form.links.filter(l => l.url.trim())
-    if (validLinks.length > 0) {
-      await supabase.from('product_links').insert(
-        validLinks.map(l => ({ product_id: productId, label: l.label.trim() || 'Buy', url: l.url.trim() }))
-      )
-    }
-    if (form.categoryIds.length > 0) {
-      await supabase.from('product_category_links').insert(
-        form.categoryIds.map(catId => ({ product_id: productId, category_id: catId }))
-      )
-    }
+      let productId: string
+      if (editProduct) {
+        await step(() => supabase.from('products').update(payload).eq('id', editProduct.id))
+        productId = editProduct.id
+        await step(() => supabase.from('product_links').delete().eq('product_id', productId))
+        await step(() => supabase.from('product_category_links').delete().eq('product_id', productId))
+      } else {
+        const { data } = await step(() => supabase.from('products').insert(payload).select('id').single())
+        if (!data) throw new Error('the product was not created')
+        productId = data.id
+      }
+
+      const validLinks = form.links.filter(l => l.url.trim())
+      if (validLinks.length > 0) {
+        await step(() => supabase.from('product_links').insert(
+          validLinks.map(l => ({ product_id: productId, label: l.label.trim() || 'Buy', url: l.url.trim() }))
+        ))
+      }
+      if (form.categoryIds.length > 0) {
+        await step(() => supabase.from('product_category_links').insert(
+          form.categoryIds.map(catId => ({ product_id: productId, category_id: catId }))
+        ))
+      }
+    })
 
     setSaving(false)
+    if (!res.ok) { setError(res.message); return }
     setShowModal(false)
     load()
   }
 
   async function handleDelete(id: string) {
-    await supabase.from('products').delete().eq('id', id)
+    const res = await runSave(() => step(() =>
+      supabase.from('products').delete().eq('id', id)).then(() => {}))
+    if (!res.ok) setError(res.message)
     setDeleteId(null)
     load()
   }
@@ -247,30 +256,31 @@ export default function ProductsPage() {
   async function applyType(product: ProductWithLinks, typeName: string) {
     if (!user || !typeName.trim()) return
     setAssigning(product.id)
-    try {
+    const res = await runSave(async () => {
       let type = findType(productTypes, typeName)
       if (!type) {
-        const { data } = await supabase.from('product_types')
-          .insert({ user_id: user.id, name: typeName.trim() }).select('*').single()
-        if (!data) return
+        const { data } = await step(() => supabase.from('product_types')
+          .insert({ user_id: user.id, name: typeName.trim() }).select('*').single())
+        if (!data) throw new Error('the type was not created')
         type = data as ProductType
       }
-      await supabase.from('products').update({ product_type_id: type.id }).eq('id', product.id)
+      await step(() => supabase.from('products').update({ product_type_id: type!.id }).eq('id', product.id))
       // Carry the product's category tags up to the type — services link to types.
       for (const catId of product.categoryIds) {
-        await supabase.from('product_type_category_links')
-          .upsert({ product_type_id: type.id, category_id: catId })
+        await step(() => supabase.from('product_type_category_links')
+          .upsert({ product_type_id: type!.id, category_id: catId }))
       }
-      await load()
-    } finally {
-      setAssigning(null)
-    }
+    })
+    setAssigning(null)
+    if (!res.ok) setError(res.message)
+    await load()
   }
 
   const activeFilterName = categoryFilter ? categories.find(c => c.id === categoryFilter)?.name : null
 
   return (
     <div className="bg-background min-h-screen">
+      <ActionError message={error} onDismiss={() => setError(null)} />
       {/* Header */}
       <div className="max-w-6xl 2xl:max-w-7xl mx-auto px-4 lg:px-8 pt-10 lg:pt-8 pb-4">
         <div className="flex items-center justify-between">

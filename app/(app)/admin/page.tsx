@@ -8,6 +8,9 @@ import {
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { read, runSave, step } from '@/lib/recover'
+import ActionError from '@/components/ui/ActionError'
+import { componentOf } from '@/lib/carZones'
 import { useAuth } from '@/components/auth/AuthProvider'
 import type { UserProfile, Vehicle, ServiceCategory, ServiceLog, GlobalCategory, CategoryRequest } from '@/lib/types'
 
@@ -62,6 +65,7 @@ export default function AdminPage() {
   const [editCat, setEditCat] = useState<GlobalCategory | null>(null)
   const [catForm, setCatForm] = useState({ name: '', category_type: 'maintenance', interval_miles: '', interval_days: '' })
   const [savingCat, setSavingCat] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   // Request review modal
   const [reviewRequest, setReviewRequest] = useState<CategoryRequest | null>(null)
@@ -117,7 +121,9 @@ export default function AdminPage() {
   useEffect(() => { if (isAdmin) load() }, [isAdmin, load])
 
   async function changeRole(userId: string, newRole: 'admin' | 'user') {
-    await supabase.from('user_profiles').update({ role: newRole }).eq('id', userId)
+    const res = await runSave(() => step(() =>
+      supabase.from('user_profiles').update({ role: newRole }).eq('id', userId)).then(() => {}))
+    if (!res.ok) { setError(`${res.message} The role was not changed.`); return }
     setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u))
   }
 
@@ -128,13 +134,15 @@ export default function AdminPage() {
       const userVehicles = users.find(u => u.id === userId)?.vehicles ?? []
       const vIds = userVehicles.map(v => v.id)
       if (vIds.length === 0) return
-      const { data } = await supabase.from('service_categories').select('*').in('vehicle_id', vIds).order('name')
+      const { data } = await read(supabase.from('service_categories').select('*').in('vehicle_id', vIds).order('name'))
       setUserCategories(prev => ({ ...prev, [userId]: data ?? [] }))
     }
   }
 
   async function toggleCategoryVisibility(catId: string, userId: string, currentVisible: boolean) {
-    await supabase.from('service_categories').update({ is_visible: !currentVisible }).eq('id', catId)
+    const res = await runSave(() => step(() =>
+      supabase.from('service_categories').update({ is_visible: !currentVisible }).eq('id', catId)).then(() => {}))
+    if (!res.ok) { setError(res.message); return }
     setUserCategories(prev => ({
       ...prev,
       [userId]: (prev[userId] ?? []).map(c => c.id === catId ? { ...c, is_visible: !currentVisible } : c),
@@ -167,30 +175,32 @@ export default function AdminPage() {
       interval_days: catForm.interval_days ? parseInt(catForm.interval_days) : null,
     }
 
-    if (editCat) {
-      await supabase.from('global_categories').update(payload).eq('id', editCat.id)
-      // Ask to push to all users
-      const push = window.confirm(
-        `Push updated intervals to all users who have "${editCat.name}" in their schedule?\n\nThis will overwrite their current interval settings.`
-      )
-      if (push) {
-        await supabase.from('service_categories').update({
-          interval_miles: payload.interval_miles,
-          interval_days: payload.interval_days,
-        }).eq('name', editCat.name)
-      }
-    } else {
-      const { data: newCat } = await supabase
-        .from('global_categories')
-        .insert({ ...payload, is_active: true })
-        .select()
-        .single()
+    // Asked before the save, so a confirm box can't sit on top of a half-done one.
+    const push = editCat ? window.confirm(
+      `Push updated intervals to all users who have "${editCat.name}" in their schedule?\n\nThis will overwrite their current interval settings.`
+    ) : false
 
-      if (newCat) {
+    const res = await runSave(async () => {
+      if (editCat) {
+        await step(() => supabase.from('global_categories').update(payload).eq('id', editCat.id))
+        if (push) {
+          await step(() => supabase.from('service_categories').update({
+            interval_miles: payload.interval_miles,
+            interval_days: payload.interval_days,
+          }).eq('name', editCat.name))
+        }
+      } else {
+        const { data: newCat } = await step(() => supabase
+          .from('global_categories')
+          .insert({ ...payload, is_active: true })
+          .select()
+          .single())
+        if (!newCat) throw new Error('the category was not created')
+
         // Add to all users' vehicles
-        const { data: allVehicles } = await supabase.from('vehicles').select('id,user_id')
+        const { data: allVehicles } = await read(supabase.from('vehicles').select('id,user_id'))
         if (allVehicles && allVehicles.length > 0) {
-          await supabase.from('service_categories').insert(
+          await step(() => supabase.from('service_categories').insert(
             allVehicles.map(v => ({
               user_id: v.user_id,
               vehicle_id: v.id,
@@ -198,39 +208,47 @@ export default function AdminPage() {
               category_type: payload.category_type,
               interval_miles: payload.interval_miles,
               interval_days: payload.interval_days,
+              component: componentOf({ name: payload.name }),
               global_category_id: newCat.id,
               is_visible: true,
             }))
-          )
+          ))
         }
       }
-    }
+    })
 
     setSavingCat(false)
+    if (!res.ok) { setError(res.message); return }
     setShowCatModal(false)
     load()
   }
 
   async function toggleCatActive(cat: GlobalCategory) {
-    await supabase.from('global_categories').update({ is_active: !cat.is_active }).eq('id', cat.id)
+    const res = await runSave(() => step(() =>
+      supabase.from('global_categories').update({ is_active: !cat.is_active }).eq('id', cat.id)).then(() => {}))
+    if (!res.ok) { setError(res.message); return }
     setGlobalCats(prev => prev.map(c => c.id === cat.id ? { ...c, is_active: !cat.is_active } : c))
   }
 
   async function handleRequest(req: CategoryRequest, status: 'approved' | 'rejected') {
     setSavingRequest(true)
-    await supabase.from('category_requests').update({ status, admin_notes: adminNotes.trim() || null }).eq('id', req.id)
-    if (status === 'approved') {
-      // Add to global categories and all users
-      await saveCatFromRequest(req)
-    }
+    const res = await runSave(async () => {
+      await step(() => supabase.from('category_requests')
+        .update({ status, admin_notes: adminNotes.trim() || null }).eq('id', req.id))
+      if (status === 'approved') {
+        // Add to global categories and all users
+        await saveCatFromRequest(req)
+      }
+    })
+    setSavingRequest(false)
+    if (!res.ok) { setError(res.message); return }
     setReviewRequest(null)
     setAdminNotes('')
-    setSavingRequest(false)
     load()
   }
 
   async function saveCatFromRequest(req: CategoryRequest) {
-    const { data: newCat } = await supabase
+    const { data: newCat } = await step(() => supabase
       .from('global_categories')
       .insert({
         name: req.name,
@@ -240,11 +258,11 @@ export default function AdminPage() {
         is_active: true,
       })
       .select()
-      .single()
+      .single())
     if (newCat) {
-      const { data: allVehicles } = await supabase.from('vehicles').select('id,user_id')
+      const { data: allVehicles } = await read(supabase.from('vehicles').select('id,user_id'))
       if (allVehicles && allVehicles.length > 0) {
-        await supabase.from('service_categories').insert(
+        await step(() => supabase.from('service_categories').insert(
           allVehicles.map(v => ({
             user_id: v.user_id,
             vehicle_id: v.id,
@@ -255,7 +273,7 @@ export default function AdminPage() {
             global_category_id: newCat.id,
             is_visible: true,
           }))
-        )
+        ))
       }
     }
   }
@@ -268,6 +286,7 @@ export default function AdminPage() {
 
   return (
     <div className="bg-background min-h-screen">
+      <ActionError message={error} onDismiss={() => setError(null)} />
       {/* Header */}
       <div className="max-w-5xl mx-auto px-4 lg:px-8 pt-10 lg:pt-8 pb-4">
         <div className="flex items-center justify-between mb-4">

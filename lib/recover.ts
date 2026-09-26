@@ -20,6 +20,8 @@
 // rule 1 is preserved, but nothing can await forever, so rule 2 is closed.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { ensureFreshSession } from '@/lib/supabase'
+
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
 /** Above the 20s fetch abort by design — see the header comment. */
@@ -60,10 +62,78 @@ export async function withRetry<T>(fn: () => PromiseLike<T>, retries = 1, delayM
     try {
       return await fn()
     } catch (e) {
+      // A refusal the server will repeat (duplicate key, missing column) is not
+      // worth asking twice — only trouble on the way there is.
+      if ((e as { permanent?: boolean })?.permanent) throw e
       lastErr = e
     }
   }
   throw lastErr
+}
+
+/** Trouble reaching the server, as opposed to the server saying no. */
+function isTransient(message: string): boolean {
+  return /timed out|timeout|abort|failed to fetch|fetch failed|network|socket|connection|502|503|504|gateway/i.test(message)
+}
+
+/** A read, bounded just above the fetch abort: a wedged one shows a fallback,
+ *  never an endless spinner. */
+export function read<T>(promise: PromiseLike<T>): Promise<T> {
+  return withTimeout(promise, 21_000)
+}
+
+export type SaveOutcome = { ok: true } | { ok: false; message: string }
+
+/**
+ * What a save IS, in one place, so every form in the app behaves the same:
+ * the token is refreshed up front, the body's writes are bounded by write(),
+ * and an outcome always comes back. A spinner started before this call is
+ * always cleared by the answer, and a failure says so instead of vanishing.
+ *
+ * Use `step()` for each write inside the body so errors are raised, not
+ * ignored — a Supabase error is a returned value, not a thrown one, and that
+ * is how failures used to disappear silently.
+ */
+export async function runSave(body: () => Promise<void>): Promise<SaveOutcome> {
+  try {
+    await ensureFreshSession()
+    await body()
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, message: saveMessage(e) }
+  }
+}
+
+/**
+ * One write inside a save: bounded, retried, and its error raised.
+ *
+ * Supabase reports failure by RETURNING an error, not by throwing — including
+ * when the request never reached the server. So the error is raised here, which
+ * is both what makes it impossible to ignore and what lets a lost connection be
+ * retried. A refusal the server means (duplicate key, bad column) is marked
+ * permanent and fails on the first go.
+ */
+export async function step<T extends { error: { message: string } | null }>(
+  run: () => PromiseLike<T>, retries = 1,
+): Promise<T> {
+  return withRetry(async () => {
+    const res = await write(run())
+    if (res.error) {
+      const err = new Error(res.error.message) as Error & { permanent?: boolean }
+      if (!isTransient(res.error.message)) err.permanent = true
+      throw err
+    }
+    return res
+  }, retries)
+}
+
+/** Plain words for the person looking at the form, not a stack trace. */
+export function saveMessage(e: unknown): string {
+  const raw = e instanceof Error ? e.message : typeof e === 'string' ? e : ''
+  if (/timed out|abort|Failed to fetch|NetworkError|network/i.test(raw)) {
+    return 'Couldn’t reach the server — nothing was saved. Check your connection and try again.'
+  }
+  return `Couldn’t save${raw ? ` (${raw})` : ''}. Nothing was lost — try again.`
 }
 
 /**

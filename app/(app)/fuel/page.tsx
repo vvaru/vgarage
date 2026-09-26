@@ -7,8 +7,9 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, ReferenceLine,
 } from 'recharts'
 import { supabase } from '@/lib/supabase'
+import ActionError from '@/components/ui/ActionError'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
-import { withRetry, withTimeout } from '@/lib/recover'
+import { withRetry, withTimeout, runSave, step } from '@/lib/recover'
 import { getCache, setCache } from '@/lib/cache'
 import { recomputeFuelMpg } from '@/lib/fuelMpg'
 import FuelLogModal from '@/components/fuel/FuelLogModal'
@@ -147,6 +148,7 @@ export default function FuelPage() {
   const { vehicle } = useVehicle()
   const [logs, setLogs] = useState<FuelLog[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [fuelModal, setFuelModal] = useState<{ log: FuelLog | null } | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   // Three months is enough fill-ups for a trend to have a shape, without
@@ -220,7 +222,9 @@ export default function FuelPage() {
 
   async function handleDelete(id: string) {
     if (!vehicle) return
-    await supabase.from('fuel_logs').delete().eq('id', id)
+    const res = await runSave(() => step(() =>
+      supabase.from('fuel_logs').delete().eq('id', id)).then(() => {}))
+    if (!res.ok) setError(`${res.message} The fill-up is still there.`)
     setDeleteId(null)
     // Removing a fill-up changes the "previous" for the one after it — recompute.
     await recomputeFuelMpg(vehicle.id)
@@ -354,6 +358,7 @@ export default function FuelPage() {
 
   return (
     <div className="bg-background min-h-screen">
+      <ActionError message={error} onDismiss={() => setError(null)} />
       <div className="max-w-6xl 2xl:max-w-7xl mx-auto px-4 lg:px-8 pt-10 lg:pt-8 pb-28 lg:pb-12">
 
         {/* Header */}

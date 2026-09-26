@@ -10,12 +10,13 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
-import { withRetry, withTimeout } from '@/lib/recover'
+import { withRetry, withTimeout, write, read, runSave, step } from '@/lib/recover'
 import { getCache, setCache } from '@/lib/cache'
 import { useStock } from '@/lib/useStock'
 import { allTireLives, setHealth, worstMounted, setView, mountedByPosition, tireProductChoices, type Tire, type TireEvent, type TireLife, type TirePosition } from '@/lib/tires'
 import { componentOf, zoneStates, LEVEL_COLOR as LEVEL_COLOR_MAP, type ZoneId, type ZoneItem, type ZoneLevel } from '@/lib/carZones'
 import { useRouter } from 'next/navigation'
+import ActionError from '@/components/ui/ActionError'
 import CarHealthMap from '@/components/service/CarHealthMap'
 import CarHealthPanel from '@/components/service/CarHealthPanel'
 import type { ServiceLog, ServiceCategory, ServiceCategoryProduct } from '@/lib/types'
@@ -182,6 +183,9 @@ export default function ServicePage() {
   const [editLog, setEditLog] = useState<ServiceLog | null>(null)
   const [form, setForm] = useState(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  // A one-tap action (delete, merge) that failed after the screen already moved on.
+  const [actionError, setActionError] = useState<string | null>(null)
   const [receiptFile, setReceiptFile] = useState<File | null>(null)
   const [receiptPreview, setReceiptPreview] = useState<string | null>(null)
   const [cropSourceFile, setCropSourceFile] = useState<File | null>(null)
@@ -263,11 +267,11 @@ export default function ServicePage() {
     if (!vehicle) return
     void (async () => {
       try {
-        const [t, e, pt] = await Promise.all([
+        const [t, e, pt] = await read(Promise.all([
           supabase.from('tires').select('*'),
           supabase.from('tire_events').select('*').eq('vehicle_id', vehicle.id),
           supabase.from('product_types').select('id,name'),
-        ])
+        ]))
         setTires((t.data ?? []) as Tire[])
         setTireEvents((e.data ?? []) as TireEvent[])
         setProductTypes((pt.data ?? []) as { id: string; name: string }[])
@@ -330,6 +334,7 @@ export default function ServicePage() {
 
   function openEdit(log: ServiceLog) {
     setEditLog(log)
+    setSaveError(null)
     setReceiptFile(null)
     setReceiptPreview(null)
     setForm({
@@ -362,7 +367,7 @@ export default function ServicePage() {
   async function uploadReceipt(file: File, userId: string): Promise<string | null> {
     const ext = file.name.split('.').pop() ?? 'jpg'
     const path = `${userId}/${crypto.randomUUID()}.${ext}`
-    const { error } = await supabase.storage.from('receipts').upload(path, file)
+    const { error } = await withRetry(() => write(supabase.storage.from('receipts').upload(path, file)), 1, 2500)
     return error ? null : path
   }
 
@@ -370,25 +375,34 @@ export default function ServicePage() {
     e.preventDefault()
     if (!vehicle || !user || !editLog) return
     setSaving(true)
+    setSaveError(null)
     const catId = form.record_type === 'maintenance' && form.category_id ? form.category_id : null
     const cat = catId ? categories.find(c => c.id === catId) : null
     const serviceType = form.record_type === 'maintenance' ? (cat?.name ?? form.service_type.trim()) : form.service_type.trim()
-    let receiptUrl = editLog.receipt_url ?? null
-    if (receiptFile) {
-      const path = await uploadReceipt(receiptFile, user.id)
-      if (path) { if (receiptUrl) await supabase.storage.from('receipts').remove([receiptUrl]); receiptUrl = path }
-    }
-    await supabase.from('service_logs').update({
-      service_type: serviceType, category_id: catId, record_type: form.record_type,
-      performed_by: form.performed_by,
-      shop_name: form.performed_by === 'shop' ? (form.shop_name.trim() || null) : null,
-      shop_location: form.performed_by === 'shop' ? (form.shop_location.trim() || null) : null,
-      receipt_url: receiptUrl, date: form.date, odometer: parseInt(form.odometer),
-      cost: form.cost ? parseFloat(form.cost) : null, notes: form.notes.trim() || null,
-    }).eq('id', editLog.id)
-    await load()
-    setEditLog(null)
+
+    const res = await runSave(async () => {
+      let receiptUrl = editLog.receipt_url ?? null
+      if (receiptFile) {
+        const path = await uploadReceipt(receiptFile, user.id)
+        if (!path) throw new Error('the receipt image could not be uploaded')
+        // Only drop the old image once the new one is safely up.
+        if (receiptUrl) await write(supabase.storage.from('receipts').remove([receiptUrl]))
+        receiptUrl = path
+      }
+      await step(() => supabase.from('service_logs').update({
+        service_type: serviceType, category_id: catId, record_type: form.record_type,
+        performed_by: form.performed_by,
+        shop_name: form.performed_by === 'shop' ? (form.shop_name.trim() || null) : null,
+        shop_location: form.performed_by === 'shop' ? (form.shop_location.trim() || null) : null,
+        receipt_url: receiptUrl, date: form.date, odometer: parseInt(form.odometer),
+        cost: form.cost ? parseFloat(form.cost) : null, notes: form.notes.trim() || null,
+      }).eq('id', editLog.id))
+    })
+
     setSaving(false)
+    if (!res.ok) { setSaveError(res.message); return }
+    setEditLog(null)
+    await load()
   }
 
   async function handleDelete(id: string) {
@@ -412,24 +426,29 @@ export default function ServicePage() {
         })
       }
     }
-    // Actual delete (fire and confirm with server)
-    if (log?.receipt_url) await supabase.storage.from('receipts').remove([log.receipt_url])
-    await supabase.from('service_logs').delete().eq('id', id)
+    // Actual delete. The row is already gone from the screen, so a failure has
+    // to be said out loud and the real state put back.
+    const res = await runSave(async () => {
+      if (log?.receipt_url) await write(supabase.storage.from('receipts').remove([log.receipt_url]))
+      await step(() => supabase.from('service_logs').delete().eq('id', id))
+    })
+    if (!res.ok) setActionError(`${res.message} The record is still there.`)
     await load()
   }
 
   async function repairCategoryLinks() {
     if (!vehicle) return
-    const updates = categories
-      .filter(cat => logs.some(l => l.service_type === cat.name && l.category_id == null))
-      .map(cat =>
-        supabase.from('service_logs')
+    const toLink = categories.filter(cat => logs.some(l => l.service_type === cat.name && l.category_id == null))
+    const res = await runSave(async () => {
+      for (const cat of toLink) {
+        await step(() => supabase.from('service_logs')
           .update({ category_id: cat.id })
           .eq('vehicle_id', vehicle.id)
           .eq('service_type', cat.name)
-          .is('category_id', null)
-      )
-    await Promise.all(updates)
+          .is('category_id', null))
+      }
+    })
+    if (!res.ok) setActionError(res.message)
     await load()
   }
 
@@ -438,20 +457,26 @@ export default function ServicePage() {
     const finalName = (displayName ?? originalType).trim() || originalType
     setAddingCategory(originalType)
     const subType = /check|inspection/i.test(finalName) ? 'check' : 'service'
-    const { data: newCat } = await supabase
-      .from('service_categories')
-      .insert({ user_id: user.id, vehicle_id: vehicle.id, name: finalName, category_type: 'maintenance', sub_type: subType })
-      .select('id')
-      .single()
-    if (newCat) {
-      await supabase
+    const res = await runSave(async () => {
+      const { data: newCat } = await step(() => supabase
+        .from('service_categories')
+        .insert({
+          user_id: user.id, vehicle_id: vehicle.id, name: finalName,
+          category_type: 'maintenance', sub_type: subType,
+          component: componentOf({ name: finalName }),
+        })
+        .select('id')
+        .single())
+      if (!newCat) throw new Error('the category was not created')
+      await step(() => supabase
         .from('service_logs')
         .update({ category_id: newCat.id, service_type: finalName })
         .eq('vehicle_id', vehicle.id)
-        .eq('service_type', originalType)
-    }
-    await load()
+        .eq('service_type', originalType))
+    })
     setAddingCategory(null)
+    if (!res.ok) setActionError(res.message)
+    await load()
   }
 
   // ─── Derived data ────────────────────────────────────────────────────────────
@@ -778,11 +803,14 @@ export default function ServicePage() {
     if (overrides.shop_name !== undefined) update.shop_name = overrides.shop_name || null
     if (overrides.cost) update.cost = parseFloat(overrides.cost)
 
-    await supabase.from('service_logs').update(update).eq('id', winner.id)
-    for (const log of toDelete) {
-      if (log.receipt_url) await supabase.storage.from('receipts').remove([log.receipt_url])
-      await supabase.from('service_logs').delete().eq('id', log.id)
-    }
+    const res = await runSave(async () => {
+      await step(() => supabase.from('service_logs').update(update).eq('id', winner.id))
+      for (const log of toDelete) {
+        if (log.receipt_url) await write(supabase.storage.from('receipts').remove([log.receipt_url]))
+        await step(() => supabase.from('service_logs').delete().eq('id', log.id))
+      }
+    })
+    if (!res.ok) setActionError(`${res.message} The records were left as they were.`)
     await load()
   }
 
@@ -1409,6 +1437,9 @@ export default function ServicePage() {
                   <Image size={14} />{receiptFile ? 'Change Receipt' : 'Attach Receipt (JPG, PNG, PDF)'}
                 </button>
               </div>
+              {saveError && (
+                <p className="text-danger text-sm bg-danger/10 border border-danger/20 rounded-xl px-3 py-2">{saveError}</p>
+              )}
               <div className="flex gap-3 pt-1">
                 <button type="button" onClick={() => setEditLog(null)} className="flex-1 bg-surface-2 hover:bg-surface-2 text-foreground font-medium rounded-2xl py-3 transition-colors">Cancel</button>
                 <button type="submit" disabled={saving} className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-40 text-white font-bold rounded-2xl py-3 transition-colors">{saving ? 'Saving…' : 'Update'}</button>
@@ -1434,6 +1465,7 @@ export default function ServicePage() {
 
       {showCategoryManager && vehicle && <CategoryManagerModal vehicle={vehicle} onClose={() => setShowCategoryManager(false)} onUpdated={load} />}
       {showCarfaxImport && vehicle && <CarfaxImportModal vehicle={vehicle} categories={categories} onClose={() => setShowCarfaxImport(false)} onImported={load} />}
+      <ActionError message={actionError} onDismiss={() => setActionError(null)} />
       {showExport && vehicle && <ExportPdfModal vehicle={vehicle} logs={logs} categories={categories} onClose={() => setShowExport(false)} />}
       {cropSourceFile && <ImageCropModal file={cropSourceFile} onConfirm={handleCropConfirm} onCancel={() => { setCropSourceFile(null); if (fileRef.current) fileRef.current.value = '' }} />}
       {showAddFlow && vehicle && (

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { ZONES, zoneById, zoneFor, componentOf, type ZoneId } from '@/lib/carZones'
 import { X, Plus, Pencil, Trash2, Check, ChevronDown, ChevronRight, ExternalLink, AlertCircle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { read, runSave, step } from '@/lib/recover'
 import { useAuth } from '@/components/auth/AuthProvider'
 import type { ServiceCategory, ServiceCategoryProduct, Vehicle } from '@/lib/types'
 
@@ -39,23 +40,25 @@ export default function CategoryManagerModal({ vehicle, onClose, onUpdated }: Pr
   const [prodForm, setProdForm] = useState(EMPTY_PROD)
   const [prodSaving, setProdSaving] = useState(false)
   const [deleteProdId, setDeleteProdId] = useState<string | null>(null)
+  // Whatever last failed in here, shown at the top where the lists are.
+  const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const { data: cats } = await supabase
+      const { data: cats } = await read(supabase
         .from('service_categories')
         .select('*')
         .eq('vehicle_id', vehicle.id)
-        .order('name')
+        .order('name'))
       setCategories(cats ?? [])
 
       if (cats?.length) {
-        const { data: prods } = await supabase
+        const { data: prods } = await read(supabase
           .from('service_category_products')
           .select('*')
           .in('category_id', cats.map(c => c.id))
-          .order('created_at')
+          .order('created_at'))
         const grouped: Record<string, ServiceCategoryProduct[]> = {}
         for (const p of prods ?? []) {
           grouped[p.category_id] = [...(grouped[p.category_id] ?? []), p]
@@ -93,38 +96,42 @@ export default function CategoryManagerModal({ vehicle, onClose, onUpdated }: Pr
   async function saveCat() {
     if (!user || !catForm.name.trim()) return
     setCatSaving(true)
+    setError(null)
 
-    if (newCat) {
-      await supabase.from('service_categories').insert({
-        user_id: user.id,
-        vehicle_id: vehicle.id,
-        name: catForm.name.trim(),
-        category_type: catForm.category_type,
-        sub_type: catForm.category_type === 'maintenance' ? catForm.sub_type : null,
-        interval_miles: catForm.interval_miles ? parseInt(catForm.interval_miles) : null,
-        interval_days: catForm.interval_days ? parseInt(catForm.interval_days) : null,
-        tracks_tires: catForm.tracks_tires,
-        component: catForm.component || zoneFor(catForm.name) || 'general',
-      })
-    } else if (editCat) {
-      const nameChanged = catForm.name.trim() !== editCat.name
-      await supabase.from('service_categories').update({
-        name: catForm.name.trim(),
-        sub_type: editCat.category_type === 'maintenance' ? catForm.sub_type : null,
-        interval_miles: catForm.interval_miles ? parseInt(catForm.interval_miles) : null,
-        interval_days: catForm.interval_days ? parseInt(catForm.interval_days) : null,
-        tracks_tires: catForm.tracks_tires,
-        component: catForm.component || zoneFor(catForm.name) || 'general',
-      }).eq('id', editCat.id)
+    const res = await runSave(async () => {
+      if (newCat) {
+        await step(() => supabase.from('service_categories').insert({
+          user_id: user.id,
+          vehicle_id: vehicle.id,
+          name: catForm.name.trim(),
+          category_type: catForm.category_type,
+          sub_type: catForm.category_type === 'maintenance' ? catForm.sub_type : null,
+          interval_miles: catForm.interval_miles ? parseInt(catForm.interval_miles) : null,
+          interval_days: catForm.interval_days ? parseInt(catForm.interval_days) : null,
+          tracks_tires: catForm.tracks_tires,
+          component: catForm.component || zoneFor(catForm.name) || 'general',
+        }))
+      } else if (editCat) {
+        const nameChanged = catForm.name.trim() !== editCat.name
+        await step(() => supabase.from('service_categories').update({
+          name: catForm.name.trim(),
+          sub_type: editCat.category_type === 'maintenance' ? catForm.sub_type : null,
+          interval_miles: catForm.interval_miles ? parseInt(catForm.interval_miles) : null,
+          interval_days: catForm.interval_days ? parseInt(catForm.interval_days) : null,
+          tracks_tires: catForm.tracks_tires,
+          component: catForm.component || zoneFor(catForm.name) || 'general',
+        }).eq('id', editCat.id))
 
-      if (nameChanged) {
-        await supabase.from('service_logs')
-          .update({ service_type: catForm.name.trim() })
-          .eq('category_id', editCat.id)
+        if (nameChanged) {
+          await step(() => supabase.from('service_logs')
+            .update({ service_type: catForm.name.trim() })
+            .eq('category_id', editCat.id))
+        }
       }
-    }
+    })
 
     setCatSaving(false)
+    if (!res.ok) { setError(res.message); return }
     setEditCat(null)
     setNewCat(false)
     await load()
@@ -138,26 +145,33 @@ export default function CategoryManagerModal({ vehicle, onClose, onUpdated }: Pr
       const key = cat.name.toLowerCase().trim()
       byName.set(key, [...(byName.get(key) ?? []), cat])
     }
-    for (const [, group] of byName) {
-      if (group.length <= 1) continue
-      const primary = group.find(c => c.interval_miles || c.interval_days) ?? group[0]
-      const duplicates = group.filter(c => c.id !== primary.id)
-      for (const dup of duplicates) {
-        await supabase.from('service_logs').update({ category_id: primary.id }).eq('category_id', dup.id)
-        await supabase.from('service_category_products').update({ category_id: primary.id }).eq('category_id', dup.id)
-        await supabase.from('service_categories').delete().eq('id', dup.id)
+    const res = await runSave(async () => {
+      for (const [, group] of byName) {
+        if (group.length <= 1) continue
+        const primary = group.find(c => c.interval_miles || c.interval_days) ?? group[0]
+        const duplicates = group.filter(c => c.id !== primary.id)
+        for (const dup of duplicates) {
+          // Records move off the duplicate BEFORE it goes, so a failure midway
+          // leaves an empty spare category, never orphaned history.
+          await step(() => supabase.from('service_logs').update({ category_id: primary.id }).eq('category_id', dup.id))
+          await step(() => supabase.from('service_category_products').update({ category_id: primary.id }).eq('category_id', dup.id))
+          await step(() => supabase.from('service_categories').delete().eq('id', dup.id))
+        }
       }
-    }
+    })
+    setMerging(false)
+    if (!res.ok) setError(res.message)
     await load()
     onUpdated()
-    setMerging(false)
   }
 
   async function confirmDelete() {
     if (!deleteCatId) return
     setDeleting(true)
-    await supabase.from('service_categories').delete().eq('id', deleteCatId)
+    const res = await runSave(() => step(() =>
+      supabase.from('service_categories').delete().eq('id', deleteCatId)).then(() => {}))
     setDeleting(false)
+    if (!res.ok) { setError(res.message); return }
     setDeleteCatId(null)
     setDeleteConfirm(false)
     await load()
@@ -176,32 +190,38 @@ export default function CategoryManagerModal({ vehicle, onClose, onUpdated }: Pr
   async function saveProd() {
     if (!user || !editProd || !prodForm.name.trim()) return
     setProdSaving(true)
+    setError(null)
 
-    if (editProd.prod) {
-      await supabase.from('service_category_products').update({
-        name: prodForm.name.trim(),
-        product_url: prodForm.product_url.trim() || null,
-        last_price: prodForm.last_price ? parseFloat(prodForm.last_price) : null,
-      }).eq('id', editProd.prod.id)
-    } else {
-      await supabase.from('service_category_products').insert({
-        user_id: user.id,
-        category_id: editProd.catId,
-        vehicle_id: vehicle.id,
-        name: prodForm.name.trim(),
-        product_url: prodForm.product_url.trim() || null,
-        last_price: prodForm.last_price ? parseFloat(prodForm.last_price) : null,
-      })
-    }
+    const res = await runSave(async () => {
+      if (editProd.prod) {
+        await step(() => supabase.from('service_category_products').update({
+          name: prodForm.name.trim(),
+          product_url: prodForm.product_url.trim() || null,
+          last_price: prodForm.last_price ? parseFloat(prodForm.last_price) : null,
+        }).eq('id', editProd.prod!.id))
+      } else {
+        await step(() => supabase.from('service_category_products').insert({
+          user_id: user.id,
+          category_id: editProd.catId,
+          vehicle_id: vehicle.id,
+          name: prodForm.name.trim(),
+          product_url: prodForm.product_url.trim() || null,
+          last_price: prodForm.last_price ? parseFloat(prodForm.last_price) : null,
+        }))
+      }
+    })
 
     setProdSaving(false)
+    if (!res.ok) { setError(res.message); return }
     setEditProd(null)
     await load()
     onUpdated()
   }
 
   async function deleteProd(id: string) {
-    await supabase.from('service_category_products').delete().eq('id', id)
+    const res = await runSave(() => step(() =>
+      supabase.from('service_category_products').delete().eq('id', id)).then(() => {}))
+    if (!res.ok) setError(res.message)
     setDeleteProdId(null)
     await load()
     onUpdated()
@@ -406,6 +426,9 @@ export default function CategoryManagerModal({ vehicle, onClose, onUpdated }: Pr
         </div>
 
         <div className="overflow-y-auto flex-1 p-5 space-y-3">
+          {error && (
+            <p className="text-danger text-sm bg-danger/10 border border-danger/20 rounded-xl px-3 py-2">{error}</p>
+          )}
           {duplicateGroups.length > 0 && !loading && (
             <div className="bg-accent/8 border border-accent/30 rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
               <div className="min-w-0">

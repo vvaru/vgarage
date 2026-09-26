@@ -5,6 +5,8 @@ import { format, parseISO } from 'date-fns'
 import { useRouter } from 'next/navigation'
 import { Plus, Package, Receipt as ReceiptIcon, Image as ImageIcon, AlertTriangle, Wrench, Ban, X } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { read, runSave, step } from '@/lib/recover'
+import ActionError from '@/components/ui/ActionError'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
 import { computeStock, lotBalancesByItem, type LotBalance, type ProductStock } from '@/lib/inventory'
@@ -46,6 +48,7 @@ export default function InventoryTab({ onEditProduct }: InventoryTabProps = {}) 
   const { vehicle, refresh: refreshVehicle } = useVehicle()
   const [loading, setLoading] = useState(true)
   const [tablesReady, setTablesReady] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [products, setProducts] = useState<ProductU[]>([])
   const [receipts, setReceipts] = useState<Receipt[]>([])
   const [items, setItems] = useState<ReceiptItem[]>([])
@@ -83,11 +86,11 @@ export default function InventoryTab({ onEditProduct }: InventoryTabProps = {}) 
     }
 
     const fetchFresh = async () => {
-      const { data: prods } = await supabase.from('products').select('*').eq('user_id', uid).order('name')
+      const { data: prods } = await read(supabase.from('products').select('*').eq('user_id', uid).order('name'))
       let ready = true
       let rec: Receipt[] = [], its: ReceiptItem[] = [], use: ServiceProductUsage[] = []
       let adj: InventoryAdjustment[] = [], lnk: LogReceiptLink[] = []
-      const rq = await supabase.from('receipts').select('*').eq('user_id', uid).order('date', { ascending: false })
+      const rq = await read(supabase.from('receipts').select('*').eq('user_id', uid).order('date', { ascending: false }))
       if (rq.error) {
         ready = false
       } else {
@@ -222,11 +225,15 @@ export default function InventoryTab({ onEditProduct }: InventoryTabProps = {}) 
   async function markNoProducts(pl: PastLog) {
     if (!user) return
     const id = crypto.randomUUID()
-    await supabase.from('receipts').insert({
-      id, user_id: user.id, date: pl.date, store: null,
-      image_path: pl.receipt_url, no_products: true,
+    // A stable id, so a retry rewrites the same row instead of adding another.
+    const res = await runSave(async () => {
+      await step(() => supabase.from('receipts').upsert({
+        id, user_id: user.id, date: pl.date, store: null,
+        image_path: pl.receipt_url, no_products: true,
+      }))
+      await step(() => supabase.from('service_log_receipts').upsert({ log_id: pl.id, receipt_id: id }))
     })
-    await supabase.from('service_log_receipts').upsert({ log_id: pl.id, receipt_id: id })
+    if (!res.ok) setError(res.message)
     load()
   }
 
@@ -241,6 +248,8 @@ export default function InventoryTab({ onEditProduct }: InventoryTabProps = {}) 
 
   return (
     <div className="space-y-6">
+      <ActionError message={error} onDismiss={() => setError(null)} />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <p className="text-muted text-sm">Track what you've bought, how much is left, and where it went.</p>
@@ -508,7 +517,8 @@ export default function InventoryTab({ onEditProduct }: InventoryTabProps = {}) 
                 onResumeTracking={async () => {
                   // Positions resume from the last recorded corners, which may be
                   // stale if rotations happened while tracking was off.
-                  await supabase.from('vehicles').update({ track_tire_positions: true }).eq('id', vehicle.id)
+                  await runSave(() => step(() =>
+                    supabase.from('vehicles').update({ track_tire_positions: true }).eq('id', vehicle.id)).then(() => {}))
                   await refreshVehicle()
                 }}
               />

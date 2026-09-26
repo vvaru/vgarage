@@ -13,9 +13,10 @@ import {
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { supabase } from '@/lib/supabase'
+import ActionError from '@/components/ui/ActionError'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
-import { withRetry, withTimeout } from '@/lib/recover'
+import { withRetry, withTimeout, runSave, step } from '@/lib/recover'
 import { getCache, setCache } from '@/lib/cache'
 import { useStock } from '@/lib/useStock'
 import { buildPoints, totalSavings, forecastMonth } from '@/lib/fuelAnalytics'
@@ -122,6 +123,7 @@ export default function DashboardPage() {
   const [showOdoModal, setShowOdoModal] = useState(false)
   const [newOdo, setNewOdo] = useState('')
   const [odoSaving, setOdoSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [upcomingPeriod, setUpcomingPeriod] = useState<UpcomingPeriod>('3mo')
   const [showCarPicker, setShowCarPicker] = useState(false)
   const [showAddFlow, setShowAddFlow] = useState(false)
@@ -193,7 +195,9 @@ export default function DashboardPage() {
     const val = parseInt(newOdo)
     if (isNaN(val) || val < vehicle.odometer) return
     setOdoSaving(true)
-    await supabase.from('vehicles').update({ odometer: val }).eq('id', vehicle.id)
+    const res = await runSave(() => step(() =>
+      supabase.from('vehicles').update({ odometer: val }).eq('id', vehicle.id)).then(() => {}))
+    if (!res.ok) setError(`${res.message} The odometer was not changed.`)
     await refreshVehicle()
     setShowOdoModal(false)
     setNewOdo('')
@@ -280,6 +284,7 @@ export default function DashboardPage() {
 
   return (
     <div className="bg-background min-h-screen">
+      <ActionError message={error} onDismiss={() => setError(null)} />
       <div className="px-4 lg:px-8 pt-10 lg:pt-8 pb-28 lg:pb-12 max-w-xl lg:max-w-6xl mx-auto space-y-4">
 
         {/* ─── Header: greeting + vehicle + quick icons ───────────────────────── */}

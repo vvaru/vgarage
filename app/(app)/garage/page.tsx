@@ -4,6 +4,8 @@ import { useEffect, useState, useCallback } from 'react'
 import { format, differenceInDays, parseISO } from 'date-fns'
 import { Car, Plus, Trash2, ChevronRight, Gauge, CircleAlert, CheckCircle2, Clock } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { runSave, step } from '@/lib/recover'
+import ActionError from '@/components/ui/ActionError'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
 import type { Vehicle, ServiceCategory, ServiceLog, FuelLog } from '@/lib/types'
@@ -97,6 +99,7 @@ export default function GaragePage() {
 
   const [addForm, setAddForm] = useState({ year: '', make: '', model: '', trim: '', odometer: '' })
   const [addSaving, setAddSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     if (!user || vehicles.length === 0) { setLoading(false); return }
@@ -131,25 +134,32 @@ export default function GaragePage() {
     if (!user || !addForm.year || !addForm.make || !addForm.model) return
     const odo = parseInt(addForm.odometer) || 0
     setAddSaving(true)
-    const { data } = await supabase.from('vehicles').insert({
-      user_id: user.id,
-      year: parseInt(addForm.year),
-      make: addForm.make.trim(),
-      model: addForm.model.trim(),
-      trim: addForm.trim.trim() || null,
-      odometer: odo,
-    }).select().single()
-    if (data) {
-      await refreshVehicles()
-      setActiveVehicleId(data.id)
-    }
+    setError(null)
+    let newId: string | null = null
+    const res = await runSave(async () => {
+      const { data } = await step(() => supabase.from('vehicles').insert({
+        user_id: user.id,
+        year: parseInt(addForm.year),
+        make: addForm.make.trim(),
+        model: addForm.model.trim(),
+        trim: addForm.trim.trim() || null,
+        odometer: odo,
+      }).select().single())
+      if (!data) throw new Error('the car was not added')
+      newId = data.id
+    })
+    setAddSaving(false)
+    if (!res.ok) { setError(res.message); return }
+    await refreshVehicles()
+    if (newId) setActiveVehicleId(newId)
     setAddForm({ year: '', make: '', model: '', trim: '', odometer: '' })
     setShowAddModal(false)
-    setAddSaving(false)
   }
 
   async function deleteVehicle(vehicleId: string) {
-    await supabase.from('vehicles').delete().eq('id', vehicleId)
+    const res = await runSave(() => step(() =>
+      supabase.from('vehicles').delete().eq('id', vehicleId)).then(() => {}))
+    if (!res.ok) setError(`${res.message} The car is still there.`)
     setDeleteConfirm(null)
     await refreshVehicles()
   }
@@ -164,6 +174,7 @@ export default function GaragePage() {
 
   return (
     <div className="bg-background min-h-screen">
+      <ActionError message={error} onDismiss={() => setError(null)} />
       {/* Header */}
       <div className="max-w-6xl 2xl:max-w-7xl mx-auto px-4 lg:px-8 pt-10 lg:pt-8 pb-4 flex items-center justify-between">
         <div>

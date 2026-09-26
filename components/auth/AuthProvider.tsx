@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
+import { read, write } from '@/lib/recover'
 
 const ADMIN_EMAIL = 'vinitvaru96@gmail.com'
 
@@ -24,20 +25,22 @@ const AuthContext = createContext<AuthContextType>({
 
 async function ensureProfile(user: User): Promise<'admin' | 'user'> {
   try {
-    const { data: existing } = await supabase
+    // Bounded: sign-in must never hang on the profile lookup — the fallback
+    // below is a perfectly good answer.
+    const { data: existing } = await read(supabase
       .from('user_profiles')
       .select('role')
       .eq('id', user.id)
-      .single()
+      .single())
 
     if (existing) return existing.role as 'admin' | 'user'
 
     const role: 'admin' | 'user' = user.email === ADMIN_EMAIL ? 'admin' : 'user'
-    await supabase.from('user_profiles').insert({
+    await write(supabase.from('user_profiles').insert({
       id: user.id,
       email: user.email,
       role,
-    })
+    }))
     return role
   } catch {
     // user_profiles table may not exist yet (migration not applied)

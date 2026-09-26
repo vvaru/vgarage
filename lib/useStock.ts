@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { read } from '@/lib/recover'
 import { computeStock, type ProductStock } from '@/lib/inventory'
 import type { Product, Receipt, ReceiptItem, InventoryAdjustment, ServiceProductUsage } from '@/lib/types'
 
@@ -17,11 +18,11 @@ export function useStock(userId: string | undefined) {
   const reload = useCallback(async () => {
     if (!userId) return
     try {
-      const { data: prods } = await supabase.from('products').select('*').eq('user_id', userId).order('name')
+      const { data: prods } = await read(supabase.from('products').select('*').eq('user_id', userId).order('name'))
       const list = (prods ?? []) as ProductU[]
       setProducts(list)
 
-      const rq = await supabase.from('receipts').select('*').eq('user_id', userId)
+      const rq = await read(supabase.from('receipts').select('*').eq('user_id', userId))
       if (rq.error) { setStock(new Map()); return }
 
       const [itemsQ, usageQ, adjQ, logsQ] = await Promise.all([

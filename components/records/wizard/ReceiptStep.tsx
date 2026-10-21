@@ -1,10 +1,10 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { Plus, Trash2, Package, Wrench, ChevronDown, ChevronRight, Link as LinkIcon, X } from 'lucide-react'
+import { Plus, Minus, Trash2, Package, Wrench, ChevronDown, ChevronRight, Link as LinkIcon, X } from 'lucide-react'
 import ReceiptPreviewPane from './ReceiptPreviewPane'
 import { UNIT_GROUPS, guessUnit, fmtQty } from '@/lib/units'
-import { emptyLine, emptyTag, type LineDraft, type ReceiptDraft, type ServiceTag } from '@/lib/recordDraft'
+import { emptyLine, emptyTag, withDerivedQty, type LineDraft, type ReceiptDraft, type ServiceTag } from '@/lib/recordDraft'
 import type { Product, ServiceCategory } from '@/lib/types'
 import type { ProductStock } from '@/lib/inventory'
 
@@ -37,6 +37,9 @@ export default function ReceiptStep({ draft, products, categories, stock, locked
 
   const patchLine = (key: string, patch: Partial<LineDraft>) =>
     onPatch({ lines: draft.lines.map(l => l.key === key ? { ...l, ...patch } : l) })
+  // Count, size, price or price mode changed: re-derive the saved amount and cost per unit.
+  const patchAmount = (line: LineDraft, patch: Partial<LineDraft>) =>
+    onPatch({ lines: draft.lines.map(l => l.key === line.key ? withDerivedQty({ ...l, ...patch }) : l) })
   const patchTag = (key: string, patch: Partial<ServiceTag>) =>
     onPatch({ tags: draft.tags.map(t => t.key === key ? { ...t, ...patch } : t) })
 
@@ -64,11 +67,11 @@ export default function ReceiptStep({ draft, products, categories, stock, locked
         <input ref={fileRef} type="file" accept="image/*,application/pdf" hidden onChange={pickImage} />
 
         <div className="grid grid-cols-2 gap-3">
-          <div>
+          <div className="min-w-0">
             <label className="block text-xs font-medium text-muted mb-1.5">Date</label>
             <input type="date" value={draft.date} onChange={e => onPatch({ date: e.target.value })} className={inputCls} />
           </div>
-          <div>
+          <div className="min-w-0">
             <label className="block text-xs font-medium text-muted mb-1.5">Store / shop</label>
             <input type="text" placeholder="e.g. Costco" value={draft.store} onChange={e => onPatch({ store: e.target.value })} className={inputCls} />
           </div>
@@ -98,7 +101,7 @@ export default function ReceiptStep({ draft, products, categories, stock, locked
                   <div key={l.key} className="bg-surface-2/50 border border-border rounded-2xl p-3 space-y-2">
                     <div className="flex gap-2">
                       <select value={l.productId}
-                        onChange={e => patchLine(l.key, { productId: e.target.value, unit: products.find(p => p.id === e.target.value)?.unit ?? 'each' })}
+                        onChange={e => patchAmount(l, { productId: e.target.value, unit: products.find(p => p.id === e.target.value)?.unit ?? 'each' })}
                         className={`${inputCls} flex-1`}>
                         <option value="">+ New product…</option>
                         {products.map(p => <option key={p.id} value={p.id}>{p.name}{p.brand ? ` — ${p.brand}` : ''}</option>)}
@@ -112,19 +115,36 @@ export default function ReceiptStep({ draft, products, categories, stock, locked
                     {isNew && (
                       <div className="grid grid-cols-2 gap-2">
                         <input type="text" placeholder="Product name *" value={l.newName}
-                          onChange={e => patchLine(l.key, l.unitTouched ? { newName: e.target.value } : { newName: e.target.value, unit: guessUnit(e.target.value) })}
+                          onChange={e => patchAmount(l, l.unitTouched ? { newName: e.target.value } : { newName: e.target.value, unit: guessUnit(e.target.value) })}
                           className={inputCls} />
                         <input type="text" placeholder="Brand" value={l.newBrand} onChange={e => patchLine(l.key, { newBrand: e.target.value })} className={inputCls} />
                       </div>
                     )}
+                    {/* Typed the way it's bought: how many, how big each one is, and the
+                        price per item or for the lot. The saved amount and cost per unit
+                        are worked out from these. */}
                     <div className="grid grid-cols-3 gap-2">
-                      <div>
-                        <label className="block text-[10px] uppercase tracking-wide text-faint mb-1">Amount</label>
-                        <input type="number" inputMode="decimal" placeholder="0" value={l.qty} onChange={e => patchLine(l.key, { qty: e.target.value })} className={inputCls} />
+                      <div className="min-w-0">
+                        <label className="block text-[10px] uppercase tracking-wide text-faint mb-1">Count</label>
+                        <div className="flex items-center bg-surface-2 border border-border-strong rounded-xl">
+                          <button type="button" aria-label="One fewer"
+                            onClick={() => patchAmount(l, { count: String(Math.max(1, Math.floor(num(l.count) ?? 1) - 1)) })}
+                            className="w-8 h-10 shrink-0 flex items-center justify-center text-muted hover:text-accent transition-colors"><Minus size={14} /></button>
+                          <input type="number" inputMode="numeric" min={1} value={l.count}
+                            onChange={e => patchAmount(l, { count: e.target.value })}
+                            className="w-full min-w-0 bg-transparent text-center text-foreground text-sm focus:outline-none tabular-nums" />
+                          <button type="button" aria-label="One more"
+                            onClick={() => patchAmount(l, { count: String(Math.floor(num(l.count) ?? 0) + 1) })}
+                            className="w-8 h-10 shrink-0 flex items-center justify-center text-muted hover:text-accent transition-colors"><Plus size={14} /></button>
+                        </div>
                       </div>
-                      <div>
+                      <div className="min-w-0">
+                        <label className="block text-[10px] uppercase tracking-wide text-faint mb-1">Size each</label>
+                        <input type="number" inputMode="decimal" placeholder={l.unit === 'each' ? '1' : '0'} value={l.size} onChange={e => patchAmount(l, { size: e.target.value })} className={`${inputCls} min-w-0`} />
+                      </div>
+                      <div className="min-w-0">
                         <label className="block text-[10px] uppercase tracking-wide text-faint mb-1">Unit</label>
-                        <select value={l.unit} onChange={e => patchLine(l.key, { unit: e.target.value, unitTouched: true })} className={inputCls}>
+                        <select value={l.unit} onChange={e => patchAmount(l, { unit: e.target.value, unitTouched: true })} className={`${inputCls} min-w-0`}>
                           {UNIT_GROUPS.map(g => (
                             <optgroup key={g.label} label={g.label}>
                               {g.units.map(u => <option key={u} value={u}>{u}</option>)}
@@ -132,11 +152,34 @@ export default function ReceiptStep({ draft, products, categories, stock, locked
                           ))}
                         </select>
                       </div>
-                      <div>
-                        <label className="block text-[10px] uppercase tracking-wide text-faint mb-1">$ / unit</label>
-                        <input type="number" inputMode="decimal" placeholder="0.00" value={l.unitPrice} onChange={e => patchLine(l.key, { unitPrice: e.target.value })} className={inputCls} />
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-[10px] uppercase tracking-wide text-faint">Price</label>
+                        <div className="flex bg-surface-2 border border-border-strong rounded-lg p-0.5">
+                          {(['each', 'total'] as const).map(m => (
+                            <button key={m} type="button" onClick={() => patchAmount(l, { priceMode: m })}
+                              className={`px-2.5 py-0.5 rounded-md text-[11px] font-semibold transition-colors ${
+                                l.priceMode === m ? 'bg-accent/15 text-accent' : 'text-muted'
+                              }`}>{m === 'each' ? 'Per item' : 'Total'}</button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-faint text-sm">$</span>
+                        <input type="number" inputMode="decimal" placeholder="0.00" value={l.price} onChange={e => patchAmount(l, { price: e.target.value })} className={`${inputCls} pl-6`} />
                       </div>
                     </div>
+                    {(() => {
+                      const qty = num(l.qty), per = num(l.unitPrice)
+                      if (qty == null) return null
+                      return (
+                        <p className="text-faint text-[11px] tabular-nums">
+                          = {fmtQty(qty, l.unit)}
+                          {per != null && <> · ${(qty * per).toFixed(2)} total · ${per < 1 ? per.toFixed(3) : per.toFixed(2)} per {l.unit === 'each' ? 'item' : l.unit}</>}
+                        </p>
+                      )
+                    })()}
                     {s && <p className="text-faint text-[11px]">Currently {fmtQty(s.onHand, s.unit)} on hand.</p>}
 
                     {/* Catalogue detail for a product being created. Folded away —

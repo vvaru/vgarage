@@ -1478,6 +1478,7 @@ export default function ServicePage() {
           tireProducts={tireProductOptions}
           onClose={() => setShowAddFlow(false)}
           onSaved={() => { setShowAddFlow(false); reloadStock(); load() }}
+          onDataChanged={() => { reloadStock(); load() }}
         />
       )}
 

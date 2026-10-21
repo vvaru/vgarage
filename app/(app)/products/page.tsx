@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ExternalLink, Plus, Pencil, Trash2, X, Package, Link as LinkIcon, Tag, SlidersHorizontal, Check } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { read, runSave, step } from '@/lib/recover'
+import { convertProductUnit } from '@/lib/productUnit'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
 import InventoryTab from '@/components/inventory/InventoryTab'
@@ -25,6 +26,7 @@ const EMPTY_FORM = {
   typeName: '',        // what it IS; free text so a new type can be named inline
   tireDirectional: 'unknown' as 'yes' | 'no' | 'unknown',   // optional — unknown is a real answer
   unit: '',            // blank = follow the name-based guess until edited by hand
+  unitFactor: '',      // changing an existing product's unit: how many new units = 1 old
   notes: '',
   categoryIds: [] as string[],
   links: [{ label: 'Buy', url: '' }] as LinkDraft[],
@@ -128,6 +130,7 @@ export default function ProductsPage() {
       typeName: productTypes.find(t => t.id === p.product_type_id)?.name ?? '',
       tireDirectional: p.tire_directional === true ? 'yes' : p.tire_directional === false ? 'no' : 'unknown',
       unit: (p as ProductWithLinks & { unit?: string }).unit ?? '',
+      unitFactor: '',
       notes: p.notes ?? '',
       categoryIds: p.categoryIds,
       links: p.links.length > 0
@@ -168,7 +171,20 @@ export default function ProductsPage() {
       notes: form.notes.trim() || null,
     }
 
+    // An existing product's stock is counted in its unit, so changing the unit
+    // converts everything already logged for it (1 old = unitFactor new).
+    const oldUnit = editProduct ? (editProduct as ProductWithLinks & { unit?: string }).unit ?? 'each' : null
+    const unitChanged = oldUnit != null && payload.unit !== oldUnit
+    const factor = parseFloat(form.unitFactor)
+    if (unitChanged && !(factor > 0)) {
+      setError(`Say how many ${payload.unit} make 1 ${oldUnit}, so the stock you already have converts correctly.`)
+      setSaving(false)
+      return
+    }
+
     const res = await runSave(async () => {
+      if (unitChanged && editProduct && oldUnit) await convertProductUnit(editProduct.id, oldUnit, payload.unit, factor)
+
       // Resolve the typed name to a type row, creating it if it's a new one.
       const wantedType = form.typeName.trim()
       if (wantedType) {
@@ -569,9 +585,29 @@ export default function ProductsPage() {
                     </optgroup>
                   ))}
                 </select>
-                <p className="text-faint text-xs mt-1.5">
-                  Inventory will read “{fmtQty(3, form.unit || guessUnit(form.name))} left”.
-                </p>
+                {(() => {
+                  const oldUnit = editProduct ? (editProduct as ProductWithLinks & { unit?: string }).unit ?? 'each' : null
+                  const newUnit = form.unit || guessUnit(form.name)
+                  if (oldUnit == null || newUnit === oldUnit) return (
+                    <p className="text-faint text-xs mt-1.5">
+                      Inventory will read “{fmtQty(3, newUnit)} left”.
+                    </p>
+                  )
+                  return (
+                    <div className="mt-2 bg-accent/5 border border-accent/20 rounded-xl p-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-muted text-sm shrink-0">1 {oldUnit} =</span>
+                        <input type="number" inputMode="decimal" placeholder="?" value={form.unitFactor}
+                          onChange={e => patchForm({ unitFactor: e.target.value })}
+                          className="w-24 bg-surface-2 border border-border-strong rounded-xl px-3 py-2 text-foreground focus:outline-none focus:border-accent/70" />
+                        <span className="text-muted text-sm">{newUnit}</span>
+                      </div>
+                      <p className="text-faint text-xs mt-1.5">
+                        Everything already logged for this product (purchases, usage, adjustments) is converted to {newUnit}.
+                      </p>
+                    </div>
+                  )
+                })()}
               </div>
 
               {/* Notes */}

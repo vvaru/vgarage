@@ -184,42 +184,21 @@ export default function ServiceStep({ groups, setGroups, receipts, available, lo
                     </div>
                   </div>
                 )}
-                <div className="grid grid-cols-2 gap-2">
+                {/* DIY: the money row comes after the parts, since parts cost is
+                    worked out from them. Shop work is charged here directly. */}
+                <div className={isDiy ? '' : 'grid grid-cols-2 gap-2'}>
                   <div>
                     <label className="block text-[10px] uppercase tracking-wide text-faint mb-1">Odometer</label>
                     <input type="number" inputMode="numeric" placeholder="miles" value={g.odometer} onChange={e => patch(g.key, { odometer: e.target.value })} className={inputCls} />
                   </div>
-                  <div>
-                    <label className="block text-[10px] uppercase tracking-wide text-faint mb-1">
-                      {isDiy ? 'Parts cost' : 'Charged'}
-                    </label>
-                    {isDiy ? (
-                      <div className="w-full bg-surface-2/40 border border-border rounded-xl px-3 py-2.5 text-sm">
-                        <span className={partsCost > 0 ? 'text-foreground font-semibold' : 'text-faint'}>
-                          ${partsCost.toFixed(2)}
-                        </span>
-                        <span className="text-faint text-[11px] ml-1.5">
-                          {partsCost > 0 ? 'from parts used' : 'add parts below'}
-                        </span>
-                      </div>
-                    ) : (
+                  {!isDiy && (
+                    <div>
+                      <label className="block text-[10px] uppercase tracking-wide text-faint mb-1">Charged</label>
                       <input type="number" inputMode="decimal" placeholder="0.00" value={g.cost} onChange={e => patch(g.key, { cost: e.target.value })} className={inputCls} />
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
               </>
-            )}
-
-            {isDiy && (
-              <div>
-                <label className="block text-[10px] uppercase tracking-wide text-faint mb-1">What a shop would have charged (optional)</label>
-                <input type="number" inputMode="decimal" placeholder="0.00" value={g.shopEquivalent} onChange={e => patch(g.key, { shopEquivalent: e.target.value })} className={inputCls} />
-                {saving != null && (
-                  <p className="text-success text-[11px] mt-1">
-                    Saved ${saving.toFixed(2)} doing it yourself{partsCost > 0 ? ` — $${partsCost.toFixed(2)} in parts vs $${num(g.shopEquivalent)!.toFixed(2)}` : ''}.
-                  </p>
-                )}
-              </div>
             )}
 
             {/* Stock, including what's being bought on these very receipts */}
@@ -280,6 +259,30 @@ export default function ServiceStep({ groups, setGroups, receipts, available, lo
                 ><Plus size={12} /> Add a product used</button>
                 {g.draws.length === 0 && (
                   <p className="text-faint text-[11px] mt-1.5">Or attach products later — the receipt links either way.</p>
+                )}
+              </div>
+            )}
+
+            {isDiy && (
+              <div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="min-w-0">
+                    <label className="block text-[10px] uppercase tracking-wide text-faint mb-1">Shop would charge</label>
+                    <input type="number" inputMode="decimal" placeholder="optional" value={g.shopEquivalent} onChange={e => patch(g.key, { shopEquivalent: e.target.value })} className={inputCls} />
+                  </div>
+                  <div className="min-w-0">
+                    <label className="block text-[10px] uppercase tracking-wide text-faint mb-1">Parts cost</label>
+                    <div className={`w-full bg-surface-2/40 border border-border rounded-xl px-3 py-2.5 text-sm tabular-nums ${partsCost > 0 ? 'text-foreground font-semibold' : 'text-faint'}`}>
+                      ${partsCost.toFixed(2)}
+                    </div>
+                  </div>
+                </div>
+                {saving != null ? (
+                  <p className="text-success text-[11px] mt-1">
+                    Saved ${saving.toFixed(2)} doing it yourself{partsCost > 0 ? ` — $${partsCost.toFixed(2)} in parts vs $${num(g.shopEquivalent)!.toFixed(2)}` : ''}.
+                  </p>
+                ) : partsCost === 0 && (
+                  <p className="text-faint text-[11px] mt-1">Parts cost fills in from the products used above.</p>
                 )}
               </div>
             )}

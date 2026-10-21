@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { Plus, Minus, Trash2, Package, Wrench, ChevronDown, ChevronRight, Link as LinkIcon, X } from 'lucide-react'
+import { Plus, Minus, Trash2, Package, Wrench, ChevronDown, ChevronRight, Link as LinkIcon, X, Pencil } from 'lucide-react'
 import ReceiptPreviewPane from './ReceiptPreviewPane'
 import { UNIT_GROUPS, guessUnit, fmtQty } from '@/lib/units'
 import { emptyLine, emptyTag, withDerivedQty, type LineDraft, type ReceiptDraft, type ServiceTag } from '@/lib/recordDraft'
@@ -22,13 +22,28 @@ interface Props {
   stock?: Map<string, ProductStock>
   lockedItemIds?: Set<string>
   onPatch: (patch: Partial<ReceiptDraft>) => void
+  /** Change an existing product's unit, rescaling everything logged for it (1 old = factor new). */
+  onConvertUnit?: (productId: string, newUnit: string, factor: number) => Promise<void>
 }
 
 const inputCls = 'w-full bg-surface-2 border border-border-strong rounded-xl px-3 py-2.5 text-foreground placeholder-faint focus:outline-none focus:border-accent/70 text-sm transition-all'
 
-export default function ReceiptStep({ draft, products, categories, stock, lockedItemIds, onPatch }: Props) {
+export default function ReceiptStep({ draft, products, categories, stock, lockedItemIds, onPatch, onConvertUnit }: Props) {
   const fileRef = useRef<HTMLInputElement>(null)
   const [openDetails, setOpenDetails] = useState<Set<string>>(new Set())
+  // The one line whose product unit is being changed, if any.
+  const [conv, setConv] = useState<{ lineKey: string; unit: string; factor: string; busy: boolean; error: string | null } | null>(null)
+
+  async function runConvert(productId: string) {
+    if (!conv || !onConvertUnit) return
+    setConv({ ...conv, busy: true, error: null })
+    try {
+      await onConvertUnit(productId, conv.unit, parseFloat(conv.factor))
+      setConv(null)
+    } catch (e) {
+      setConv({ ...conv, busy: false, error: e instanceof Error ? e.message : 'Couldn’t change the unit.' })
+    }
+  }
   const toggleDetails = (key: string) => setOpenDetails(prev => {
     const next = new Set(prev)
     if (next.has(key)) next.delete(key); else next.add(key)
@@ -144,15 +159,62 @@ export default function ReceiptStep({ draft, products, categories, stock, locked
                       </div>
                       <div className="min-w-0">
                         <label className="block text-[10px] uppercase tracking-wide text-faint mb-1">Unit</label>
-                        <select value={l.unit} onChange={e => patchAmount(l, { unit: e.target.value, unitTouched: true })} className={`${inputCls} min-w-0`}>
-                          {UNIT_GROUPS.map(g => (
-                            <optgroup key={g.label} label={g.label}>
-                              {g.units.map(u => <option key={u} value={u}>{u}</option>)}
-                            </optgroup>
-                          ))}
-                        </select>
+                        {isNew ? (
+                          <select value={l.unit} onChange={e => patchAmount(l, { unit: e.target.value, unitTouched: true })} className={`${inputCls} min-w-0`}>
+                            {UNIT_GROUPS.map(g => (
+                              <optgroup key={g.label} label={g.label}>
+                                {g.units.map(u => <option key={u} value={u}>{u}</option>)}
+                              </optgroup>
+                            ))}
+                          </select>
+                        ) : (
+                          // An existing product's unit is fixed: its stock is counted in it.
+                          // Changing it means converting what's already logged.
+                          <button type="button" disabled={!onConvertUnit}
+                            onClick={() => setConv(conv?.lineKey === l.key ? null : { lineKey: l.key, unit: l.unit, factor: '', busy: false, error: null })}
+                            title="Change this product's unit"
+                            className={`${inputCls} min-w-0 flex items-center justify-between gap-1 text-left`}>
+                            <span className="truncate">{l.unit}</span>
+                            {onConvertUnit && <Pencil size={11} className="shrink-0 text-faint" />}
+                          </button>
+                        )}
                       </div>
                     </div>
+                    {!isNew && conv?.lineKey === l.key && (() => {
+                      const factor = parseFloat(conv.factor)
+                      const ok = factor > 0 && conv.unit !== l.unit
+                      const name = products.find(p => p.id === l.productId)?.name ?? 'this product'
+                      return (
+                        <div className="bg-accent/5 border border-accent/20 rounded-xl p-3 space-y-2">
+                          <p className="text-foreground text-xs font-medium">Change the unit for {name}</p>
+                          <div className="flex items-center gap-2">
+                            <span className="text-muted text-sm shrink-0">1 {l.unit} =</span>
+                            <input type="number" inputMode="decimal" placeholder="?" value={conv.factor} autoFocus
+                              onChange={e => setConv({ ...conv, factor: e.target.value, error: null })}
+                              className={`${inputCls} w-20 shrink-0`} />
+                            <select value={conv.unit} onChange={e => setConv({ ...conv, unit: e.target.value, error: null })} className={`${inputCls} min-w-0 flex-1`}>
+                              {UNIT_GROUPS.map(g => (
+                                <optgroup key={g.label} label={g.label}>
+                                  {g.units.map(u => <option key={u} value={u}>{u}</option>)}
+                                </optgroup>
+                              ))}
+                            </select>
+                          </div>
+                          <p className="text-faint text-[11px]">
+                            Everything already logged for it is converted too
+                            {s && ok ? <> — your {fmtQty(s.onHand, l.unit)} on hand becomes {fmtQty(+(s.onHand * factor).toFixed(4), conv.unit)}.</> : '.'}
+                          </p>
+                          {conv.error && <p className="text-danger text-[11px]">{conv.error}</p>}
+                          <div className="flex gap-2">
+                            <button type="button" disabled={!ok || conv.busy} onClick={() => runConvert(l.productId)}
+                              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-accent text-accent-foreground disabled:opacity-40">
+                              {conv.busy ? 'Converting…' : 'Convert'}
+                            </button>
+                            <button type="button" onClick={() => setConv(null)} className="px-3 py-1.5 rounded-lg text-xs text-muted">Cancel</button>
+                          </div>
+                        </div>
+                      )
+                    })()}
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <label className="block text-[10px] uppercase tracking-wide text-faint">Price</label>

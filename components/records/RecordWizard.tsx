@@ -14,6 +14,7 @@ import {
   type ReceiptDraft, type ServiceGroup,
 } from '@/lib/recordDraft'
 import { receiptTitle } from '@/lib/receipts'
+import { convertProductUnit } from '@/lib/productUnit'
 import { planDraw, type Lot, type LotBalance, type ProductStock } from '@/lib/inventory'
 import { TIRE_POSITIONS, storedSets, planFitting, type TireLife, type TirePosition } from '@/lib/tires'
 import type { Product, Receipt, ReceiptItem, ServiceCategory, ServiceLog, ServiceProductUsage } from '@/lib/types'
@@ -45,10 +46,12 @@ interface Props {
   tireProducts?: { id: string; name: string }[]
   onClose: () => void
   onSaved: () => void
+  /** Products/stock changed outside a save (a unit conversion): reload them, keep the wizard open. */
+  onDataChanged?: () => void
 }
 
 export default function RecordWizard({
-  seed, products, categories, logs, usage = [], stock, tireLives = [], tireProducts = [], onClose, onSaved,
+  seed, products, categories, logs, usage = [], stock, tireLives = [], tireProducts = [], onClose, onSaved, onDataChanged,
 }: Props) {
   const { user } = useAuth()
   const { vehicle } = useVehicle()
@@ -123,6 +126,25 @@ export default function RecordWizard({
 
   const patchReceipt = (key: string, patch: Partial<ReceiptDraft>) =>
     setReceipts(prev => prev.map(r => r.key === key ? { ...r, ...patch } : r))
+
+  // Change an existing product's unit. The database rescales everything already
+  // logged for it; this rescales what's typed in here but not saved yet, so a save
+  // afterwards doesn't write old-unit numbers back. 1 old unit = factor new units.
+  async function convertUnit(productId: string, newUnit: string, factor: number) {
+    await convertProductUnit(productId, productUnit(productId), newUnit, factor)
+    const scale = (v: string, by: number) => { const n = parseFloat(v); return isNaN(n) ? v : String(+(n * by).toFixed(6)) }
+    setReceipts(prev => prev.map(r => ({
+      ...r,
+      lines: r.lines.map(l => l.productId !== productId ? l : {
+        ...l, unit: newUnit, unitTouched: true,
+        size: scale(l.size, factor), qty: scale(l.qty, factor), unitPrice: scale(l.unitPrice, 1 / factor),
+      }),
+    })))
+    setGroups(prev => prev.map(g => ({
+      ...g, draws: g.draws.map(d => d.productKey === productId ? { ...d, qty: scale(d.qty, factor) } : d),
+    })))
+    onDataChanged?.()
+  }
 
   // Name a draft by what's on it, not by its position in the list.
   const draftTitle = (r: ReceiptDraft, max = 2) => receiptTitle({
@@ -251,12 +273,9 @@ export default function RecordWizard({
               } catch { /* the product still exists without a link */ }
             }
             for (const catId of l.newCategoryIds) categoryLinks.add(`${pid}|${catId}`)
-          } else {
-            const currentUnit = products.find(p => p.id === pid)?.unit ?? 'each'
-            if (currentUnit !== l.unit) {
-              await write(supabase.from('products').update({ unit: l.unit }).eq('id', pid))
-            }
           }
+          // An existing product's unit is never changed by a save: its stock is
+          // counted in that unit. Changing it goes through convertUnit.
 
           const { error: iErr } = await withRetry(() => write(supabase.from('receipt_items').upsert({
             id: itemId, receipt_id: receiptId, product_id: pid, qty, unit_cost: num(l.unitPrice),
@@ -526,6 +545,7 @@ export default function RecordWizard({
             stock={stock}
             lockedItemIds={lockedItemIds}
             onPatch={p => patchReceipt(draft.key, p)}
+            onConvertUnit={convertUnit}
           />
         ) : (
           <ServiceStep groups={groups} setGroups={setGroups} receipts={receipts} available={available} logs={logs} categories={categories} tireLives={tireLives} tireProducts={tireProducts} />

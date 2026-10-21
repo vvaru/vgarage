@@ -458,6 +458,7 @@ export default function InventoryTab({ onEditProduct }: InventoryTabProps = {}) 
           tireProducts={tireProducts}
           onClose={() => setModal(null)}
           onSaved={() => { setModal(null); load() }}
+          onDataChanged={load}
         />
       )}
 
@@ -477,6 +478,7 @@ export default function InventoryTab({ onEditProduct }: InventoryTabProps = {}) 
           tireProducts={tireProducts}
           onClose={() => setDetail(null)}
           onSaved={() => { setDetail(null); load() }}
+          onDataChanged={load}
         />
       )}
 

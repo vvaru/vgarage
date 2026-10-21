@@ -554,6 +554,7 @@ export default function DashboardPage() {
           stock={stock}
           onClose={() => setShowAddFlow(false)}
           onSaved={() => { setShowAddFlow(false); reloadStock(); load() }}
+          onDataChanged={() => { reloadStock(); load() }}
         />
       )}
 

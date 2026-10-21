@@ -81,6 +81,11 @@ export default function RecordWizard({
               unitTouched: true,
               qty: String(it.qty),
               unitPrice: it.unit_cost == null ? '' : String(it.unit_cost),
+              // Saved lines don't remember how they were typed: show them as one item at its total.
+              count: '1',
+              size: String(it.qty),
+              price: it.unit_cost == null ? '' : String(+(Number(it.qty) * Number(it.unit_cost)).toFixed(2)),
+              priceMode: 'total' as const,
             }))
           : [emptyLine()],
       }]

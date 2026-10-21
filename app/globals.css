@@ -48,6 +48,28 @@ input[type='number'] {
   -moz-appearance: textfield;
 }
 
+/* iOS Safari gives date/time inputs a built-in minimum width, so in a two-column
+   row they spill into the next field. Let them shrink like any other input. */
+input[type='date'],
+input[type='time'],
+input[type='datetime-local'],
+input[type='month'] {
+  min-width: 0;
+  max-width: 100%;
+}
+@supports (-webkit-touch-callout: none) {
+  input[type='date'],
+  input[type='time'],
+  input[type='datetime-local'],
+  input[type='month'] {
+    -webkit-appearance: none;
+    appearance: none;
+  }
+}
+input::-webkit-date-and-time-value {
+  text-align: left;
+}
+
 .scrollbar-hide {
   -ms-overflow-style: none;
   scrollbar-width: none;

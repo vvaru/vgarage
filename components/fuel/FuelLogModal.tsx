@@ -205,7 +205,7 @@ export default function FuelLogModal({ vehicle, log, onClose, onSaved }: Props) 
               <input type="number" inputMode="decimal" step="0.001" placeholder="—" value={gallons} onChange={e => applyField('G', e.target.value)}
                 className={`${inputCls} font-semibold tabular-nums`} />
             </div>
-            <div>
+            <div className="min-w-0">
               <label className="block text-xs font-medium text-muted mb-1.5">Date</label>
               <input type="date" value={date} onChange={e => setDate(e.target.value)} className={inputCls} />
             </div>

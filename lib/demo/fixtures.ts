@@ -115,7 +115,7 @@ export function buildDemoData(): Record<string, Row[]> {
     })
     return sid
   }
-  const use = (sid: string, name: string, itemId: string | null, qty: number, cost: number | null) => {
+  const drawPart = (sid: string, name: string, itemId: string | null, qty: number, cost: number | null) => {
     service_product_usage.push({ id: id('use', ++un), log_id: sid, product_id: pid(name), receipt_item_id: itemId, qty, unit_cost: cost, created_at: '2025-01-01T00:00:00Z' })
   }
 
@@ -134,9 +134,9 @@ export function buildDemoData(): Record<string, Row[]> {
     const buy = receipt(iso(when - (5 + Math.floor(r() * 40)) * DAY), r() > 0.5 ? 'AutoZone' : 'Costco',
       [['Ultra Platinum 0W-20', 5, 9.198], ['Oil filter PH7317', 1, 9.99], ['Drain plug gasket', 1, 4.59]])
     const sid = service(when, 'Oil Change', 'owner', { cost: +(4.4 * 9.198 + 9.99 + 4.59).toFixed(2), shop_equivalent_cost: 75 })
-    use(sid, 'Ultra Platinum 0W-20', buy.ids[0], 4.4, 9.198)
-    use(sid, 'Oil filter PH7317', buy.ids[1], 1, 9.99)
-    use(sid, 'Drain plug gasket', buy.ids[2], 1, 4.59)
+    drawPart(sid, 'Ultra Platinum 0W-20', buy.ids[0], 4.4, 9.198)
+    drawPart(sid, 'Oil filter PH7317', buy.ids[1], 1, 9.99)
+    drawPart(sid, 'Drain plug gasket', buy.ids[2], 1, 4.59)
   })
   // Tire rotations alongside every other oil change, DIY.
   oilDays.forEach((when, i) => { if (i % 2 === 1 && when + 3 * DAY < today) service(when + 3 * DAY, 'Tire Rotation', 'owner', { cost: 0, shop_equivalent_cost: 30 }) })
@@ -150,12 +150,12 @@ export function buildDemoData(): Record<string, Row[]> {
   { const when = Date.UTC(2025, 9, 11); const sid = service(when, 'CVT Fluid', 'shop', { cost: 189.5, notes: 'Honda HCF-2 drain and fill.' }); const b = receipt(iso(when), 'Honda of Bay Ridge', [], true); service_log_receipts.push({ log_id: sid, receipt_id: b.rid }) }
   // Filters, DIY.
   { const buy = receipt('2025-04-30', 'Costco', [['Cabin air filter', 2, 12.49], ['Engine air filter', 1, 18.99]])
-    const s1 = service(Date.UTC(2025, 4, 3), 'Cabin Filter', 'owner', { cost: 12.49, shop_equivalent_cost: 60 }); use(s1, 'Cabin air filter', buy.ids[0], 1, 12.49)
-    const s2 = service(Date.UTC(2025, 4, 3), 'Air Filter', 'owner', { cost: 18.99, shop_equivalent_cost: 55 }); use(s2, 'Engine air filter', buy.ids[1], 1, 18.99)
-    const s3 = service(Date.UTC(2026, 8, 21), 'Cabin Filter', 'owner', { cost: 12.49, shop_equivalent_cost: 60 }); use(s3, 'Cabin air filter', buy.ids[0], 1, 12.49) }
+    const s1 = service(Date.UTC(2025, 4, 3), 'Cabin Filter', 'owner', { cost: 12.49, shop_equivalent_cost: 60 }); drawPart(s1, 'Cabin air filter', buy.ids[0], 1, 12.49)
+    const s2 = service(Date.UTC(2025, 4, 3), 'Air Filter', 'owner', { cost: 18.99, shop_equivalent_cost: 55 }); drawPart(s2, 'Engine air filter', buy.ids[1], 1, 18.99)
+    const s3 = service(Date.UTC(2026, 8, 21), 'Cabin Filter', 'owner', { cost: 12.49, shop_equivalent_cost: 60 }); drawPart(s3, 'Cabin air filter', buy.ids[0], 1, 12.49) }
   // Wipers.
   { const buy = receipt('2025-11-08', 'AutoZone', [['Wiper blades 26"', 2, 21.99], ['Brake parts cleaner 14oz', 2, 4.99]])
-    const s = service(Date.UTC(2025, 10, 8), 'Wiper Blades', 'owner', { cost: 43.98, shop_equivalent_cost: 70 }); use(s, 'Wiper blades 26"', buy.ids[0], 2, 21.99) }
+    const s = service(Date.UTC(2025, 10, 8), 'Wiper Blades', 'owner', { cost: 43.98, shop_equivalent_cost: 70 }); drawPart(s, 'Wiper blades 26"', buy.ids[0], 2, 21.99) }
   // Tires: a set of four, fitted at a shop.
   const tireBuy = receipt('2025-04-11', 'Costco Tire Center', [['CrossClimate2 215/55R16', 4, 168.99]])
   const tireWhen = Date.UTC(2025, 3, 12)
@@ -165,7 +165,7 @@ export function buildDemoData(): Record<string, Row[]> {
     const tid = id('tire', i + 1)
     tires.push({ id: tid, user_id: UID, product_id: pid('CrossClimate2 215/55R16'), receipt_item_id: tireBuy.ids[0], label: null, expected_life_miles: 60000, purchased_date: '2025-04-11', retired_date: null, retired_reason: null, created_at: '2025-04-12T00:00:00Z' })
     tire_events.push({ id: id('tev', i + 1), user_id: UID, vehicle_id: VID, tire_id: tid, log_id: tireSvc, position: pos, odometer: odoAt(tireWhen), date: iso(tireWhen), created_at: '2025-04-12T00:00:00Z' })
-    use(tireSvc, 'CrossClimate2 215/55R16', tireBuy.ids[0], 1, 168.99)
+    drawPart(tireSvc, 'CrossClimate2 215/55R16', tireBuy.ids[0], 1, 168.99)
   })
 
   const inventory_adjustments: Row[] = [

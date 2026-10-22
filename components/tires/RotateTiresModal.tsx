@@ -6,6 +6,8 @@ import { X, RotateCw, ArrowRight, Info } from 'lucide-react'
 import { supabase, ensureFreshSession } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { withRetry, write } from '@/lib/recover'
+import { loadOdometerPoints, odometerProblem } from '@/lib/odometer'
+import { useOdometerPoints } from '@/lib/useOdometerPoints'
 import {
   rotationOptions, applyRotation, rotationOdometerFloor, tireName,
   POSITION_LABELS, type TireEvent, type TireLife,
@@ -57,6 +59,8 @@ export default function RotateTiresModal({
   const [performedBy, setPerformedBy] = useState<'owner' | 'shop'>('owner')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Fuel + service readings, to warn when this odometer doesn't fit its date.
+  const odoPoints = useOdometerPoints(vehicle.id)
   const ids = useRef<{ log: string; events: Record<string, string> } | null>(null)
 
   const pattern = options.patterns.find(p => p.key === patternKey) ?? null
@@ -77,6 +81,11 @@ export default function RotateTiresModal({
 
     try {
       await ensureFreshSession()
+
+      // Readings only go up: it has to fit between the entries around this date.
+      const points = await loadOdometerPoints(vehicle.id).catch(() => null)
+      const odoProblem = points && odometerProblem(points, date, odo, [logId])
+      if (odoProblem) { setError(odoProblem); return }
 
       // The service record first, so tire events can point at it.
       const cat = categories.find(c => c.id === categoryId)
@@ -156,6 +165,10 @@ export default function RotateTiresModal({
               A tire last moved at {floor.toLocaleString()} mi — a rotation before that would scramble its mileage.
             </p>
           )}
+          {odoPoints && !isNaN(odo) && (() => {
+            const problem = odometerProblem(odoPoints, date, odo)
+            return problem && <p className="text-warn text-xs">{problem}</p>
+          })()}
 
           {!tracking ? (
             <div className="flex items-start gap-2 bg-surface-2/50 border border-border rounded-2xl p-3">

@@ -15,6 +15,7 @@ import {
 } from '@/lib/recordDraft'
 import { receiptTitle } from '@/lib/receipts'
 import { convertProductUnit } from '@/lib/productUnit'
+import { loadOdometerPoints, odometerProblem } from '@/lib/odometer'
 import { planDraw, type Lot, type LotBalance, type ProductStock } from '@/lib/inventory'
 import { TIRE_POSITIONS, storedSets, planFitting, type TireLife, type TirePosition } from '@/lib/tires'
 import type { Product, Receipt, ReceiptItem, ServiceCategory, ServiceLog, ServiceProductUsage } from '@/lib/types'
@@ -214,6 +215,16 @@ export default function RecordWizard({
       // inside the first write, which is the wedge that froze saves at "Saving…".
       await ensureFreshSession()
       await warmUp(() => supabase.from('vehicles').select('id', { head: true, count: 'exact' }))
+
+      // Readings only go up: each service has to fit between the fuel and service
+      // entries around its date. If the check can't load, it doesn't block the save.
+      const odoPoints = await loadOdometerPoints(vehicle.id).catch(() => null)
+      if (odoPoints) {
+        for (const g of groups) {
+          const problem = odometerProblem(odoPoints, g.date, num(g.odometer) ?? vehicle.odometer, [ids.logs[g.key]])
+          if (problem) { setError(`${g.label}: ${problem}`); return }
+        }
+      }
 
       // Lots created in this save, so product draws can be allocated against them.
       const freshLots = new Map<string, Lot[]>()

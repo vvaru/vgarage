@@ -6,6 +6,8 @@ import { X, Wrench, ArrowRight } from 'lucide-react'
 import { supabase, ensureFreshSession } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
+import { loadOdometerPoints, odometerProblem } from '@/lib/odometer'
+import { useOdometerPoints } from '@/lib/useOdometerPoints'
 import { withRetry, write, warmUp } from '@/lib/recover'
 import { fmtQty, fmtNum } from '@/lib/units'
 import type { ProductStock, LotBalance } from '@/lib/inventory'
@@ -46,6 +48,8 @@ export default function UseProductModal({ stock, lotLabel, onClose, onSaved }: P
   const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Fuel + service readings, to warn when this odometer doesn't fit its date.
+  const odoPoints = useOdometerPoints(vehicle?.id)
   const ids = useRef<{ logId: string; usage: string[] } | null>(null)
 
   const amountN = num(amount) ?? 0
@@ -69,6 +73,11 @@ export default function UseProductModal({ stock, lotLabel, onClose, onSaved }: P
       // inside the first write, which is the wedge that froze saves at "Saving…".
       await ensureFreshSession()
       await warmUp(() => supabase.from('vehicles').select('id', { head: true, count: 'exact' }))
+
+      // Readings only go up: it has to fit between the entries around this date.
+      const points = await loadOdometerPoints(vehicle.id).catch(() => null)
+      const odoProblem = points && odometerProblem(points, date, num(odometer) ?? 0, [logId])
+      if (odoProblem) { setError(odoProblem); return }
 
       // 1) The service record itself (idempotent on its id).
       const { error: lErr } = await withRetry(() => write(supabase.from('service_logs').upsert({
@@ -144,6 +153,10 @@ export default function UseProductModal({ stock, lotLabel, onClose, onSaved }: P
             <div>
               <label className="block text-xs font-medium text-muted mb-1.5">Odometer *</label>
               <input type="number" inputMode="numeric" placeholder="miles" value={odometer} onChange={e => setOdometer(e.target.value)} className={inputCls} />
+              {odoPoints && odometer.trim() !== '' && (() => {
+                const problem = odometerProblem(odoPoints, date, num(odometer) ?? 0)
+                return problem && <p className="text-warn text-[11px] mt-1">{problem}</p>
+              })()}
             </div>
           </div>
 

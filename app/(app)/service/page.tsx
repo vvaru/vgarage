@@ -11,6 +11,8 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
 import { withRetry, withTimeout, write, read, runSave, step } from '@/lib/recover'
+import { checkOdometer, odometerProblem } from '@/lib/odometer'
+import { useOdometerPoints } from '@/lib/useOdometerPoints'
 import { getCache, setCache } from '@/lib/cache'
 import { useStock } from '@/lib/useStock'
 import { allTireLives, setHealth, worstMounted, setView, mountedByPosition, tireProductChoices, type Tire, type TireEvent, type TireLife, type TirePosition } from '@/lib/tires'
@@ -184,6 +186,8 @@ export default function ServicePage() {
   const [form, setForm] = useState(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  // Fuel + service readings, reloaded each time the edit form opens, to warn on an odometer that doesn't fit its date.
+  const odoPoints = useOdometerPoints(editLog ? vehicle?.id : undefined, editLog?.id)
   // A one-tap action (delete, merge) that failed after the screen already moved on.
   const [actionError, setActionError] = useState<string | null>(null)
   const [receiptFile, setReceiptFile] = useState<File | null>(null)
@@ -379,6 +383,10 @@ export default function ServicePage() {
     const catId = form.record_type === 'maintenance' && form.category_id ? form.category_id : null
     const cat = catId ? categories.find(c => c.id === catId) : null
     const serviceType = form.record_type === 'maintenance' ? (cat?.name ?? form.service_type.trim()) : form.service_type.trim()
+
+    // Readings only go up: it has to fit between the entries around this date.
+    const odoProblem = await checkOdometer(vehicle.id, form.date, parseInt(form.odometer), [editLog.id])
+    if (odoProblem) { setSaveError(odoProblem); setSaving(false); return }
 
     const res = await runSave(async () => {
       let receiptUrl = editLog.receipt_url ?? null
@@ -1383,6 +1391,10 @@ export default function ServicePage() {
                   <label className="block text-sm font-medium text-muted mb-1.5">Odometer (mi)</label>
                   <input type="number" placeholder="24500" value={form.odometer} onChange={e => setForm(f => ({ ...f, odometer: e.target.value }))} required min="0"
                     className="w-full bg-surface-2 border border-border-strong rounded-xl px-3 py-3 text-foreground placeholder-faint focus:outline-none focus:border-accent/70 transition-all" />
+                  {odoPoints && editLog && form.odometer.trim() !== '' && (() => {
+                    const problem = odometerProblem(odoPoints, form.date, parseInt(form.odometer), [editLog.id])
+                    return problem && <p className="text-warn text-xs mt-1.5">{problem}</p>
+                  })()}
                 </div>
               </div>
               <div>

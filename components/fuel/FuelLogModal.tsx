@@ -7,6 +7,8 @@ import { supabase, ensureFreshSession } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { withRetry, write } from '@/lib/recover'
 import { recomputeFuelMpg } from '@/lib/fuelMpg'
+import { checkOdometer, odometerProblem } from '@/lib/odometer'
+import { useOdometerPoints } from '@/lib/useOdometerPoints'
 import type { FuelLog, Vehicle } from '@/lib/types'
 
 interface Props {
@@ -44,6 +46,9 @@ export default function FuelLogModal({ vehicle, log, onClose, onSaved }: Props) 
   // A stable row id for this modal session so any retry (or re-tap of Save) re-writes
   // the SAME row instead of creating a duplicate — this is what makes auto-retry safe.
   const [rowId] = useState(() => (isEdit ? log!.id : crypto.randomUUID()))
+  // Readings only go up: warn as soon as this one doesn't fit the entries around its date.
+  const odoPoints = useOdometerPoints(vehicle.id)
+  const odoWarning = odoPoints && odometer.trim() ? odometerProblem(odoPoints, date, parseInt(odometer), [rowId]) : null
 
   // Warm the connection the moment the form opens. After a long sleep the browser's
   // saved connection is dead; kicking a throwaway read now lets it reconnect while you
@@ -95,6 +100,10 @@ export default function FuelLogModal({ vehicle, log, onClose, onSaved }: Props) 
       await ensureFreshSession()
 
       const odo = odometer.trim() ? parseInt(odometer) : vehicle.odometer
+
+      // Re-checked against fresh data: it has to fit between the entries around this date.
+      const odoProblem = await checkOdometer(vehicle.id, date, odo, [rowId])
+      if (odoProblem) { setError(odoProblem); return }
 
       // Reconcile the three interdependent fields — derive whatever's missing.
       let G = num(gallons), P = num(pricePerGallon), T = num(totalCost)
@@ -176,6 +185,7 @@ export default function FuelLogModal({ vehicle, log, onClose, onSaved }: Props) 
                 className={`${inputCls} text-xl font-bold tabular-nums`} />
               <span className="absolute right-4 top-1/2 -translate-y-1/2 text-faint text-sm">mi</span>
             </div>
+            {odoWarning && <p className="text-warn text-[11px] mt-1.5">{odoWarning}</p>}
           </div>
 
           {/* Total + Price are the primary entries */}

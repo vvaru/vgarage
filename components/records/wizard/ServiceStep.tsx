@@ -7,6 +7,9 @@ import ServiceFilterPanel from '@/components/service/ServiceFilterPanel'
 import { applyServiceFilter, EMPTY_FILTER, isFilterActive, type ServiceFilterState } from '@/lib/serviceFilter'
 import { fmtQty, fmtNum } from '@/lib/units'
 import { receiptTitle, receiptWhere } from '@/lib/receipts'
+import { useVehicle } from '@/components/vehicle/VehicleContext'
+import { useOdometerPoints } from '@/lib/useOdometerPoints'
+import { odometerProblem } from '@/lib/odometer'
 import ReceiptPreviewPane from './ReceiptPreviewPane'
 import {
   splitMember, suggestExisting, drawsCost,
@@ -37,6 +40,9 @@ interface Props {
 
 export default function ServiceStep({ groups, setGroups, receipts, available, logs, categories, tireLives = [], tireProducts = [] }: Props) {
   const [picking, setPicking] = useState<string | null>(null)
+  const { vehicle } = useVehicle()
+  // Fuel + service readings, to warn when a service odometer doesn't fit its date.
+  const odoPoints = useOdometerPoints(vehicle?.id)
   const [filter, setFilter] = useState<ServiceFilterState>(EMPTY_FILTER)
   const [showFilters, setShowFilters] = useState(false)
   // Default to the first receipt that actually has something to look at.
@@ -190,6 +196,10 @@ export default function ServiceStep({ groups, setGroups, receipts, available, lo
                   <div>
                     <label className="block text-[10px] uppercase tracking-wide text-faint mb-1">Odometer</label>
                     <input type="number" inputMode="numeric" placeholder="miles" value={g.odometer} onChange={e => patch(g.key, { odometer: e.target.value })} className={inputCls} />
+                    {odoPoints && g.odometer.trim() !== '' && (() => {
+                      const problem = odometerProblem(odoPoints, g.date, parseInt(g.odometer), g.linkedLogId ? [g.linkedLogId] : [])
+                      return problem && <p className="text-warn text-[11px] mt-1">{problem}</p>
+                    })()}
                   </div>
                   {!isDiy && (
                     <div>

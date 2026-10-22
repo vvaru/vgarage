@@ -1,6 +1,12 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { createDemoClient } from '@/lib/demo/client'
 
-export const supabase = createClient(
+// NEXT_PUBLIC_DEMO=1 (dev only) swaps in an in-memory client with example data,
+// for screenshots and trying flows without the real database. Inlined at build
+// time, so production builds always take the real branch.
+export const IS_DEMO = process.env.NEXT_PUBLIC_DEMO === '1'
+
+export const supabase: SupabaseClient = IS_DEMO ? (createDemoClient() as unknown as SupabaseClient) : createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
   {

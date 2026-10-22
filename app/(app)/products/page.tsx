@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ExternalLink, Plus, Pencil, Trash2, X, Package, Link as LinkIcon, Tag, SlidersHorizontal, Check } from 'lucide-react'
+import { ExternalLink, Plus, Pencil, Trash2, X, Package, Link as LinkIcon, Tag, SlidersHorizontal, Check } from '@/components/ui/icons'
 import { supabase } from '@/lib/supabase'
 import { read, runSave, step } from '@/lib/recover'
 import { convertProductUnit } from '@/lib/productUnit'

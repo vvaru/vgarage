@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { format, parseISO, subDays, subMonths, subYears, getMonth } from 'date-fns'
-import { Plus, Trash2, Pencil, Fuel, TrendingUp, Leaf, ChevronDown, ChevronRight, Gauge, CalendarClock } from 'lucide-react'
+import { Plus, Trash2, Pencil, Fuel, TrendingUp, Leaf, ChevronDown, ChevronRight, Gauge, CalendarClock } from '@/components/ui/icons'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, ReferenceLine,
 } from 'recharts'

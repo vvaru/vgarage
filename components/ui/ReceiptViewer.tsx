@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { ImageOff, ExternalLink, Loader2 } from 'lucide-react'
+import { ImageOff, ExternalLink, Loader2 } from '@/components/ui/icons'
 
 interface Props {
   path: string

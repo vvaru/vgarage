@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { format, parseISO } from 'date-fns'
-import { X, Pencil, ExternalLink, Loader2, ImageOff } from 'lucide-react'
+import { X, Pencil, ExternalLink, Loader2, ImageOff } from '@/components/ui/icons'
 import { supabase } from '@/lib/supabase'
 import type { ServiceLog } from '@/lib/types'
 

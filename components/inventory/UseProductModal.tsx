@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from 'react'
 import { format } from 'date-fns'
-import { X, Wrench, ArrowRight } from 'lucide-react'
+import { X, Wrench, ArrowRight } from '@/components/ui/icons'
 import { supabase, ensureFreshSession } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'

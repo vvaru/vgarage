@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from 'react'
 import { format } from 'date-fns'
-import { X, Plus, Receipt as ReceiptIcon, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react'
+import { X, Plus, Receipt as ReceiptIcon, ChevronLeft, ChevronRight, Trash2 } from '@/components/ui/icons'
 import { supabase, ensureFreshSession } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'

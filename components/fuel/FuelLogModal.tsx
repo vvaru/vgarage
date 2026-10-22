@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { format } from 'date-fns'
-import { X, Fuel } from 'lucide-react'
+import { X, Fuel } from '@/components/ui/icons'
 import { supabase, ensureFreshSession } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { withRetry, write } from '@/lib/recover'

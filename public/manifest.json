@@ -1,13 +1,18 @@
 {
   "name": "vGarage",
   "short_name": "vGarage",
-  "description": "Personal car maintenance tracker",
+  "description": "Your car’s services, fuel and parts in one place",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#09090b",
-  "theme_color": "#09090b",
-  "orientation": "portrait-primary",
+  "background_color": "#111318",
+  "theme_color": "#111318",
   "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
     {
       "src": "/favicon.ico",
       "sizes": "48x48",

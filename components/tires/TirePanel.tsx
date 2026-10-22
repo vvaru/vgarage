@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { format, parseISO } from 'date-fns'
-import { CircleGauge, AlertTriangle, Archive, RotateCw } from 'lucide-react'
+import { CircleGauge, AlertTriangle, Archive, RotateCw } from '@/components/ui/icons'
 import TireDiagram, { STATUS_COLOR, STATUS_LABEL } from './TireDiagram'
 import {
   mountedByPosition, axleWarnings, setHealth, tireName, setView,

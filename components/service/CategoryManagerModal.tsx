@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { ZONES, zoneById, zoneFor, componentOf, type ZoneId } from '@/lib/carZones'
-import { X, Plus, Pencil, Trash2, Check, ChevronDown, ChevronRight, ExternalLink, AlertCircle } from 'lucide-react'
+import { X, Plus, Pencil, Trash2, Check, ChevronDown, ChevronRight, ExternalLink, AlertCircle } from '@/components/ui/icons'
 import { supabase } from '@/lib/supabase'
 import { read, runSave, step } from '@/lib/recover'
 import { useAuth } from '@/components/auth/AuthProvider'

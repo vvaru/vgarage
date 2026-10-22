@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { format, differenceInDays, parseISO } from 'date-fns'
-import { Car, Plus, Trash2, ChevronRight, Gauge, CircleAlert, CheckCircle2, Clock } from 'lucide-react'
+import { Car, Plus, Trash2, ChevronRight, Gauge, CircleAlert, CheckCircle2, Clock } from '@/components/ui/icons'
 import { supabase } from '@/lib/supabase'
 import { runSave, step } from '@/lib/recover'
 import ActionError from '@/components/ui/ActionError'

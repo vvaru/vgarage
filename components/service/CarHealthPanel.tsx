@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight } from '@/components/ui/icons'
 import CarHealthMap from './CarHealthMap'
 import { LEVEL_COLOR, LEVEL_LABEL, ZONES, type ZoneId, type ZoneItem, type ZoneLevel, type ZoneState } from '@/lib/carZones'
 import type { TirePosition } from '@/lib/tires'

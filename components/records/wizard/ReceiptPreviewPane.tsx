@@ -1,7 +1,7 @@
 'use client'
 
 import { format, parseISO } from 'date-fns'
-import { Image as ImageIcon, Receipt as ReceiptIcon } from 'lucide-react'
+import { Image as ImageIcon, Receipt as ReceiptIcon } from '@/components/ui/icons'
 import ReceiptViewer from '@/components/ui/ReceiptViewer'
 import { receiptTitle } from '@/lib/receipts'
 import type { ReceiptDraft } from '@/lib/recordDraft'

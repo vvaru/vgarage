@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { Plus, Minus, Trash2, Package, Wrench, ChevronDown, ChevronRight, Link as LinkIcon, X, Pencil } from 'lucide-react'
+import { Plus, Minus, Trash2, Package, Wrench, ChevronDown, ChevronRight, Link as LinkIcon, X, Pencil } from '@/components/ui/icons'
 import ReceiptPreviewPane from './ReceiptPreviewPane'
 import { UNIT_GROUPS, guessUnit, fmtQty } from '@/lib/units'
 import { emptyLine, emptyTag, withDerivedQty, type LineDraft, type ReceiptDraft, type ServiceTag } from '@/lib/recordDraft'

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { format, parseISO } from 'date-fns'
 import { useRouter } from 'next/navigation'
-import { Plus, Package, Receipt as ReceiptIcon, Image as ImageIcon, AlertTriangle, Wrench, Ban, X } from 'lucide-react'
+import { Plus, Package, Receipt as ReceiptIcon, Image as ImageIcon, AlertTriangle, Wrench, Ban, X } from '@/components/ui/icons'
 import { supabase } from '@/lib/supabase'
 import { read, runSave, step } from '@/lib/recover'
 import ActionError from '@/components/ui/ActionError'

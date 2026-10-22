@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback } from 'react'
 import ReactCrop, { type Crop, type PixelCrop } from 'react-image-crop'
 import 'react-image-crop/dist/ReactCrop.css'
-import { X, Check } from 'lucide-react'
+import { X, Check } from '@/components/ui/icons'
 
 interface Props {
   file: File

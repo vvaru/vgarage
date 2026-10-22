@@ -1,6 +1,6 @@
 'use client'
 
-import { CircleGauge, AlertTriangle } from 'lucide-react'
+import { CircleGauge, AlertTriangle } from '@/components/ui/icons'
 import TireDiagram, { STATUS_COLOR, STATUS_LABEL } from './TireDiagram'
 import { mountedByPosition, axleWarnings, setHealth, worstMounted, setView, POSITION_LABELS, type TireLife } from '@/lib/tires'
 

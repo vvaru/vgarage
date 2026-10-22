@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { format, parseISO } from 'date-fns'
-import { Split, Link2, Package, Receipt as ReceiptIcon, X, SlidersHorizontal, Check, Plus } from 'lucide-react'
+import { Split, Link2, Package, Receipt as ReceiptIcon, X, SlidersHorizontal, Check, Plus } from '@/components/ui/icons'
 import ServiceFilterPanel from '@/components/service/ServiceFilterPanel'
 import { applyServiceFilter, EMPTY_FILTER, isFilterActive, type ServiceFilterState } from '@/lib/serviceFilter'
 import { fmtQty, fmtNum } from '@/lib/units'

@@ -5,7 +5,7 @@ import { format, differenceInDays, parseISO, addMonths, isSameMonth } from 'date
 import {
   Gauge, X, CircleAlert, TrendingUp, Settings, LogOut, RefreshCw,
   ChevronDown, ChevronRight, Car, CheckCircle2, Fuel, Wrench, Leaf,
-} from 'lucide-react'
+} from '@/components/ui/icons'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, BarChart, Bar, Cell,

@@ -5,7 +5,7 @@ import { format, parseISO, subDays, subMonths, subYears, differenceInDays } from
 import {
   Plus, Pencil, Trash2, X, Wrench, Settings, FileText, Upload, Image,
   SlidersHorizontal, Paperclip, ChevronRight, ExternalLink, AlertTriangle,
-} from 'lucide-react'
+} from '@/components/ui/icons'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'

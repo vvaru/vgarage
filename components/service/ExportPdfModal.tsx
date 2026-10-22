@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { X, Download } from 'lucide-react'
+import { X, Download } from '@/components/ui/icons'
 import { format, parseISO, differenceInDays } from 'date-fns'
 import { supabase } from '@/lib/supabase'
 import type { Vehicle, ServiceLog, ServiceCategory } from '@/lib/types'

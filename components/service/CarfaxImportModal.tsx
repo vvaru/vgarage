@@ -1,7 +1,7 @@
 ﻿'use client'
 
 import { useState, useEffect } from 'react'
-import { X, Copy, Check, Upload, AlertCircle, Pencil } from 'lucide-react'
+import { X, Copy, Check, Upload, AlertCircle, Pencil } from '@/components/ui/icons'
 import { supabase, ensureFreshSession } from '@/lib/supabase'
 import { write, saveMessage } from '@/lib/recover'
 import { useAuth } from '@/components/auth/AuthProvider'

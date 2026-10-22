@@ -1,6 +1,6 @@
 'use client'
 
-import { X, Pencil, ExternalLink, Tag, Package } from 'lucide-react'
+import { X, Pencil, ExternalLink, Tag, Package } from '@/components/ui/icons'
 import { fmtQty } from '@/lib/units'
 import type { Product, ProductLink, ServiceCategory } from '@/lib/types'
 import type { ProductType } from '@/lib/productTypes'

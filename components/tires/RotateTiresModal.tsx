@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from 'react'
 import { format } from 'date-fns'
-import { X, RotateCw, ArrowRight, Info } from 'lucide-react'
+import { X, RotateCw, ArrowRight, Info } from '@/components/ui/icons'
 import { supabase, ensureFreshSession } from '@/lib/supabase'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { withRetry, write } from '@/lib/recover'

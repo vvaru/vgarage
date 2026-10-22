@@ -1,6 +1,6 @@
 'use client'
 
-import { Search } from 'lucide-react'
+import { Search } from '@/components/ui/icons'
 import { COST_FILTERS, SORT_KEYS, EMPTY_FILTER, type ServiceFilterState } from '@/lib/serviceFilter'
 
 // The one filter UI. Rendered inline inside a picker, or inside the history

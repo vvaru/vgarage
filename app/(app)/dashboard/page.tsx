@@ -1,570 +1,356 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
-import { format, differenceInDays, parseISO, addMonths, isSameMonth } from 'date-fns'
-import {
-  Gauge, X, CircleAlert, TrendingUp, Settings, LogOut, RefreshCw,
-  ChevronDown, ChevronRight, Car, CheckCircle2, Fuel, Wrench, Leaf,
-} from '@/components/ui/icons'
-import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, BarChart, Bar, Cell,
-} from 'recharts'
+import { useMemo, useState } from 'react'
 import Link from 'next/link'
-import dynamic from 'next/dynamic'
+import { format, parseISO } from 'date-fns'
 import { supabase } from '@/lib/supabase'
-import ActionError from '@/components/ui/ActionError'
-import { useAuth } from '@/components/auth/AuthProvider'
+import { runSave, step } from '@/lib/recover'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
-import { withRetry, withTimeout, runSave, step } from '@/lib/recover'
-import { getCache, setCache } from '@/lib/cache'
-import { useStock } from '@/lib/useStock'
-import { buildPoints, totalSavings, forecastMonth } from '@/lib/fuelAnalytics'
-import type { ServiceLog, FuelLog, ServiceCategory, ServiceCategoryProduct } from '@/lib/types'
+import { useForms } from '@/components/shell/forms'
+import PageHeader, { Page } from '@/components/shell/PageHeader'
+import {
+  Avatar, Button, Card, CompareBars, Delta, Dialog, EmptyState, IconButton, ListItem, Pill, Progress,
+  Segmented, Skeleton, Sparkline, TextField, useSnackbar, Icon, type IconName,
+} from '@/components/ui/md'
+import { WeeklyMilesChart, MonthlySpendChart, Legend } from '@/components/charts/TrendCharts'
+import { useCarData } from '@/lib/useCarData'
+import { milesPerMonth, estimatedOdometer, scheduleStatuses, dueText, upcomingCosts } from '@/lib/schedule'
+import { mileageSeries, drivingSummary, spendSummary, insights, pctChange } from '@/lib/trends'
+import { buildPoints, totalSavings, forecastMonth, rollingCostPerMile } from '@/lib/fuelAnalytics'
 
-const RecordWizard = dynamic(() => import('@/components/records/RecordWizard'), { ssr: false })
-const FuelLogModal = dynamic(() => import('@/components/fuel/FuelLogModal'), { ssr: false })
+const usd = (n: number, cents = false) => `$${n.toLocaleString('en-US', { minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: cents ? 2 : 0 })}`
+const mi = (n: number) => `${Math.round(n).toLocaleString()} mi`
+const short = (d: string) => format(parseISO(d), 'MMM d')
 
-interface CategoryWithStatus {
-  cat: ServiceCategory
-  lastLog: ServiceLog | null
-  lastOdo: number | null
-  lastDate: string | null
-  nextOdo: number | null
-  nextDate: string | null
-  milesLeft: number | null
-  daysLeft: number | null
-  isOverdue: boolean
-  isDueSoon: boolean
-}
+const PERIODS = [
+  { value: '1', label: '1 mo' }, { value: '3', label: '3 mo' }, { value: '6', label: '6 mo' }, { value: '12', label: '1 yr' },
+] as const
 
-type UpcomingPeriod = '1mo' | '3mo' | '6mo' | '1yr'
-
-const UPCOMING_PERIODS: { key: UpcomingPeriod; label: string; months: number }[] = [
-  { key: '1mo', label: '1 mo', months: 1 },
-  { key: '3mo', label: '3 mo', months: 3 },
-  { key: '6mo', label: '6 mo', months: 6 },
-  { key: '1yr', label: '1 yr', months: 12 },
-]
-
-const FALLBACK_MILES_PER_MONTH = 1250
-
-function projectedOdometer(baseOdo: number, serviceLogs: ServiceLog[], fuelLogs: FuelLog[], milesPerMonth: number): number {
-  const readings = [
-    ...serviceLogs.filter(l => l.odometer > 0).map(l => ({ date: l.date, odo: l.odometer })),
-    ...fuelLogs.filter(l => l.odometer > 0).map(l => ({ date: l.date, odo: l.odometer })),
-  ].sort((a, b) => b.date.localeCompare(a.date))
-  const latest = readings[0]
-  if (!latest || milesPerMonth <= 0) return baseOdo
-  const daysSince = differenceInDays(new Date(), parseISO(latest.date))
-  if (daysSince <= 0) return Math.max(baseOdo, latest.odo)
-  return Math.max(baseOdo, latest.odo + Math.round((milesPerMonth / 30) * daysSince))
-}
-
-function calcMilesPerMonth(serviceLogs: ServiceLog[], fuelLogs: FuelLog[]): number {
-  const readings = [
-    ...serviceLogs.filter(l => l.odometer > 0).map(l => ({ date: l.date, odo: l.odometer })),
-    ...fuelLogs.filter(l => l.odometer > 0).map(l => ({ date: l.date, odo: l.odometer })),
-  ].sort((a, b) => a.date.localeCompare(b.date))
-  if (readings.length < 2) return FALLBACK_MILES_PER_MONTH
-  const oldest = readings[0], newest = readings[readings.length - 1]
-  const days = differenceInDays(parseISO(newest.date), parseISO(oldest.date))
-  if (days < 30 || newest.odo <= oldest.odo) return FALLBACK_MILES_PER_MONTH
-  return Math.round((newest.odo - oldest.odo) / days * 30)
-}
-
-function buildCategoryStatus(cat: ServiceCategory, logs: ServiceLog[], currentOdo: number): CategoryWithStatus {
-  const catLogs = logs.filter(l => l.category_id === cat.id && l.odometer > 0).sort((a, b) => b.odometer - a.odometer)
-  const last = catLogs[0] ?? null
-  const lastOdo = last?.odometer ?? null
-  const lastDate = last?.date ?? null
-  const nextOdo = lastOdo != null && cat.interval_miles ? lastOdo + cat.interval_miles : cat.interval_miles ? currentOdo + cat.interval_miles : null
-  const nextDate = lastDate != null && cat.interval_days
-    ? format(new Date(new Date(lastDate).getTime() + cat.interval_days * 86400000), 'yyyy-MM-dd')
-    : cat.interval_days ? format(new Date(Date.now() + cat.interval_days * 86400000), 'yyyy-MM-dd') : null
-  const milesLeft = nextOdo != null ? nextOdo - currentOdo : null
-  const daysLeft = nextDate != null ? differenceInDays(parseISO(nextDate), new Date()) : null
-  const isOverdue = (milesLeft != null && milesLeft <= 0) || (daysLeft != null && daysLeft < 0)
-  const isDueSoon = !isOverdue && ((milesLeft != null && milesLeft <= 500) || (daysLeft != null && daysLeft <= 30))
-  return { cat, lastLog: last, lastOdo, lastDate, nextOdo, nextDate, milesLeft, daysLeft, isOverdue, isDueSoon }
-}
-
-function heroProgress(s: CategoryWithStatus | null): number {
-  if (!s) return 100
-  if (s.isOverdue) return 100
-  if (s.cat.interval_miles && s.milesLeft != null) {
-    return Math.min(100, Math.max(4, Math.round(((s.cat.interval_miles - s.milesLeft) / s.cat.interval_miles) * 100)))
-  }
-  if (s.cat.interval_days && s.daysLeft != null) {
-    return Math.min(100, Math.max(4, Math.round(((s.cat.interval_days - s.daysLeft) / s.cat.interval_days) * 100)))
-  }
-  return 50
-}
-
-const ChartTooltip = ({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number }>; label?: string }) => {
-  if (!active || !payload?.length) return null
-  return (
-    <div className="bg-surface border border-border-strong rounded-xl px-3 py-2 shadow-xl">
-      <p className="text-muted text-xs mb-1">{label}</p>
-      <p className="text-foreground text-sm font-semibold">${payload[0].value.toFixed(2)}</p>
-    </div>
-  )
-}
-
-export default function DashboardPage() {
-  const { user } = useAuth()
-  const { vehicle, vehicles, setActiveVehicleId, refresh: refreshVehicle } = useVehicle()
-  const [categories, setCategories] = useState<ServiceCategory[]>([])
-  const [serviceLogs, setServiceLogs] = useState<ServiceLog[]>([])
-  const [fuelLogs, setFuelLogs] = useState<FuelLog[]>([])
-  const [allFuelLogs, setAllFuelLogs] = useState<FuelLog[]>([])
-  const [products, setProducts] = useState<ServiceCategoryProduct[]>([])
-  const [loading, setLoading] = useState(true)
-  const [showOdoModal, setShowOdoModal] = useState(false)
+export default function HomePage() {
+  const { vehicle, refresh } = useVehicle()
+  const { open } = useForms()
+  const snack = useSnackbar()
+  const { categories, services, fuel, catalog, loading } = useCarData(vehicle?.id)
+  const [period, setPeriod] = useState<(typeof PERIODS)[number]['value']>('3')
+  const [odoOpen, setOdoOpen] = useState(false)
   const [newOdo, setNewOdo] = useState('')
   const [odoSaving, setOdoSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [upcomingPeriod, setUpcomingPeriod] = useState<UpcomingPeriod>('3mo')
-  const [showCarPicker, setShowCarPicker] = useState(false)
-  const [showAddFlow, setShowAddFlow] = useState(false)
-  // Stock for the wizard's "products used" step.
-  const { products: invProducts, stock, reload: reloadStock } = useStock(user?.id)
-  const [showFuelModal, setShowFuelModal] = useState(false)
 
-  const gridStroke = '#27272a'
+  const derived = useMemo(() => {
+    if (!vehicle) return null
+    const perMonth = milesPerMonth(services, fuel)
+    const est = estimatedOdometer(vehicle.odometer, services, fuel, perMonth)
+    const statuses = scheduleStatuses(categories.filter(c => c.category_type === 'maintenance'), services, est.odo)
+    const series = mileageSeries(fuel, services)
+    const driving = series ? drivingSummary(series) : null
+    const spend = spendSummary(fuel, services)
+    const points = buildPoints(fuel)
+    const mpgs = [...fuel].reverse().map(f => f.mpg).filter((m): m is number => m != null && m > 0)
+    const recentMpg = mpgs.slice(-5), beforeMpg = mpgs.slice(-10, -5)
+    const avg = (a: number[]) => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : null)
+    let miles12: number | null = null
+    if (series) { miles12 = 0; for (const [d, v] of series.daily) if (d > series.lastDay - 365) miles12 += v }
+    const mpgRecent = avg(recentMpg), mpgBefore = beforeMpg.length >= 3 ? avg(beforeMpg) : null
+    return {
+      perMonth, est, statuses, driving, spend, mpgRecent, mpgBefore, mpgSpark: mpgs.slice(-12),
+      leftOnTable: totalSavings(points), forecast: forecastMonth(points), fuelCpm: rollingCostPerMile(points),
+      costPerMile: miles12 && miles12 > 500 ? spend.last12.total / miles12 : null,
+      firstFuel: fuel.length ? fuel[fuel.length - 1].date : null,
+      insightList: insights(driving, spend, mpgRecent, mpgBefore),
+    }
+  }, [vehicle, categories, services, fuel])
 
-  const cacheFirstFor = useRef<string | null>(null)
-  const load = useCallback(async () => {
-    if (!vehicle) return
-    const key = `dashboard:${vehicle.id}`
-    const fetchFresh = async () => {
-      const [{ data: cats }, { data: svcLogs }, { data: fuelChart }, { data: fuelAll }, { data: prods }] = await withRetry(() => withTimeout(Promise.all([
-        supabase.from('service_categories').select('*').eq('vehicle_id', vehicle.id).eq('category_type', 'maintenance').order('name'),
-        supabase.from('service_logs').select('*').eq('vehicle_id', vehicle.id).order('date', { ascending: false }),
-        supabase.from('fuel_logs').select('*').eq('vehicle_id', vehicle.id).order('date', { ascending: false }).limit(8),
-        supabase.from('fuel_logs').select('id,date,odometer').eq('vehicle_id', vehicle.id).order('date', { ascending: true }),
-        supabase.from('service_category_products').select('*').eq('vehicle_id', vehicle.id),
-      ]), 8000))
-      const next = {
-        categories: (cats ?? []) as ServiceCategory[],
-        serviceLogs: (svcLogs ?? []) as ServiceLog[],
-        fuelLogs: ((fuelChart ?? []) as FuelLog[]).reverse(),
-        allFuelLogs: (fuelAll ?? []) as FuelLog[],
-        products: (prods ?? []) as ServiceCategoryProduct[],
-      }
-      setCategories(next.categories)
-      setServiceLogs(next.serviceLogs)
-      setFuelLogs(next.fuelLogs)
-      setAllFuelLogs(next.allFuelLogs)
-      setProducts(next.products)
-      setCache(key, next)
-    }
-    // First view of this vehicle's page (fresh mount / navigation / vehicle switch):
-    // if we already have the data cached, show it instantly and quietly re-check in
-    // the background. Later calls for the same vehicle (after a write) fetch fresh.
-    if (cacheFirstFor.current !== vehicle.id) {
-      cacheFirstFor.current = vehicle.id
-      const cached = getCache<{
-        categories: ServiceCategory[]; serviceLogs: ServiceLog[]
-        fuelLogs: FuelLog[]; allFuelLogs: FuelLog[]; products: ServiceCategoryProduct[]
-      }>(key)
-      if (cached) {
-        setCategories(cached.categories)
-        setServiceLogs(cached.serviceLogs)
-        setFuelLogs(cached.fuelLogs)
-        setAllFuelLogs(cached.allFuelLogs)
-        setProducts(cached.products)
-        setLoading(false)
-        fetchFresh().catch(() => { /* background re-check; keep showing cached */ })
-        return
-      }
-    }
-    // No cache yet, or an explicit reload after a write: fetch and show a spinner.
-    setLoading(true)
-    try {
-      await fetchFresh()
-    } catch { /* both attempts failed — leave existing data, finally clears spinner */ } finally {
-      setLoading(false)
-    }
-  }, [vehicle])
-
-  useEffect(() => { load() }, [load])
+  if (!vehicle || !derived) return null
+  const { est, statuses, driving, spend } = derived
+  const attention = statuses.filter(s => s.isOverdue || s.isDueSoon)
+  const next = statuses[0] ?? null
+  const upcoming = upcomingCosts(statuses, services, catalog, Number(period), est.odo, derived.perMonth)
+  const hour = new Date().getHours()
+  const greeting = hour < 5 ? 'Good evening' : hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'
+  const recent = [
+    ...services.slice(0, 8).map(s => ({
+      id: s.id, date: s.date, icon: (s.performed_by === 'shop' ? 'storefront' : 'build') as IconName,
+      tone: (s.performed_by === 'shop' ? 'secondary' : 'primary') as 'secondary' | 'primary', title: s.service_type,
+      sub: `${mi(s.odometer)} · ${s.performed_by === 'shop' ? (s.shop_name || 'Shop') : 'DIY'}`, amount: s.cost, href: `/service?log=${s.id}`,
+    })),
+    ...fuel.slice(0, 8).map(f => ({
+      id: f.id, date: f.date, icon: 'local_gas_station' as IconName, tone: 'fuel' as const, title: 'Fuel',
+      sub: `${mi(f.odometer)}${f.gallons ? ` · ${Number(f.gallons).toFixed(1)} gal` : ''}${f.mpg ? ` · ${Number(f.mpg).toFixed(1)} mpg` : ''}`,
+      amount: f.total_cost, href: '/fuel',
+    })),
+  ].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8)
 
   async function saveOdometer() {
-    if (!vehicle || !newOdo) return
+    if (!vehicle) return
     const val = parseInt(newOdo)
     if (isNaN(val) || val < vehicle.odometer) return
     setOdoSaving(true)
-    const res = await runSave(() => step(() =>
-      supabase.from('vehicles').update({ odometer: val }).eq('id', vehicle.id)).then(() => {}))
-    if (!res.ok) setError(`${res.message} The odometer was not changed.`)
-    await refreshVehicle()
-    setShowOdoModal(false)
-    setNewOdo('')
+    const res = await runSave(() => step(() => supabase.from('vehicles').update({ odometer: val }).eq('id', vehicle.id)).then(() => {}))
     setOdoSaving(false)
+    if (!res.ok) { snack(`${res.message} The odometer was not changed.`); return }
+    await refresh()
+    setOdoOpen(false)
+    setNewOdo('')
+    snack('Odometer updated')
   }
 
-  if (!vehicle) {
-    return <div className="min-h-screen bg-background flex items-center justify-center"><div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" /></div>
-  }
-
-  const milesPerMonth = calcMilesPerMonth(serviceLogs, allFuelLogs)
-  const estOdo = projectedOdometer(vehicle.odometer, serviceLogs, allFuelLogs, milesPerMonth)
-  const isProjected = estOdo > vehicle.odometer
-
-  const categoryStatuses = categories
-    .filter(cat => cat.interval_miles != null || cat.interval_days != null)
-    .map(cat => buildCategoryStatus(cat, serviceLogs, estOdo))
-
-  const overdueServices = categoryStatuses.filter(s => s.isOverdue)
-  const dueSoonServices = categoryStatuses.filter(s => !s.isOverdue && s.isDueSoon)
-  const overdueCount = overdueServices.length
-  const dueSoonCount = dueSoonServices.length
-
-  // Soonest item drives the hero progress + subtitle
-  const sortedByUrgency = [...categoryStatuses].sort((a, b) => (a.milesLeft ?? Infinity) - (b.milesLeft ?? Infinity))
-  const nextService = sortedByUrgency[0] ?? null
-  const heroPct = heroProgress(nextService)
-  const heroBar = nextService?.isOverdue ? 'bg-danger' : nextService?.isDueSoon ? 'bg-warn' : 'bg-accent'
-
-  let nextText = 'No service schedule yet'
-  if (nextService) {
-    if (nextService.isOverdue) nextText = `${nextService.cat.name} overdue`
-    else if (nextService.milesLeft != null) nextText = `${nextService.cat.name} in ${nextService.milesLeft.toLocaleString()} mi`
-    else if (nextService.daysLeft != null) nextText = `${nextService.cat.name} in ${nextService.daysLeft}d`
-  }
-
-  const greetHour = new Date().getHours()
-  const greeting = greetHour < 12 ? 'Good morning' : greetHour < 18 ? 'Good afternoon' : 'Good evening'
-
-  const mpgVals = fuelLogs.map(f => f.mpg).filter((m): m is number => m != null)
-  const avgMpg = mpgVals.length ? mpgVals.reduce((a, b) => a + b, 0) / mpgVals.length : null
-  const monthSpend = fuelLogs.filter(f => isSameMonth(parseISO(f.date), new Date())).reduce((s, f) => s + Number(f.total_cost), 0)
-
-  // Cost analytics off the full fuel history, not the charting slice.
-  const fuelPoints = buildPoints(allFuelLogs)
-  const missedSavings = totalSavings(fuelPoints)
-  const fuelForecast = forecastMonth(fuelPoints)
-  const savingsSince = allFuelLogs.length
-    ? [...allFuelLogs].sort((a, b) => a.date.localeCompare(b.date))[0].date
-    : null
-
-  const totalFuelSpend = fuelLogs.reduce((s, f) => s + Number(f.total_cost), 0)
-  const totalServiceSpend = serviceLogs.reduce((s, l) => s + Number(l.cost ?? 0), 0)
-  const fuelChartData = fuelLogs.map(f => ({ date: format(parseISO(f.date), 'MMM d'), cost: Number(f.total_cost) }))
-  const spendData = [{ name: 'Fuel', amount: totalFuelSpend }, { name: 'Service', amount: totalServiceSpend }]
-
-  const selectedPeriod = UPCOMING_PERIODS.find(p => p.key === upcomingPeriod)!
-  const periodCutoffDate = addMonths(new Date(), selectedPeriod.months)
-  const periodCutoffMiles = vehicle.odometer + selectedPeriod.months * milesPerMonth
-
-  const upcomingServices = categoryStatuses.filter(s =>
-    s.isOverdue || (s.nextOdo != null && s.nextOdo <= periodCutoffMiles) || (s.nextDate != null && parseISO(s.nextDate) <= periodCutoffDate)
-  )
-  const upcomingCostItems = upcomingServices.map(s => {
-    const catProds = products.filter(p => p.category_id === s.cat.id)
-    let estimate: number | null = null
-    if (catProds.length > 0 && catProds.some(p => p.last_price != null)) {
-      estimate = catProds.reduce((sum, p) => sum + Number(p.last_price ?? 0), 0)
-    } else {
-      const catLogs = serviceLogs.filter(l => l.category_id === s.cat.id && l.cost != null)
-      if (catLogs.length > 0) estimate = catLogs.slice(0, 3).reduce((sum, l) => sum + Number(l.cost), 0) / Math.min(catLogs.length, 3)
-    }
-    return { s, estimate }
-  })
-  const totalUpcomingCost = upcomingCostItems.reduce((sum, { estimate }) => sum + (estimate ?? 0), 0)
-
-  const historicalReadings = [
-    ...serviceLogs.filter(l => l.odometer > 0).map(l => ({ date: l.date, odo: l.odometer })),
-    ...allFuelLogs.filter(l => l.odometer > 0).map(l => ({ date: l.date, odo: l.odometer })),
-  ]
-
-  // The list of services to show in the "Due soon" card (overdue first, then due soon)
-  const dueListItems = [...overdueServices, ...dueSoonServices].slice(0, 4)
+  const odoLow = newOdo !== '' && parseInt(newOdo) < vehicle.odometer
 
   return (
-    <div className="bg-background min-h-screen">
-      <ActionError message={error} onDismiss={() => setError(null)} />
-      <div className="px-4 lg:px-8 pt-10 lg:pt-8 pb-28 lg:pb-12 max-w-xl lg:max-w-6xl mx-auto space-y-4">
+    <Page>
+      <PageHeader
+        eyebrow={greeting}
+        title={`${vehicle.year} ${vehicle.make} ${vehicle.model}`}
+        showVehicle={false}
+        actions={<IconButton icon="speed" label="Update odometer" onClick={() => { setNewOdo(''); setOdoOpen(true) }} />}
+      />
 
-        {/* ─── Header: greeting + vehicle + quick icons ───────────────────────── */}
-        <div className="flex items-start justify-between">
-          <div className="min-w-0">
-            <p className="text-muted text-sm font-medium">{greeting}</p>
-            <button onClick={() => vehicles.length > 1 && setShowCarPicker(true)} className="flex items-center gap-1.5 group min-w-0">
-              <h1 className="text-2xl font-bold tracking-tight text-foreground truncate group-hover:text-accent transition-colors">
-                {vehicle.make} {vehicle.model}
-              </h1>
-              {vehicles.length > 1 && <ChevronDown size={18} className="text-muted group-hover:text-accent shrink-0" />}
-            </button>
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6">
+        {/* ── Odometer + next service ─────────────────────────────────────── */}
+        <Card variant="elevated" className="lg:col-span-8 p-5 sm:p-6 md-enter-up">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div className="min-w-0">
+              <div className="type-label-lg text-on-surface-variant flex items-center gap-1.5">
+                <Icon name="speed" size={18} /> Odometer
+                {est.odo > vehicle.odometer && <span className="font-normal">· estimated today</span>}
+              </div>
+              <div className="flex items-baseline gap-2 mt-1">
+                <span className="text-[3rem] leading-[3.25rem] sm:text-[3.5rem] sm:leading-[4rem] tracking-tight tabular-nums text-on-surface">{est.odo.toLocaleString()}</span>
+                <span className="type-title-lg text-on-surface-variant">mi</span>
+              </div>
+              <p className="type-body text-on-surface-variant mt-1">
+                {est.latest ? <>Last reading {mi(est.latest.odo)} on {short(est.latest.date)}</> : 'No readings yet'}
+                {driving?.avgPerDay90 ? <> · about {Math.round(driving.avgPerDay90)} mi a day</> : null}
+              </p>
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              <Button icon="local_gas_station" onClick={() => open({ kind: 'fuel' })}>Log fuel</Button>
+              <Button variant="tonal" icon="build" onClick={() => open({ kind: 'service' })}>Log service</Button>
+            </div>
           </div>
-          <div className="flex items-center gap-1.5 shrink-0 ml-2">
-            <button onClick={load} className="w-9 h-9 rounded-xl bg-surface border border-border flex items-center justify-center text-muted hover:text-foreground transition-colors"><RefreshCw size={15} /></button>
-            <button onClick={() => supabase.auth.signOut()} className="w-9 h-9 rounded-xl bg-surface border border-border flex items-center justify-center text-muted hover:text-foreground transition-colors"><LogOut size={15} /></button>
+          {next && (
+            <Link href="/service" className="mt-6 block rounded-xl bg-surface-container-highest/60 hover:bg-surface-container-highest transition-colors p-4">
+              <div className="flex items-center justify-between gap-3 mb-2">
+                <span className="type-title text-on-surface truncate">Next: {next.cat.name}</span>
+                <Pill tone={next.isOverdue ? 'due' : next.isDueSoon ? 'soon' : 'ok'}>{dueText(next)}</Pill>
+              </div>
+              <Progress value={next.used} tone={next.isOverdue ? 'error' : next.isDueSoon ? 'warn' : 'primary'} />
+              <p className="type-body-sm text-on-surface-variant mt-2">
+                {next.lastDate ? `Last done ${short(next.lastDate)} at ${mi(next.lastOdo!)}` : 'Never logged'}
+                {next.cat.interval_miles ? ` · every ${next.cat.interval_miles.toLocaleString()} mi` : ''}
+                {next.cat.interval_days ? ` or ${Math.round(next.cat.interval_days / 30)} months` : ''}
+              </p>
+            </Link>
+          )}
+        </Card>
+
+        {/* ── Needs attention ──────────────────────────────────────────────── */}
+        <Card variant="filled" className="lg:col-span-4 lg:self-start py-2 md-enter-up">
+          <div className="flex items-center justify-between px-4 pt-3 pb-1">
+            <h2 className="type-title-lg text-on-surface">Needs attention</h2>
+            <Button variant="text" size="sm" href="/service" trailingIcon="chevron_right">Schedule</Button>
           </div>
-        </div>
-
-        {/* ─── Hero + actions (side-by-side on laptop) ────────────────────────── */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 rounded-3xl bg-gradient-to-b from-surface to-surface/60 border border-border p-5">
-          <button onClick={() => { setShowOdoModal(true); setNewOdo(String(vehicle.odometer)) }} className="flex items-baseline gap-2 group">
-            <span className="text-[2.75rem] leading-none font-bold tracking-tight tabular-nums text-foreground">{estOdo.toLocaleString()}</span>
-            <span className="text-muted font-semibold">mi</span>
-            {isProjected && <span className="text-[11px] text-accent bg-accent/10 px-1.5 py-0.5 rounded font-medium">est</span>}
-            <Gauge size={15} className="text-faint group-hover:text-muted transition-colors ml-0.5" />
-          </button>
-          <p className="text-muted text-sm mt-2 truncate">
-            {vehicle.year}{vehicle.trim ? ` · ${vehicle.trim}` : ''} · {nextText}
-          </p>
-          <div className="mt-4 h-1.5 rounded-full bg-surface-2 overflow-hidden">
-            <div className={`h-full rounded-full ${heroBar} transition-all`} style={{ width: `${heroPct}%` }} />
-          </div>
-        </div>
-
-        {/* Primary actions */}
-        <div className="grid grid-cols-2 lg:grid-cols-1 gap-3 lg:content-start">
-          <button onClick={() => setShowFuelModal(true)} className="rounded-2xl bg-accent hover:bg-accent-hover text-accent-foreground p-4 flex flex-col gap-2 transition-colors shadow-sm shadow-accent/20 text-left">
-            <Fuel size={20} />
-            <span className="font-semibold text-sm">Log fuel</span>
-          </button>
-          <button onClick={() => setShowAddFlow(true)} className="rounded-2xl bg-surface border border-border hover:border-border-strong text-foreground p-4 flex flex-col gap-2 transition-colors text-left">
-            <Wrench size={20} className="text-accent" />
-            <span className="font-semibold text-sm">Log service</span>
-          </button>
-        </div>
-        </div>
-
-        {/* ─── Info cards (2-column on laptop) ─────────────────────────────────── */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:items-start">
-        {/* Service status / Due soon */}
-        <Link href="/service" className="block">
-          <div className="rounded-2xl bg-surface border border-border p-4 hover:border-border-strong transition-colors">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-sm font-bold text-foreground">Service</p>
-              <div className="flex items-center gap-2">
-                {categoryStatuses.length > 0 && (
-                  <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${
-                    overdueCount > 0 ? 'bg-danger/10 text-danger'
-                    : dueSoonCount > 0 ? 'bg-warn/10 text-warn'
-                    : 'bg-success/10 text-success'
-                  }`}>
-                    {overdueCount > 0 ? <><CircleAlert size={10} /> {overdueCount} overdue</>
-                      : dueSoonCount > 0 ? <><CircleAlert size={10} /> {dueSoonCount} due soon</>
-                      : <><CheckCircle2 size={10} /> All current</>}
-                  </span>
-                )}
-                <ChevronRight size={15} className="text-muted" />
+          {loading && !statuses.length ? (
+            <div className="px-4 py-3 space-y-3">{[0, 1, 2].map(i => <Skeleton key={i} className="h-12" />)}</div>
+          ) : attention.length === 0 ? (
+            <div className="flex items-center gap-3 px-4 py-6">
+              <Avatar icon="check_circle" tone="success" />
+              <div>
+                <p className="type-title text-on-surface">All caught up</p>
+                <p className="type-body text-on-surface-variant">{next ? `${next.cat.name} is next: ${dueText(next).toLowerCase()}.` : 'Add service categories to get reminders.'}</p>
               </div>
             </div>
-            {loading ? (
-              <p className="text-faint text-sm">Loading…</p>
-            ) : categoryStatuses.length === 0 ? (
-              <p className="text-muted text-sm">No maintenance categories set up yet.</p>
-            ) : dueListItems.length === 0 ? (
-              <p className="text-success text-sm font-medium">All {categoryStatuses.length} services up to date 🎉</p>
-            ) : (
-              <div className="space-y-2.5">
-                {dueListItems.map(s => (
-                  <div key={s.cat.id} className="flex items-center gap-2.5">
-                    <span className={`w-2 h-2 rounded-full shrink-0 ${s.isOverdue ? 'bg-danger' : 'bg-warn'}`} />
-                    <span className="text-foreground text-sm flex-1 truncate">{s.cat.name}</span>
-                    <span className={`text-xs font-semibold ${s.isOverdue ? 'text-danger' : 'text-muted'}`}>
-                      {s.isOverdue ? 'overdue' : s.milesLeft != null ? `${s.milesLeft.toLocaleString()} mi` : `${s.daysLeft}d`}
-                    </span>
-                  </div>
-                ))}
+          ) : (
+            <div>
+              {attention.slice(0, 5).map(s => (
+                <ListItem key={s.cat.id} dense href="/service"
+                  leading={<Avatar icon={s.isOverdue ? 'error' : 'schedule'} tone={s.isOverdue ? 'error' : 'warn'} />}
+                  headline={s.cat.name}
+                  supporting={s.lastDate ? `Last done ${short(s.lastDate)}` : 'Never logged'}
+                  trailing={<Pill tone={s.isOverdue ? 'due' : 'soon'}>{s.isOverdue ? 'Overdue' : 'Soon'}</Pill>} />
+              ))}
+              {attention.length > 5 && <p className="px-4 py-2 type-body-sm text-on-surface-variant">and {attention.length - 5} more</p>}
+            </div>
+          )}
+        </Card>
+
+        {/* ── Insights ─────────────────────────────────────────────────────── */}
+        {derived.insightList.length > 0 && (
+          <section className="lg:col-span-12 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3" aria-label="Insights">
+            {derived.insightList.slice(0, 3).map(i => (
+              <div key={i.id} className="flex gap-3 items-start rounded-2xl bg-surface-container-low p-4 md-enter-up">
+                <Avatar icon={i.icon} tone={i.tone === 'good' ? 'success' : i.tone === 'bad' ? 'warn' : 'primary'} size={36} />
+                <p className="type-body-lg text-on-surface min-w-0">{i.text}</p>
+              </div>
+            ))}
+          </section>
+        )}
+
+        {/* ── Miles driven ─────────────────────────────────────────────────── */}
+        <Card variant="outlined" className="lg:col-span-7 p-5 sm:p-6">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h2 className="type-title-lg text-on-surface">Miles driven</h2>
+              <p className="type-body text-on-surface-variant">{driving ? `The 7 days to ${short(driving.through)}, your latest reading` : 'Needs at least two odometer readings'}</p>
+            </div>
+            {driving && (
+              <div className="text-right">
+                <div className="type-headline tabular-nums text-on-surface">{Math.round(driving.week).toLocaleString()}<span className="type-body text-on-surface-variant ml-1">mi</span></div>
+                <Delta pct={pctChange(driving.week, driving.avg8)} good="none" label="vs your average" />
               </div>
             )}
           </div>
-        </Link>
-
-        {/* ─── Stat tiles ──────────────────────────────────────────────────────── */}
-        <div className="grid grid-cols-2 gap-3">
-          <div className="rounded-2xl bg-surface border border-border p-4">
-            <p className="text-2xl font-bold tracking-tight text-foreground">{avgMpg != null ? avgMpg.toFixed(1) : '—'}</p>
-            <p className="text-muted text-xs mt-0.5">avg mpg</p>
-          </div>
-          <div className="rounded-2xl bg-surface border border-border p-4">
-            <p className="text-2xl font-bold tracking-tight text-foreground">${monthSpend.toFixed(0)}</p>
-            <p className="text-muted text-xs mt-0.5">
-              fuel this month
-              {fuelForecast && <span className="text-faint"> · ~${fuelForecast.projected.toFixed(0)} projected</span>}
-            </p>
-          </div>
-        </div>
-
-        {/* ─── What inefficient driving has cost ───────────────────────────────── */}
-        {missedSavings >= 1 && (
-          <Link href="/fuel" className="block rounded-2xl bg-surface border border-border p-4 hover:border-accent/40 transition-colors">
-            <div className="flex items-center gap-4">
-              <div className="w-11 h-11 rounded-xl bg-success/10 flex items-center justify-center shrink-0">
-                <Leaf size={20} className="text-success" />
+          {driving ? (
+            <>
+              <div className="mt-4">
+                <WeeklyMilesChart weekly={driving.weekly} height={190} />
+                <div className="mt-2"><Legend items={[{ label: 'Weekly miles', color: 'var(--data-miles)' }, { label: 'Same week last year', color: 'var(--md-outline)', dashed: true }]} /></div>
               </div>
-              <div className="min-w-0">
-                <p className="text-2xl font-bold tracking-tight text-success">${missedSavings.toFixed(0)}</p>
-                <p className="text-muted text-xs mt-0.5">
-                  left on the table by not driving efficiently more often
-                  {savingsSince && <span className="text-faint"> · since {format(parseISO(savingsSince), 'MMM yyyy')}</span>}
-                </p>
+              <div className="mt-5">
+                <CompareBars unit="mi" rows={[
+                  { label: 'This week', value: driving.week, emphasis: true, color: 'var(--data-miles)' },
+                  { label: 'Week before', value: driving.prevWeek },
+                  { label: '8-week average', value: driving.avg8 },
+                  { label: 'Same week last year', value: driving.lastYear },
+                  { label: `Typical ${format(parseISO(driving.through), 'MMM')} last year`, value: driving.seasonAvg },
+                  { label: driving.peak ? `Busiest week (${short(driving.peak.through)})` : 'Busiest week', value: driving.peak?.miles ?? null },
+                ]} />
+              </div>
+            </>
+          ) : loading ? <Skeleton className="h-48 mt-4" /> : (
+            <EmptyState icon="route" title="No trend yet" body="Log a couple of fill-ups or services with odometer readings and your weekly driving shows up here." />
+          )}
+        </Card>
+
+        {/* ── Running costs ────────────────────────────────────────────────── */}
+        <Card variant="outlined" className="lg:col-span-5 p-5 sm:p-6">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h2 className="type-title-lg text-on-surface">Running costs</h2>
+              <p className="type-body text-on-surface-variant">Fuel and services, {format(new Date(), 'MMMM')} so far</p>
+            </div>
+            <div className="text-right">
+              <div className="type-headline tabular-nums text-on-surface">{usd(spend.thisMonth.total)}</div>
+              <Delta pct={pctChange(spend.thisMonth.total, spend.lastMonthSameDays)} good="down" label="vs last month" />
+            </div>
+          </div>
+          <div className="mt-4">
+            <MonthlySpendChart months={spend.months} height={190} />
+            <div className="mt-2"><Legend items={[{ label: 'Fuel', color: 'var(--data-fuel)' }, { label: 'Services', color: 'var(--data-service)' }, { label: 'Last year', color: 'var(--md-outline)', dashed: true }]} /></div>
+          </div>
+          <dl className="mt-5 grid grid-cols-2 gap-x-4 gap-y-4">
+            <div>
+              <dt className="type-label text-on-surface-variant">Year to date</dt>
+              <dd className="type-title-lg tabular-nums text-on-surface">{usd(spend.ytd.total)}</dd>
+              <dd><Delta pct={pctChange(spend.ytd.total, spend.ytdLastYear?.total)} good="down" label="vs last year" /></dd>
+            </div>
+            <div>
+              <dt className="type-label text-on-surface-variant">Last 12 months</dt>
+              <dd className="type-title-lg tabular-nums text-on-surface">{usd(spend.last12.total)}</dd>
+              <dd><Delta pct={pctChange(spend.last12.total, spend.prev12?.total)} good="down" label="vs the 12 before" /></dd>
+            </div>
+            <div>
+              <dt className="type-label text-on-surface-variant">Fuel · services, 12 months</dt>
+              <dd className="type-body-lg tabular-nums text-on-surface">{usd(spend.last12.fuel)} · {usd(spend.last12.service)}</dd>
+            </div>
+            <div>
+              <dt className="type-label text-on-surface-variant">Cost per mile</dt>
+              <dd className="type-body-lg tabular-nums text-on-surface">
+                {derived.costPerMile != null ? `${(derived.costPerMile * 100).toFixed(1)}¢` : '—'}
+                {derived.fuelCpm != null && <span className="text-on-surface-variant"> · fuel {(derived.fuelCpm * 100).toFixed(1)}¢</span>}
+              </dd>
+            </div>
+          </dl>
+        </Card>
+
+        {/* ── Coming up ────────────────────────────────────────────────────── */}
+        <Card variant="outlined" className="lg:col-span-6 p-5 sm:p-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="type-title-lg text-on-surface">Coming up</h2>
+              <p className="type-body text-on-surface-variant">Services due, and roughly what they’ll cost</p>
+            </div>
+            <Segmented size="sm" label="Period" options={PERIODS.map(p => ({ value: p.value, label: p.label }))} value={period} onChange={setPeriod} />
+          </div>
+          {upcoming.items.length === 0 ? (
+            <p className="type-body text-on-surface-variant mt-6">Nothing due in this period.</p>
+          ) : (
+            <div className="mt-3 -mx-4">
+              {upcoming.items.map(({ s, estimate }) => (
+                <ListItem key={s.cat.id} dense
+                  leading={<Avatar icon={s.isOverdue ? 'error' : 'event_upcoming'} tone={s.isOverdue ? 'error' : 'neutral'} size={36} />}
+                  headline={s.cat.name} supporting={dueText(s)}
+                  trailing={<span className="text-on-surface">{estimate != null ? `~${usd(estimate)}` : '—'}</span>} />
+              ))}
+              <div className="flex justify-between items-center px-4 pt-3 mt-1 border-t border-outline-variant">
+                <span className="type-title text-on-surface">Estimated total</span>
+                <span className="type-title-lg tabular-nums text-on-surface">~{usd(upcoming.total)}</span>
               </div>
             </div>
-          </Link>
-        )}
+          )}
+        </Card>
 
-        {/* ─── Upcoming cost ───────────────────────────────────────────────────── */}
-        {categoryStatuses.length > 0 && (
-          <div className="bg-surface border border-border rounded-2xl p-4">
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-sm font-semibold text-foreground">Upcoming Cost</p>
-              <div className="flex gap-1">
-                {UPCOMING_PERIODS.map(p => (
-                  <button key={p.key} onClick={() => setUpcomingPeriod(p.key)}
-                    className={`px-2 py-0.5 rounded-lg text-xs font-medium transition-colors ${upcomingPeriod === p.key ? 'bg-accent/15 text-accent border border-accent/30' : 'text-faint hover:text-muted'}`}
-                  >{p.label}</button>
-                ))}
+        {/* ── Fuel economy ─────────────────────────────────────────────────── */}
+        <Card variant="outlined" className="lg:col-span-6 p-5 sm:p-6">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="type-title-lg text-on-surface">Fuel economy</h2>
+            <Button variant="text" size="sm" href="/fuel" trailingIcon="chevron_right">Fuel</Button>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <div className="rounded-xl bg-surface-container-low p-4 min-w-0">
+              <div className="type-label text-on-surface-variant">Last 5 fill-ups</div>
+              <div className="flex items-end justify-between gap-2">
+                <span className="type-headline-sm tabular-nums text-on-surface">{derived.mpgRecent != null ? derived.mpgRecent.toFixed(1) : '—'}<span className="type-body text-on-surface-variant ml-1">mpg</span></span>
+                <span className="max-sm:hidden"><Sparkline values={derived.mpgSpark} color="var(--data-fuel)" width={72} height={28} /></span>
               </div>
+              <Delta pct={pctChange(derived.mpgRecent, derived.mpgBefore)} good="up" label="vs the 5 before" />
             </div>
-            {upcomingServices.length === 0 ? (
-              <p className="text-faint text-sm">No services due within {selectedPeriod.label}</p>
-            ) : (
-              <>
-                <div className="space-y-2 mb-3">
-                  {upcomingCostItems.map(({ s, estimate }) => (
-                    <div key={s.cat.id} className="flex items-center justify-between">
-                      <div>
-                        <p className="text-foreground text-sm">{s.cat.name}</p>
-                        {s.milesLeft != null && s.milesLeft > 0 && <p className="text-faint text-xs">{s.milesLeft.toLocaleString()} mi away</p>}
-                        {s.isOverdue && <p className="text-danger text-xs">Overdue</p>}
-                      </div>
-                      <span className={`text-sm font-semibold ${estimate != null ? 'text-accent' : 'text-faint'}`}>{estimate != null ? `~$${estimate.toFixed(0)}` : '—'}</span>
-                    </div>
-                  ))}
-                </div>
-                <div className="pt-2 border-t border-border flex items-center justify-between">
-                  <span className="text-muted text-sm">Estimated total</span>
-                  <span className="text-accent font-bold">{totalUpcomingCost > 0 ? `~$${totalUpcomingCost.toFixed(0)}` : '—'}</span>
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
-        {/* ─── Analytics ───────────────────────────────────────────────────────── */}
-        {fuelChartData.length >= 2 && (
-          <div className="bg-surface border border-border rounded-2xl p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <TrendingUp size={14} className="text-accent" />
-              <p className="text-sm font-semibold text-foreground">Fuel Cost Trend</p>
-              <span className="text-faint text-xs ml-auto">last {fuelChartData.length} fillups</span>
+            <div className="rounded-xl bg-surface-container-low p-4 min-w-0">
+              <div className="type-label text-on-surface-variant">Fuel this month</div>
+              <span className="type-headline-sm tabular-nums text-on-surface">{usd(spend.thisMonth.fuel)}</span>
+              <p className="type-body-sm text-on-surface-variant">{derived.forecast ? `About ${usd(derived.forecast.projected)} by month end` : 'Projection after 2 fill-ups'}</p>
             </div>
-            <ResponsiveContainer width="100%" height={130}>
-              <LineChart data={fuelChartData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
-                <XAxis dataKey="date" tick={{ fill: '#8a8a93', fontSize: 11 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: '#8a8a93', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v.toFixed(0)}`} />
-                <Tooltip content={<ChartTooltip />} />
-                <Line type="monotone" dataKey="cost" stroke="#f59e0b" strokeWidth={2} dot={{ fill: '#f59e0b', r: 2.5, strokeWidth: 0 }} activeDot={{ r: 4, fill: '#f59e0b', strokeWidth: 0 }} />
-              </LineChart>
-            </ResponsiveContainer>
           </div>
-        )}
-
-        {(totalFuelSpend > 0 || totalServiceSpend > 0) && (
-          <div className="bg-surface border border-border rounded-2xl p-4">
-            <p className="text-sm font-semibold text-foreground mb-3">Total Spend</p>
-            <div className="flex gap-3 mb-3">
-              <div className="flex-1 bg-surface-2 rounded-xl p-3"><p className="text-xs text-muted mb-1">Fuel</p><p className="text-lg font-bold text-accent">${totalFuelSpend.toFixed(2)}</p></div>
-              <div className="flex-1 bg-surface-2 rounded-xl p-3"><p className="text-xs text-muted mb-1">Service</p><p className="text-lg font-bold text-accent">${totalServiceSpend.toFixed(2)}</p></div>
+          {derived.leftOnTable > 0.5 && (
+            <div className="mt-3 flex items-center gap-3 rounded-xl bg-success-container/60 p-4">
+              <Avatar icon="eco" tone="success" size={36} />
+              <p className="type-body text-on-surface min-w-0">
+                <span className="type-title tabular-nums">{usd(derived.leftOnTable)}</span> left on the table by not matching your best mpg each season
+                {derived.firstFuel && <span className="text-on-surface-variant"> · since {format(parseISO(derived.firstFuel), 'MMM yyyy')}</span>}
+              </p>
             </div>
-            <ResponsiveContainer width="100%" height={90}>
-              <BarChart data={spendData} margin={{ top: 0, right: 0, bottom: 0, left: -20 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} vertical={false} />
-                <XAxis dataKey="name" tick={{ fill: '#8a8a93', fontSize: 12 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: '#8a8a93', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
-                <Tooltip content={<ChartTooltip />} />
-                <Bar dataKey="amount" radius={[5, 5, 0, 0]}>
-                  <Cell fill="#f59e0b" /><Cell fill="#3b82f6" />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        )}
+          )}
+        </Card>
 
-        {!loading && categories.length === 0 && serviceLogs.length === 0 && fuelLogs.length === 0 && (
-          <div className="text-center py-12 lg:col-span-2">
-            <Settings size={36} className="text-faint mx-auto mb-3" />
-            <p className="text-muted font-medium">No data yet</p>
-            <p className="text-faint text-sm mt-1">Tap “Log fuel” or “Log service” to get started</p>
+        {/* ── Recent ───────────────────────────────────────────────────────── */}
+        <Card variant="outlined" className="lg:col-span-12 py-2">
+          <div className="flex items-center justify-between px-4 sm:px-5 pt-3 pb-1">
+            <h2 className="type-title-lg text-on-surface">Recent</h2>
           </div>
-        )}
-        </div>
-      </div>
-
-      {/* ─── Car Picker ───────────────────────────────────────────────────────── */}
-      {showCarPicker && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-end" onClick={() => setShowCarPicker(false)}>
-          <div className="w-full bg-surface border-t border-border rounded-t-3xl p-5 pb-10" onClick={e => e.stopPropagation()}>
-            <div className="w-10 h-1 bg-border-strong rounded-full mx-auto mb-5" />
-            <p className="text-muted text-xs font-medium uppercase tracking-widest mb-3">Switch Vehicle</p>
-            <div className="space-y-2">
-              {vehicles.map(v => (
-                <button key={v.id} onClick={() => { setActiveVehicleId(v.id); setShowCarPicker(false) }}
-                  className={`w-full flex items-center gap-3 p-3.5 rounded-2xl border transition-colors ${v.id === vehicle.id ? 'bg-accent/10 border-accent/30' : 'bg-surface-2 border-border hover:border-border-strong'}`}
-                >
-                  <Car size={16} className={v.id === vehicle.id ? 'text-accent' : 'text-muted'} />
-                  <div className="text-left flex-1 min-w-0">
-                    <p className="text-foreground font-semibold text-sm">{v.year} {v.make} {v.model}</p>
-                    {v.trim && <p className="text-muted text-xs">{v.trim}</p>}
-                  </div>
-                  {v.id === vehicle.id && <CheckCircle2 size={15} className="text-accent shrink-0" />}
-                </button>
+          {recent.length === 0 && !loading ? (
+            <EmptyState icon="history" title="Nothing logged yet" body="Your fill-ups and services will show up here."
+              action={<Button icon="add" onClick={() => open({ kind: 'fuel' })}>Log your first fill-up</Button>} />
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 lg:gap-x-4">
+              {recent.map(r => (
+                <ListItem key={r.id} href={r.href} dense
+                  leading={<Avatar icon={r.icon} tone={r.tone} />}
+                  headline={r.title}
+                  supporting={`${format(parseISO(r.date), 'EEE, MMM d')} · ${r.sub}`}
+                  trailing={r.amount != null ? <span className="text-on-surface">{usd(Number(r.amount), true)}</span> : undefined} />
               ))}
             </div>
-          </div>
-        </div>
-      )}
+          )}
+        </Card>
+      </div>
 
-      {/* ─── Odometer Modal ──────────────────────────────────────────────────── */}
-      {showOdoModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
-          <div className="bg-surface border border-border rounded-3xl p-5 w-full max-w-sm">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-foreground">Update Odometer</h3>
-              <button onClick={() => setShowOdoModal(false)} className="text-muted hover:text-foreground"><X size={18} /></button>
-            </div>
-            <input type="number" value={newOdo} onChange={e => setNewOdo(e.target.value)} min={vehicle.odometer}
-              className="w-full bg-surface-2 border border-border rounded-xl px-4 py-3 text-foreground text-2xl font-bold tabular-nums focus:outline-none focus:border-accent transition-all mb-2" autoFocus />
-            <p className="text-faint text-xs mb-4">Current: {vehicle.odometer.toLocaleString()} mi — must be equal or higher</p>
-            <div className="flex gap-3">
-              <button onClick={() => setShowOdoModal(false)} className="flex-1 bg-surface-2 hover:bg-border text-foreground font-medium rounded-2xl py-2.5 transition-colors">Cancel</button>
-              <button onClick={saveOdometer} disabled={odoSaving || !newOdo || parseInt(newOdo) < vehicle.odometer}
-                className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-40 text-accent-foreground font-bold rounded-2xl py-2.5 transition-colors">
-                {odoSaving ? 'Saving…' : 'Save'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showAddFlow && (
-        <RecordWizard
-          products={invProducts}
-          categories={categories}
-          logs={serviceLogs}
-          stock={stock}
-          onClose={() => setShowAddFlow(false)}
-          onSaved={() => { setShowAddFlow(false); reloadStock(); load() }}
-          onDataChanged={() => { reloadStock(); load() }}
-        />
-      )}
-
-      {showFuelModal && (
-        <FuelLogModal
-          vehicle={vehicle}
-          onClose={() => setShowFuelModal(false)}
-          onSaved={() => { setShowFuelModal(false); load() }}
-        />
-      )}
-    </div>
+      <Dialog open={odoOpen} onClose={() => setOdoOpen(false)} title="Update odometer" variant="basic" size="sm"
+        primary={{ label: 'Save', onClick: saveOdometer, disabled: !newOdo || odoLow, loading: odoSaving }}>
+        <p className="mb-5">What does the dashboard read now? Fill-ups and services update it on their own.</p>
+        <TextField label="Odometer" suffix="mi" inputMode="numeric" type="number" autoFocus value={newOdo} onChange={e => setNewOdo(e.target.value)}
+          error={odoLow ? `Can’t go below the current ${mi(vehicle.odometer)}.` : undefined}
+          helper={!odoLow ? `Currently ${mi(vehicle.odometer)}` : undefined} />
+      </Dialog>
+    </Page>
   )
 }

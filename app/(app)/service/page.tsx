@@ -366,7 +366,7 @@ export default function ServicesPage() {
                 </div>
                 <div className="mx-auto max-w-[420px]">
                   <CarHealthMap compact states={d.zones} tireCorners={d.corners}
-                    onZone={z => { const it = d.zones.get(z)?.items[0]; if (it) it.id === 'tires:life' ? router.push('/products?tires=1') : setCatOpen(it.id) }} />
+                    onZone={z => { const it = d.zones.get(z)?.items[0]; if (!it) return; if (it.id === 'tires:life') router.push('/products?tires=1'); else setCatOpen(it.id) }} />
                 </div>
               </Card>
               <CarHealthPanel states={d.zones} tireCorners={d.corners} heading={`${vehicle.year} ${vehicle.make} ${vehicle.model}`}

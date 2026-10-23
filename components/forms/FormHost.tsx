@@ -7,6 +7,9 @@ import { useVehicle } from '@/components/vehicle/VehicleContext'
 import { useForms } from '@/components/shell/forms'
 import { useSnackbar } from '@/components/ui/md'
 import FuelLogModal from '@/components/fuel/FuelLogModal'
+import ServiceForm from './ServiceForm'
+import ReceiptForm from './ReceiptForm'
+import StockForm from './StockForm'
 import type { FuelLog } from '@/lib/types'
 
 // Renders whichever data-entry form is open. Each form loads what it needs, saves,
@@ -41,5 +44,10 @@ export default function FormHost() {
     if (fuelLog === undefined) return null
     return <FuelLogModal key={fuelId ?? 'new'} vehicle={vehicle} log={fuelLog} onClose={close} onSaved={() => done(fuelLog ? 'Fill-up updated' : 'Fill-up saved')} />
   }
+  if (active.kind === 'service') {
+    return <ServiceForm key={active.logId ?? 'new'} logId={active.logId} productId={active.productId} categoryId={active.categoryId} onClose={close} onSaved={done} />
+  }
+  if (active.kind === 'receipt') return <ReceiptForm key={active.receiptId ?? 'new'} receiptId={active.receiptId} onClose={close} onSaved={done} />
+  if (active.kind === 'stock') return <StockForm mode={active.mode} productId={active.productId} onClose={close} onSaved={done} />
   return null
 }

@@ -10,6 +10,7 @@ import FuelLogModal from '@/components/fuel/FuelLogModal'
 import ServiceForm from './ServiceForm'
 import ReceiptForm from './ReceiptForm'
 import StockForm from './StockForm'
+import ProductForm from './ProductForm'
 import type { FuelLog } from '@/lib/types'
 
 // Renders whichever data-entry form is open. Each form loads what it needs, saves,
@@ -48,6 +49,7 @@ export default function FormHost() {
     return <ServiceForm key={active.logId ?? 'new'} logId={active.logId} productId={active.productId} categoryId={active.categoryId} onClose={close} onSaved={done} />
   }
   if (active.kind === 'receipt') return <ReceiptForm key={active.receiptId ?? 'new'} receiptId={active.receiptId} onClose={close} onSaved={done} />
+  if (active.kind === 'product') return <ProductForm key={active.productId ?? 'new'} productId={active.productId} onClose={close} onSaved={done} />
   if (active.kind === 'stock') return <StockForm mode={active.mode} productId={active.productId} onClose={close} onSaved={done} />
   return null
 }

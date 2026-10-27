@@ -11,6 +11,7 @@ export type FormRequest =
   | { kind: 'service'; logId?: string; productId?: string; categoryId?: string }
   | { kind: 'receipt'; receiptId?: string }
   | { kind: 'stock'; mode: 'add' | 'remove'; productId?: string }
+  | { kind: 'product'; productId?: string }
 
 interface FormsApi {
   open: (req: FormRequest) => void

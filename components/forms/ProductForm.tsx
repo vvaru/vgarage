@@ -33,6 +33,7 @@ export default function ProductForm({ productId, onClose, onSaved }: { productId
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [confirmArchive, setConfirmArchive] = useState(false)
   const newId = useRef(crypto.randomUUID())
 
   useEffect(() => {
@@ -108,6 +109,19 @@ export default function ProductForm({ productId, onClose, onSaved }: { productId
     }
   }
 
+  async function setArchived(archived: boolean) {
+    if (!productId) return
+    setSaving(true); setError(null)
+    const { error: e } = await withRetry(() => write(supabase.from('products').update({ archived_at: archived ? new Date().toISOString() : null }).eq('id', productId)), 1, 2500)
+    setSaving(false)
+    setConfirmArchive(false)
+    if (e) {
+      setError(/archived_at/.test(e.message) ? 'Archiving needs a small database update first: run supabase/add_product_archive.sql in Supabase.' : e.message)
+      return
+    }
+    onSaved(archived ? 'Product archived. Its history is kept.' : 'Product restored')
+  }
+
   async function remove() {
     if (!productId || hasHistory) return
     setSaving(true)
@@ -178,13 +192,25 @@ export default function ProductForm({ productId, onClose, onSaved }: { productId
             <TextArea label="Notes" rows={2} value={notes} onChange={e => setNotes(e.target.value)} />
             {error && <p role="alert" className="type-body text-error">{error}</p>}
             {productId && (
-              hasHistory
-                ? <p className="type-body-sm text-on-surface-variant flex gap-2"><Icon name="lock" size={16} className="mt-px" />Can’t be deleted: it has purchases or use on record, and deleting would erase them from your history.</p>
+              original?.archived_at
+                ? <Button variant="tonal" icon="refresh" className="self-start" disabled={saving} onClick={() => setArchived(false)}>Restore product</Button>
+                : hasHistory
+                ? <div className="flex flex-col gap-2 items-start">
+                    <Button variant="danger" icon="archive" className="-ml-2" disabled={saving || (stock?.onHand ?? 0) > 0} onClick={() => setConfirmArchive(true)}>Archive product</Button>
+                    <p className="type-body-sm text-on-surface-variant">
+                      {(stock?.onHand ?? 0) > 0
+                        ? `It has purchases or use on record, so it can’t be deleted. To archive it, use or remove the ${fmtQty(+(stock?.onHand ?? 0).toFixed(3), stock?.unit ?? 'each')} still on hand first.`
+                        : 'It has purchases or use on record, so it can’t be deleted. Archiving hides it and keeps that history.'}
+                    </p>
+                  </div>
                 : <Button variant="danger" icon="delete" className="self-start -ml-2" onClick={() => setConfirmDelete(true)}>Delete product</Button>
             )}
           </div>
         )}
       </Dialog>
+      <Confirm open={confirmArchive} title="Archive this product?" confirmLabel="Archive" busy={saving}
+        onCancel={() => setConfirmArchive(false)} onConfirm={() => setArchived(true)}
+        body="It stops showing in your lists and pickers. Its purchases and services keep showing it, and you can restore it from All products." />
       <Confirm open={confirmDelete} title="Delete this product?" confirmLabel="Delete" danger busy={saving}
         onCancel={() => setConfirmDelete(false)} onConfirm={remove} body="It has no purchases or use on record, so nothing else changes." />
     </>

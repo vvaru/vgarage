@@ -6,7 +6,7 @@ import { supabase, ensureFreshSession } from '@/lib/supabase'
 import { read, withRetry, write } from '@/lib/recover'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
-import { loadGarage, productLabel, type GarageContext } from '@/lib/formData'
+import { pickable, loadGarage, productLabel, type GarageContext } from '@/lib/formData'
 import { emptyLine, withDerivedQty, type LineDraft } from '@/lib/recordDraft'
 import { convertProductUnit } from '@/lib/productUnit'
 import { fmtQty, guessUnit, UNIT_GROUPS } from '@/lib/units'
@@ -207,7 +207,7 @@ export default function ReceiptForm({ receiptId, onClose, onSaved }: { receiptId
                       <SelectField label="Product" className="flex-1" value={l.productId} disabled={used > 0}
                         onChange={e => patch(l.key, { productId: e.target.value, unit: ctx.products.find(p => p.id === e.target.value)?.unit ?? 'each', unitTouched: Boolean(e.target.value) })}>
                         <option value="">New product…</option>
-                        {ctx.products.map(p => <option key={p.id} value={p.id}>{productLabel(p)}</option>)}
+                        {pickable(ctx.products, l.productId).map(p => <option key={p.id} value={p.id}>{productLabel(p)}</option>)}
                       </SelectField>
                       <IconButton icon="delete" label={used > 0 ? 'Used in a service, can’t remove' : 'Remove item'} disabled={used > 0} className="mt-2"
                         onClick={() => setRemoved(r => [...r, l.key])} />

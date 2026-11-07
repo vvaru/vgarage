@@ -178,7 +178,7 @@ export function buildDemoData(): Record<string, Row[]> {
   global_categories.push({ id: 'gcat-0100', name: 'Coolant', category_type: 'maintenance', interval_miles: 100000, interval_days: 3650, is_active: true, created_by: UID, created_at: '2026-10-01T00:00:00Z' })
 
   return {
-    vehicles: [{ id: VID, user_id: UID, make: 'Honda', model: 'Civic', year: 2016, trim: 'EX', odometer: finalOdo, vin: null, license_plate: null, details_confirmed: true, track_tire_positions: true, created_at: '2024-09-01T00:00:00Z' }],
+    vehicles: [{ id: VID, user_id: UID, make: 'Honda', model: 'Civic', year: 2016, trim: 'EX', odometer: finalOdo, vin: null, license_plate: null, details_confirmed: true, track_tire_positions: true, created_at: '2024-09-01T00:00:00Z' }, { id: 'demo-friend-car', user_id: 'demo-friend', make: 'Toyota', model: 'RAV4', year: 2019, trim: null, odometer: 41250, vin: null, license_plate: null, details_confirmed: true, track_tire_positions: true, created_at: '2026-10-15T00:00:00Z' }],
     fuel_logs: fuel.reverse(),
     service_categories, service_logs, products, product_category_links, receipts, receipt_items, service_product_usage,
     service_log_receipts, inventory_adjustments, tires, tire_events, global_categories,

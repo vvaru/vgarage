@@ -6,7 +6,7 @@ import { supabase, ensureFreshSession } from '@/lib/supabase'
 import { withRetry, write } from '@/lib/recover'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
-import { loadGarage, productLabel, type GarageContext } from '@/lib/formData'
+import { loadGarage, pickable, productLabel, type GarageContext } from '@/lib/formData'
 import { fmtQty, guessUnit, UNIT_GROUPS } from '@/lib/units'
 import { Dialog, Icon, Segmented, SelectField, Skeleton, TextField } from '@/components/ui/md'
 
@@ -48,7 +48,7 @@ export default function StockForm({ mode: initialMode, productId, onClose, onSav
   const amt = num(amount)
   const tooMuch = mode === 'remove' && amt != null && amt > onHand + 1e-9
   const valid = Boolean(ctx && (pid || (mode === 'add' && newName.trim())) && amt && amt > 0 && !tooMuch)
-  const choices = mode === 'remove' ? (ctx?.products ?? []).filter(p => (ctx?.stock.get(p.id)?.onHand ?? 0) > 0) : ctx?.products ?? []
+  const choices = mode === 'remove' ? (ctx?.products ?? []).filter(p => (ctx?.stock.get(p.id)?.onHand ?? 0) > 0) : pickable(ctx?.products ?? [], pid)
 
   function switchMode(m: 'add' | 'remove') {
     setMode(m)

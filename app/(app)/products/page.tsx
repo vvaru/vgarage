@@ -106,7 +106,7 @@ export default function StockPage() {
     <Card variant="outlined" className="py-1 overflow-hidden">{rows.length ? rows.map(productRow) : empty}</Card>
   )
 
-  const filtered = v.all.filter(s => {
+  const filtered = v.active.filter(s => {
     const q = query.trim().toLowerCase()
     if (!q) return true
     const p = s.product as ProductU
@@ -118,7 +118,7 @@ export default function StockPage() {
       {header}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-        <Metric icon="inventory_2" label="On hand" value={v.inStock.length} unit={v.inStock.length === 1 ? 'product' : 'products'} sub={`${v.all.length} in your catalog`} />
+        <Metric icon="inventory_2" label="On hand" value={v.inStock.length} unit={v.inStock.length === 1 ? 'product' : 'products'} sub={`${v.active.length} in your catalog`} />
         <Metric icon="savings" label="Worth" value={usd(v.value)} sub="what’s left, at what you paid" />
         <Metric icon="shopping_cart" label="Bought, last 12 months" value={usd(v.spent12)} sub={`${v.receipts12} receipt${v.receipts12 === 1 ? '' : 's'}`} />
         <Metric icon="build" label="Used, last 12 months" value={usd(v.used12)} sub="parts that went into services" />
@@ -176,6 +176,12 @@ export default function StockPage() {
                 {list(filtered, <EmptyState icon="search" title={v.all.length ? 'No matches' : 'No products yet'}
                   body={v.all.length ? 'Try another word.' : 'Products are the parts and fluids you buy and use.'}
                   action={!v.all.length && <Button icon="add" onClick={() => open({ kind: 'product' })}>New product</Button>} />)}
+                {v.archived.length > 0 && (
+                  <>
+                    <p className="type-title-sm text-on-surface-variant px-1 mt-2">Archived</p>
+                    {list(v.archived, null)}
+                  </>
+                )}
               </>
             )}
             {tab === 'receipts' && (
@@ -228,7 +234,9 @@ function view(data: StockData) {
   const g = data.garage
   const all = [...g.stock.values()].sort((a, b) => a.product.name.localeCompare(b.product.name))
   const inStock = all.filter(s => s.onHand > 0)
-  const empty = all.filter(s => s.onHand <= 0 && (s.purchased > 0 || s.consumed > 0))
+  const isArchived = (s: ProductStock) => Boolean((s.product as ProductU).archived_at)
+  const archived = all.filter(isArchived)
+  const empty = all.filter(s => !isArchived(s) && s.onHand <= 0 && (s.purchased > 0 || s.consumed > 0))
   const since = format(subMonths(new Date(), 12), 'yyyy-MM-dd')
   let spent12 = 0, used12 = 0
   const recent = new Set<string>()
@@ -261,7 +269,7 @@ function view(data: StockData) {
     })
   const bills = [...g.receipts.values()].filter(r => !withItems.has(r.id) && (r.no_products || r.image_path)).length
   return {
-    all, inStock, empty, receipts, bills, spent12, used12, receipts12: recent.size,
+    all, active: all.filter(s => !isArchived(s)), archived, inStock, empty, receipts, bills, spent12, used12, receipts12: recent.size,
     value: inStock.reduce((t, s) => t + s.value, 0),
   }
 }

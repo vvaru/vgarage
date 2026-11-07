@@ -72,4 +72,7 @@ export function lotSource(ctx: GarageContext, lotId: string): string {
   return [r.store || 'Receipt', d].filter(Boolean).join(' · ')
 }
 
+/** Products to offer in a picker: archived ones only if already chosen. */
+export const pickable = (products: ProductU[], chosen?: string) => products.filter(p => !p.archived_at || p.id === chosen)
+
 export const productLabel = (p: Pick<Product, 'name' | 'brand'>) => [p.brand, p.name].filter(Boolean).join(' ')

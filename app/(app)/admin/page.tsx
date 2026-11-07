@@ -1,595 +1,301 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { format, parseISO, differenceInDays } from 'date-fns'
-import {
-  ShieldCheck, Users, Car, AlertTriangle, CheckCircle2, Clock, ChevronDown,
-  ChevronRight, Pencil, X, Plus, Trash2, RefreshCw, Check,
-} from '@/components/ui/icons'
+import { format, parseISO } from 'date-fns'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { read, runSave, step } from '@/lib/recover'
-import ActionError from '@/components/ui/ActionError'
-import { componentOf } from '@/lib/carZones'
 import { useAuth } from '@/components/auth/AuthProvider'
-import type { UserProfile, Vehicle, ServiceCategory, ServiceLog, GlobalCategory, CategoryRequest } from '@/lib/types'
+import PageHeader, { Page } from '@/components/shell/PageHeader'
+import { addFromCatalog, intervalText, missingFromCatalog } from '@/lib/categories'
+import { scheduleStatuses } from '@/lib/schedule'
+import {
+  Avatar, Button, Card, Dialog, EmptyState, Icon, IconButton, ListItem, Pill, SelectField, Skeleton, Tabs, TextArea, TextField, useSnackbar,
+} from '@/components/ui/md'
+import type { CategoryRequest, GlobalCategory, ServiceCategory, ServiceLog, UserProfile, Vehicle } from '@/lib/types'
 
-interface UserRow extends UserProfile {
-  vehicles: VehicleRow[]
+type Tab = 'users' | 'catalog' | 'suggestions'
+
+interface Data {
+  users: UserProfile[]
+  vehicles: Vehicle[]
+  cats: ServiceCategory[]
+  logs: ServiceLog[]
+  catalog: GlobalCategory[]
+  requests: CategoryRequest[]
 }
 
-interface VehicleRow extends Vehicle {
-  overdueCount: number
-  dueSoonCount: number
-  totalCategories: number
-}
-
-function buildStatus(cats: ServiceCategory[], logs: ServiceLog[], odo: number) {
-  let overdue = 0, dueSoon = 0
-  for (const cat of cats) {
-    if (!cat.interval_miles && !cat.interval_days) continue
-    const catLogs = logs.filter(l => l.category_id === cat.id && l.odometer > 0).sort((a, b) => b.odometer - a.odometer)
-    const last = catLogs[0]
-    const lastOdo = last?.odometer ?? null
-    const lastDate = last?.date ?? null
-    const nextOdo = lastOdo != null && cat.interval_miles ? lastOdo + cat.interval_miles : cat.interval_miles ? odo + cat.interval_miles : null
-    const nextDate = lastDate && cat.interval_days
-      ? format(new Date(new Date(lastDate).getTime() + cat.interval_days * 86400000), 'yyyy-MM-dd')
-      : cat.interval_days ? format(new Date(Date.now() + cat.interval_days * 86400000), 'yyyy-MM-dd') : null
-    const milesLeft = nextOdo != null ? nextOdo - odo : null
-    const daysLeft = nextDate ? differenceInDays(parseISO(nextDate), new Date()) : null
-    const isOverdue = (milesLeft != null && milesLeft <= 0) || (daysLeft != null && daysLeft < 0)
-    const isDueSoon = !isOverdue && ((milesLeft != null && milesLeft <= 500) || (daysLeft != null && daysLeft <= 30))
-    if (isOverdue) overdue++
-    else if (isDueSoon) dueSoon++
-  }
-  return { overdue, dueSoon }
-}
+const int = (s: string) => (s.trim() ? parseInt(s) : null)
 
 export default function AdminPage() {
   const { isAdmin, loading: authLoading } = useAuth()
   const router = useRouter()
-
-  const [users, setUsers] = useState<UserRow[]>([])
-  const [globalCats, setGlobalCats] = useState<GlobalCategory[]>([])
-  const [requests, setRequests] = useState<CategoryRequest[]>([])
-  const [loading, setLoading] = useState(true)
-  const [expandedUser, setExpandedUser] = useState<string | null>(null)
-  const [userCategories, setUserCategories] = useState<Record<string, ServiceCategory[]>>({})
-
-  // Tab
-  const [tab, setTab] = useState<'users' | 'categories' | 'requests'>('users')
-
-  // Global category modal
-  const [showCatModal, setShowCatModal] = useState(false)
-  const [editCat, setEditCat] = useState<GlobalCategory | null>(null)
-  const [catForm, setCatForm] = useState({ name: '', category_type: 'maintenance', interval_miles: '', interval_days: '' })
-  const [savingCat, setSavingCat] = useState(false)
+  const snack = useSnackbar()
+  const [data, setData] = useState<Data | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [tick, setTick] = useState(0)
+  const reload = useCallback(() => setTick(t => t + 1), [])
+  const [tab, setTab] = useState<Tab>('users')
+  const [openUser, setOpenUser] = useState<string | null>(null)
+  const [editing, setEditing] = useState<GlobalCategory | 'new' | null>(null)
+  const [reviewing, setReviewing] = useState<CategoryRequest | null>(null)
   const [error, setError] = useState<string | null>(null)
-
-  // Request review modal
-  const [reviewRequest, setReviewRequest] = useState<CategoryRequest | null>(null)
-  const [adminNotes, setAdminNotes] = useState('')
-  const [savingRequest, setSavingRequest] = useState(false)
-
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      const [
-        { data: profiles },
-        { data: allVehicles },
-        { data: allCats },
-        { data: allLogs },
-        { data: globalCatData },
-        { data: requestData },
-      ] = await Promise.all([
-        supabase.from('user_profiles').select('*').order('created_at'),
-        supabase.from('vehicles').select('*').order('created_at'),
-        supabase.from('service_categories').select('*').eq('category_type', 'maintenance'),
-        supabase.from('service_logs').select('id,vehicle_id,category_id,date,odometer').order('date', { ascending: false }),
-        supabase.from('global_categories').select('*').order('name'),
-        supabase.from('category_requests').select('*').order('created_at', { ascending: false }),
-      ])
-
-      const vehicles = allVehicles ?? []
-      const cats = allCats ?? []
-      const logs = allLogs ?? []
-
-      const userRows: UserRow[] = (profiles ?? []).map(p => {
-        const uVehicles = vehicles.filter(v => v.user_id === p.id)
-        const vehicleRows: VehicleRow[] = uVehicles.map(v => {
-          const vCats = cats.filter(c => c.vehicle_id === v.id)
-          const vLogs = logs.filter(l => l.vehicle_id === v.id)
-          const { overdue, dueSoon } = buildStatus(vCats, vLogs as ServiceLog[], v.odometer)
-          return { ...v, overdueCount: overdue, dueSoonCount: dueSoon, totalCategories: vCats.length }
-        })
-        return { ...p, vehicles: vehicleRows }
-      })
-
-      setUsers(userRows)
-      setGlobalCats(globalCatData ?? [])
-      setRequests(requestData ?? [])
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+  const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     if (!authLoading && !isAdmin) router.replace('/dashboard')
   }, [authLoading, isAdmin, router])
 
-  useEffect(() => { if (isAdmin) load() }, [isAdmin, load])
-
-  async function changeRole(userId: string, newRole: 'admin' | 'user') {
-    const res = await runSave(() => step(() =>
-      supabase.from('user_profiles').update({ role: newRole }).eq('id', userId)).then(() => {}))
-    if (!res.ok) { setError(`${res.message} The role was not changed.`); return }
-    setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u))
-  }
-
-  async function expandUser(userId: string) {
-    if (expandedUser === userId) { setExpandedUser(null); return }
-    setExpandedUser(userId)
-    if (!userCategories[userId]) {
-      const userVehicles = users.find(u => u.id === userId)?.vehicles ?? []
-      const vIds = userVehicles.map(v => v.id)
-      if (vIds.length === 0) return
-      const { data } = await read(supabase.from('service_categories').select('*').in('vehicle_id', vIds).order('name'))
-      setUserCategories(prev => ({ ...prev, [userId]: data ?? [] }))
-    }
-  }
-
-  async function toggleCategoryVisibility(catId: string, userId: string, currentVisible: boolean) {
-    const res = await runSave(() => step(() =>
-      supabase.from('service_categories').update({ is_visible: !currentVisible }).eq('id', catId)).then(() => {}))
-    if (!res.ok) { setError(res.message); return }
-    setUserCategories(prev => ({
-      ...prev,
-      [userId]: (prev[userId] ?? []).map(c => c.id === catId ? { ...c, is_visible: !currentVisible } : c),
-    }))
-  }
-
-  function openAddCat() {
-    setEditCat(null)
-    setCatForm({ name: '', category_type: 'maintenance', interval_miles: '', interval_days: '' })
-    setShowCatModal(true)
-  }
-
-  function openEditCat(cat: GlobalCategory) {
-    setEditCat(cat)
-    setCatForm({
-      name: cat.name,
-      category_type: cat.category_type,
-      interval_miles: cat.interval_miles != null ? String(cat.interval_miles) : '',
-      interval_days: cat.interval_days != null ? String(cat.interval_days) : '',
-    })
-    setShowCatModal(true)
-  }
-
-  async function saveCat() {
-    setSavingCat(true)
-    const payload = {
-      name: catForm.name.trim(),
-      category_type: catForm.category_type,
-      interval_miles: catForm.interval_miles ? parseInt(catForm.interval_miles) : null,
-      interval_days: catForm.interval_days ? parseInt(catForm.interval_days) : null,
-    }
-
-    // Asked before the save, so a confirm box can't sit on top of a half-done one.
-    const push = editCat ? window.confirm(
-      `Push updated intervals to all users who have "${editCat.name}" in their schedule?\n\nThis will overwrite their current interval settings.`
-    ) : false
-
-    const res = await runSave(async () => {
-      if (editCat) {
-        await step(() => supabase.from('global_categories').update(payload).eq('id', editCat.id))
-        if (push) {
-          await step(() => supabase.from('service_categories').update({
-            interval_miles: payload.interval_miles,
-            interval_days: payload.interval_days,
-          }).eq('name', editCat.name))
-        }
-      } else {
-        const { data: newCat } = await step(() => supabase
-          .from('global_categories')
-          .insert({ ...payload, is_active: true })
-          .select()
-          .single())
-        if (!newCat) throw new Error('the category was not created')
-
-        // Add to all users' vehicles
-        const { data: allVehicles } = await read(supabase.from('vehicles').select('id,user_id'))
-        if (allVehicles && allVehicles.length > 0) {
-          await step(() => supabase.from('service_categories').insert(
-            allVehicles.map(v => ({
-              user_id: v.user_id,
-              vehicle_id: v.id,
-              name: payload.name,
-              category_type: payload.category_type,
-              interval_miles: payload.interval_miles,
-              interval_days: payload.interval_days,
-              component: componentOf({ name: payload.name }),
-              global_category_id: newCat.id,
-              is_visible: true,
-            }))
-          ))
-        }
-      }
-    })
-
-    setSavingCat(false)
-    if (!res.ok) { setError(res.message); return }
-    setShowCatModal(false)
-    load()
-  }
-
-  async function toggleCatActive(cat: GlobalCategory) {
-    const res = await runSave(() => step(() =>
-      supabase.from('global_categories').update({ is_active: !cat.is_active }).eq('id', cat.id)).then(() => {}))
-    if (!res.ok) { setError(res.message); return }
-    setGlobalCats(prev => prev.map(c => c.id === cat.id ? { ...c, is_active: !cat.is_active } : c))
-  }
-
-  async function handleRequest(req: CategoryRequest, status: 'approved' | 'rejected') {
-    setSavingRequest(true)
-    const res = await runSave(async () => {
-      await step(() => supabase.from('category_requests')
-        .update({ status, admin_notes: adminNotes.trim() || null }).eq('id', req.id))
-      if (status === 'approved') {
-        // Add to global categories and all users
-        await saveCatFromRequest(req)
-      }
-    })
-    setSavingRequest(false)
-    if (!res.ok) { setError(res.message); return }
-    setReviewRequest(null)
-    setAdminNotes('')
-    load()
-  }
-
-  async function saveCatFromRequest(req: CategoryRequest) {
-    const { data: newCat } = await step(() => supabase
-      .from('global_categories')
-      .insert({
-        name: req.name,
-        category_type: 'maintenance',
-        interval_miles: req.interval_miles,
-        interval_days: req.interval_days,
-        is_active: true,
+  useEffect(() => {
+    if (!isAdmin) return
+    let live = true
+    Promise.all([
+      read(supabase.from('user_profiles').select('*').order('created_at')),
+      read(supabase.from('vehicles').select('*').order('created_at')),
+      read(supabase.from('service_categories').select('*').order('name')),
+      read(supabase.from('service_logs').select('id,vehicle_id,category_id,date,odometer').order('date', { ascending: false })),
+      read(supabase.from('global_categories').select('*').order('name')),
+      read(supabase.from('category_requests').select('*').order('created_at', { ascending: false })),
+    ]).then(([users, vehicles, cats, logs, catalog, requests]) => {
+      if (!live) return
+      const failed = users.error ?? vehicles.error ?? cats.error ?? logs.error ?? catalog.error ?? requests.error
+      if (failed) throw new Error(failed.message)
+      setData({
+        users: (users.data ?? []) as UserProfile[],
+        vehicles: (vehicles.data ?? []) as Vehicle[],
+        cats: (cats.data ?? []) as ServiceCategory[],
+        logs: (logs.data ?? []) as ServiceLog[],
+        catalog: (catalog.data ?? []) as GlobalCategory[],
+        requests: (requests.data ?? []) as CategoryRequest[],
       })
-      .select()
-      .single())
-    if (newCat) {
-      const { data: allVehicles } = await read(supabase.from('vehicles').select('id,user_id'))
-      if (allVehicles && allVehicles.length > 0) {
-        await step(() => supabase.from('service_categories').insert(
-          allVehicles.map(v => ({
-            user_id: v.user_id,
-            vehicle_id: v.id,
-            name: req.name,
-            category_type: 'maintenance',
-            interval_miles: req.interval_miles,
-            interval_days: req.interval_days,
-            global_category_id: newCat.id,
-            is_visible: true,
-          }))
-        ))
-      }
-    }
+      setLoadError(null)
+    }).catch(e => { if (live) setLoadError(e instanceof Error ? e.message : 'Couldn’t load the admin data.') })
+    return () => { live = false }
+  }, [isAdmin, tick])
+
+  async function act(work: () => Promise<void>, done: string) {
+    setBusy(true); setError(null)
+    const res = await runSave(work)
+    setBusy(false)
+    if (!res.ok) { setError(res.message); return false }
+    snack(done)
+    reload()
+    return true
   }
 
-  if (authLoading || !isAdmin) {
-    return <div className="min-h-screen bg-background flex items-center justify-center"><div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" /></div>
-  }
+  if (authLoading || !isAdmin) return null
 
-  const pendingCount = requests.filter(r => r.status === 'pending').length
+  const pending = data?.requests.filter(r => r.status === 'pending').length ?? 0
+  const carsOf = (id: string) => data!.vehicles.filter(v => v.user_id === id)
+  const catsOf = (id: string) => data!.cats.filter(c => c.vehicle_id === id)
+  const missingFor = (v: Vehicle) => missingFromCatalog(data!.catalog, catsOf(v.id))
+  const overdueFor = (v: Vehicle) => scheduleStatuses(catsOf(v.id).filter(c => c.category_type === 'maintenance'), data!.logs.filter(l => l.vehicle_id === v.id), v.odometer).filter(s => s.isOverdue).length
+
+  const fixCar = (v: Vehicle) => act(() => addFromCatalog(missingFor(v), v.user_id, v.id), `Copied the catalog into the ${v.make} ${v.model}`)
+  const setRole = (u: UserProfile, role: string) => act(() => step(() => supabase.from('user_profiles').update({ role }).eq('id', u.id)).then(() => {}), 'Role changed')
+  const toggleCat = (c: ServiceCategory) => act(() => step(() => supabase.from('service_categories').update({ is_visible: c.is_visible === false }).eq('id', c.id)).then(() => {}), c.is_visible === false ? `${c.name} shown` : `${c.name} hidden`)
+  const toggleEntry = (g: GlobalCategory) => act(() => step(() => supabase.from('global_categories').update({ is_active: !g.is_active }).eq('id', g.id)).then(() => {}), g.is_active ? `${g.name} no longer offered` : `${g.name} offered again`)
 
   return (
-    <div className="bg-background min-h-screen">
-      <ActionError message={error} onDismiss={() => setError(null)} />
-      {/* Header */}
-      <div className="max-w-5xl mx-auto px-4 lg:px-8 pt-10 lg:pt-8 pb-4">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <ShieldCheck size={18} className="text-accent" />
-            <h1 className="text-xl lg:text-2xl font-bold text-foreground">Admin Dashboard</h1>
-          </div>
-          <button onClick={load} className="w-8 h-8 rounded-xl bg-surface border border-border flex items-center justify-center text-muted hover:text-foreground transition-colors">
-            <RefreshCw size={14} />
-          </button>
-        </div>
+    <Page>
+      <PageHeader title="Admin" showVehicle={false}
+        subtitle={data ? `${data.users.length} user${data.users.length === 1 ? '' : 's'} · ${data.vehicles.length} car${data.vehicles.length === 1 ? '' : 's'}` : undefined}
+        actions={<IconButton icon="refresh" label="Reload" onClick={reload} />} />
 
-        {/* Stats strip */}
-        <div className="flex gap-4 text-sm">
-          <span className="text-muted">{users.length} <span className="text-foreground font-semibold">users</span></span>
-          <span className="text-muted">{users.reduce((s, u) => s + u.vehicles.length, 0)} <span className="text-foreground font-semibold">vehicles</span></span>
-          {pendingCount > 0 && <span className="text-accent font-semibold">{pendingCount} pending requests</span>}
-        </div>
+      <Tabs className="-mx-4 sm:mx-0 mb-5" value={tab} onChange={setTab}
+        tabs={[
+          { value: 'users', label: 'Users', icon: 'group' },
+          { value: 'catalog', label: 'Catalog', icon: 'category' },
+          { value: 'suggestions', label: 'Suggestions', icon: 'lightbulb', badge: pending || undefined },
+        ]} />
 
-        {/* Tabs */}
-        <div className="flex gap-1 mt-4">
-          {([
-            ['users', 'Users', Users],
-            ['categories', 'Global Categories', null],
-            ['requests', `Requests${pendingCount > 0 ? ` (${pendingCount})` : ''}`, null],
-          ] as [string, string, unknown][]).map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => setTab(key as typeof tab)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${
-                tab === key ? 'bg-accent/15 text-accent border border-accent/30' : 'text-muted hover:text-foreground'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
+      {error && <p role="alert" className="type-body text-error mb-4">{error}</p>}
 
-      <div className="max-w-5xl mx-auto px-4 lg:px-8 pb-28 lg:pb-12 pt-4">
-        {loading ? (
-          <div className="flex items-center justify-center py-16">
-            <div className="w-7 h-7 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-          </div>
-        ) : tab === 'users' ? (
-          /* ── Users tab ── */
-          <div className="space-y-3">
-            {users.length === 0 && <p className="text-faint text-sm text-center py-12">No users yet</p>}
-            {users.map(u => {
-              const totalOverdue = u.vehicles.reduce((s, v) => s + v.overdueCount, 0)
-              const totalDueSoon = u.vehicles.reduce((s, v) => s + v.dueSoonCount, 0)
-              const isExpanded = expandedUser === u.id
-              return (
-                <div key={u.id} className="bg-surface border border-border rounded-2xl overflow-hidden">
-                  <div
-                    className="flex items-center gap-3 px-4 py-3.5 cursor-pointer hover:bg-surface-2/40 transition-colors"
-                    onClick={() => expandUser(u.id)}
-                  >
-                    <div className="w-8 h-8 rounded-full bg-surface-2 border border-border-strong flex items-center justify-center text-muted text-sm font-bold shrink-0">
-                      {(u.email ?? '?')[0].toUpperCase()}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-foreground text-sm font-medium truncate">{u.email ?? '—'}</p>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${u.role === 'admin' ? 'bg-accent/15 text-accent' : 'bg-surface-2 text-muted'}`}>
-                          {u.role}
-                        </span>
-                        <span className="text-faint text-xs">{u.vehicles.length} vehicle{u.vehicles.length !== 1 ? 's' : ''}</span>
-                        {totalOverdue > 0 && <span className="text-danger text-xs font-medium">{totalOverdue} overdue</span>}
-                        {totalOverdue === 0 && totalDueSoon > 0 && <span className="text-accent text-xs">{totalDueSoon} due soon</span>}
-                        {totalOverdue === 0 && totalDueSoon === 0 && u.vehicles.length > 0 && <span className="text-success text-xs">All current</span>}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <select
-                        value={u.role}
-                        onClick={e => e.stopPropagation()}
-                        onChange={e => changeRole(u.id, e.target.value as 'admin' | 'user')}
-                        className="bg-surface-2 border border-border-strong rounded-lg px-2 py-1 text-xs text-foreground focus:outline-none focus:border-accent/50"
-                      >
+      {!data ? (
+        loadError
+          ? <EmptyState icon="cloud_off" title="Couldn’t load the admin data" body={loadError} action={<Button onClick={reload}>Try again</Button>} />
+          : <div className="grid gap-3 max-w-4xl">{[0, 1, 2].map(i => <Skeleton key={i} className="h-[72px]" />)}</div>
+      ) : tab === 'users' ? (
+        <div className="flex flex-col gap-3 max-w-4xl">
+          {data.users.length === 0 && <EmptyState icon="group" title="No users yet" />}
+          {data.users.map(u => {
+            const cars = carsOf(u.id)
+            const behind = cars.reduce((s, v) => s + missingFor(v).length, 0)
+            const empty = cars.some(v => catsOf(v.id).length === 0)
+            const isOpen = openUser === u.id
+            return (
+              <Card key={u.id} variant="outlined" className="overflow-hidden">
+                <ListItem onClick={() => setOpenUser(isOpen ? null : u.id)}
+                  leading={<Avatar icon="person" tone={u.role === 'admin' ? 'primary' : 'secondary'} />}
+                  headline={u.full_name || u.email || 'No name'}
+                  supporting={`${u.role === 'admin' ? 'Admin · ' : ''}${cars.length} car${cars.length === 1 ? '' : 's'}${u.full_name && u.email ? ` · ${u.email}` : ''}`}
+                  trailing={<>
+                    {cars.length > 0 && (empty ? <Pill tone="due">Missing categories</Pill> : behind > 0 ? <Pill tone="soon">{behind} behind</Pill> : <span className="max-sm:hidden"><Pill tone="ok">Up to date</Pill></span>)}
+                    <Icon name={isOpen ? 'expand_less' : 'expand_more'} size={24} />
+                  </>} />
+                {isOpen && (
+                  <div className="border-t border-outline-variant p-4 flex flex-col gap-5">
+                    <div className="flex flex-wrap items-end gap-4">
+                      <SelectField label="Role" className="w-40" value={u.role} disabled={busy} onChange={e => setRole(u, e.target.value)}>
                         <option value="user">User</option>
                         <option value="admin">Admin</option>
-                      </select>
-                      {isExpanded ? <ChevronDown size={14} className="text-muted" /> : <ChevronRight size={14} className="text-muted" />}
+                      </SelectField>
+                      <p className="type-body-sm text-on-surface-variant pb-1">Joined {format(parseISO(u.created_at), 'MMM d, yyyy')}</p>
                     </div>
-                  </div>
-
-                  {isExpanded && (
-                    <div className="border-t border-border px-4 py-3 space-y-3">
-                      {u.vehicles.length === 0 && <p className="text-faint text-sm">No vehicles</p>}
-                      {u.vehicles.map(v => {
-                        const vCats = (userCategories[u.id] ?? []).filter(c => c.vehicle_id === v.id)
-                        return (
-                          <div key={v.id}>
-                            <div className="flex items-center gap-2 mb-2">
-                              <Car size={13} className="text-muted" />
-                              <span className="text-foreground text-sm font-medium">{v.year} {v.make} {v.model}{v.trim ? ` ${v.trim}` : ''}</span>
-                              <span className="text-faint text-xs ml-auto">{v.odometer.toLocaleString()} mi</span>
-                              {v.overdueCount > 0 && <span className="text-danger text-xs font-semibold">{v.overdueCount} overdue</span>}
-                              {v.overdueCount === 0 && v.dueSoonCount > 0 && <span className="text-accent text-xs">{v.dueSoonCount} due soon</span>}
-                            </div>
-                            {vCats.length > 0 && (
-                              <div className="ml-5 space-y-1">
-                                {vCats.map(c => (
-                                  <div key={c.id} className="flex items-center gap-2">
-                                    <button
-                                      onClick={() => toggleCategoryVisibility(c.id, u.id, c.is_visible !== false)}
-                                      className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
-                                        c.is_visible !== false ? 'bg-accent border-accent' : 'border-border-strong'
-                                      }`}
-                                    >
-                                      {c.is_visible !== false && <Check size={9} className="text-white" />}
-                                    </button>
-                                    <span className={`text-xs ${c.is_visible !== false ? 'text-foreground' : 'text-faint line-through'}`}>{c.name}</span>
-                                    <span className="text-faint text-xs ml-auto">
-                                      {c.interval_miles ? `${c.interval_miles.toLocaleString()} mi` : ''}{c.interval_miles && c.interval_days ? ' / ' : ''}{c.interval_days ? `${c.interval_days}d` : ''}
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
+                    {cars.length === 0 && <p className="type-body text-on-surface-variant">No cars yet.</p>}
+                    {cars.map(v => {
+                      const missing = missingFor(v)
+                      const overdue = overdueFor(v)
+                      return (
+                        <div key={v.id} className="flex flex-col gap-2">
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                            <p className="flex-1 min-w-48 type-title-sm text-on-surface">{v.year} {v.make} {v.model} <span className="type-body text-on-surface-variant">· {v.odometer.toLocaleString()} mi</span></p>
+                            {overdue > 0 && <Pill tone="due">{overdue} overdue</Pill>}
+                            {missing.length > 0 && <Button size="sm" variant="tonal" loading={busy} onClick={() => fixCar(v)}>Add {missing.length} from the catalog</Button>}
                           </div>
-                        )
-                      })}
-                      <p className="text-faint text-xs">Joined {format(parseISO(u.created_at), 'MMM d, yyyy')}</p>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        ) : tab === 'categories' ? (
-          /* ── Global Categories tab ── */
-          <div>
-            <div className="flex items-center justify-between mb-4">
-              <p className="text-muted text-sm">Master category list. New users automatically inherit these.</p>
-              <button
-                onClick={openAddCat}
-                className="flex items-center gap-1.5 bg-accent hover:bg-accent-hover text-white font-bold rounded-xl px-3 py-2 text-xs transition-colors"
-              >
-                <Plus size={13} /> Add
-              </button>
-            </div>
-            <div className="space-y-2">
-              {globalCats.map(cat => (
-                <div key={cat.id} className={`bg-surface border rounded-2xl px-4 py-3 flex items-center gap-3 ${cat.is_active ? 'border-border' : 'border-border/40 opacity-60'}`}>
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-sm font-medium ${cat.is_active ? 'text-foreground' : 'text-muted'}`}>{cat.name}</p>
-                    <p className="text-faint text-xs mt-0.5">
-                      {cat.interval_miles ? `Every ${cat.interval_miles.toLocaleString()} mi` : ''}{cat.interval_miles && cat.interval_days ? ' · ' : ''}{cat.interval_days ? `${cat.interval_days} days` : ''}
-                    </p>
+                          {missing.length > 0 && <p className="type-body-sm text-on-surface-variant">Missing: {missing.map(m => m.name).join(', ')}</p>}
+                          <div className="flex flex-col gap-1">
+                            {catsOf(v.id).map(c => (
+                              <label key={c.id} className="flex items-center gap-3 cursor-pointer py-1">
+                                <input type="checkbox" checked={c.is_visible !== false} disabled={busy} onChange={() => toggleCat(c)} className="w-[18px] h-[18px] accent-[var(--md-primary)]" />
+                                <span className={`flex-1 min-w-0 truncate type-body ${c.is_visible !== false ? 'text-on-surface' : 'text-on-surface-variant line-through'}`}>{c.name}</span>
+                                <span className="type-body-sm text-on-surface-variant max-sm:hidden">{intervalText(c)}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      onClick={() => toggleCatActive(cat)}
-                      className={`text-xs px-2 py-1 rounded-lg font-medium transition-colors ${cat.is_active ? 'bg-success/10 text-success hover:bg-danger/10 hover:text-danger' : 'bg-surface-2 text-muted hover:bg-success/10 hover:text-success'}`}
-                    >
-                      {cat.is_active ? 'Active' : 'Inactive'}
-                    </button>
-                    <button onClick={() => openEditCat(cat)} className="w-7 h-7 rounded-lg bg-surface-2 hover:bg-surface-2 flex items-center justify-center text-muted hover:text-foreground transition-colors">
-                      <Pencil size={12} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-              {globalCats.length === 0 && <p className="text-faint text-sm text-center py-12">No global categories yet</p>}
-            </div>
+                )}
+              </Card>
+            )
+          })}
+        </div>
+      ) : tab === 'catalog' ? (
+        <div className="flex flex-col gap-3 max-w-4xl">
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="flex-1 min-w-52 type-body text-on-surface-variant">The template for new cars. Users are offered new entries and interval changes; nothing overwrites their settings.</p>
+            <Button icon="add" onClick={() => setEditing('new')}>Add to catalog</Button>
           </div>
-        ) : (
-          /* ── Requests tab ── */
-          <div className="space-y-3">
-            {requests.length === 0 && <p className="text-faint text-sm text-center py-12">No category requests</p>}
-            {requests.map(req => {
-              const requester = users.find(u => u.id === req.user_id)
+          <Card variant="outlined" className="py-1 overflow-hidden">
+            {data.catalog.length === 0 && <EmptyState icon="category" title="The catalog is empty" />}
+            {data.catalog.map(g => {
+              const have = data.vehicles.filter(v => !missingFromCatalog([{ ...g, is_active: true }], catsOf(v.id)).length).length
               return (
-                <div key={req.id} className="bg-surface border border-border rounded-2xl p-4">
-                  <div className="flex items-start justify-between gap-3 mb-2">
-                    <div>
-                      <p className="text-foreground text-sm font-semibold">{req.name}</p>
-                      <p className="text-muted text-xs mt-0.5">from {requester?.email ?? req.user_id} · {format(parseISO(req.created_at), 'MMM d, yyyy')}</p>
-                    </div>
-                    <span className={`text-xs px-2 py-0.5 rounded-lg font-medium shrink-0 ${
-                      req.status === 'pending' ? 'bg-accent/10 text-accent'
-                      : req.status === 'approved' ? 'bg-success/10 text-success'
-                      : 'bg-danger/10 text-danger'
-                    }`}>{req.status}</span>
-                  </div>
-                  {req.description && <p className="text-muted text-xs mb-2">{req.description}</p>}
-                  <div className="flex gap-3 text-xs text-muted">
-                    {req.interval_miles && <span>Every {req.interval_miles.toLocaleString()} mi</span>}
-                    {req.interval_days && <span>{req.interval_days} days</span>}
-                  </div>
-                  {req.admin_notes && <p className="text-muted text-xs mt-2 italic">Admin: {req.admin_notes}</p>}
-                  {req.status === 'pending' && (
-                    <div className="flex gap-2 mt-3">
-                      <button
-                        onClick={() => { setReviewRequest(req); setAdminNotes('') }}
-                        className="flex items-center gap-1.5 bg-success/10 hover:bg-success/20 text-success text-xs font-medium rounded-xl px-3 py-1.5 transition-colors"
-                      >
-                        <CheckCircle2 size={12} /> Review
-                      </button>
-                    </div>
-                  )}
-                </div>
+                <ListItem key={g.id} onClick={() => setEditing(g)} headline={g.name}
+                  leading={<Avatar icon="build" tone={g.is_active ? 'secondary' : 'neutral'} />}
+                  supporting={`${intervalText(g) ?? 'No reminder'} · on ${have} of ${data.vehicles.length} cars`}
+                  trailing={g.is_active ? undefined : <Pill>Not offered</Pill>} />
               )
             })}
-          </div>
-        )}
+          </Card>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3 max-w-4xl">
+          {data.requests.length === 0 && <EmptyState icon="lightbulb" title="No suggestions yet" />}
+          {data.requests.map(r => {
+            const from = data.users.find(u => u.id === r.user_id)
+            return (
+              <Card key={r.id} variant="outlined" className="p-4 flex flex-col gap-2">
+                <div className="flex items-start gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="type-title text-on-surface">{r.name}</p>
+                    <p className="type-body-sm text-on-surface-variant">From {from?.full_name || from?.email || 'a user'} · {format(parseISO(r.created_at), 'MMM d, yyyy')}{intervalText(r) ? ` · ${intervalText(r)}` : ''}</p>
+                  </div>
+                  <Pill tone={r.status === 'approved' ? 'ok' : r.status === 'rejected' ? 'due' : 'soon'}>{r.status === 'pending' ? 'Waiting' : r.status === 'approved' ? 'Approved' : 'Declined'}</Pill>
+                </div>
+                {r.description && <p className="type-body text-on-surface-variant">{r.description}</p>}
+                {r.admin_notes && <p className="type-body-sm text-on-surface-variant">Your note: {r.admin_notes}</p>}
+                {r.status === 'pending' && <Button size="sm" variant="tonal" className="self-start" onClick={() => setReviewing(r)}>Review</Button>}
+              </Card>
+            )
+          })}
+        </div>
+      )}
+
+      {editing && (
+        <CatalogDialog key={editing === 'new' ? 'new' : editing.id} entry={editing === 'new' ? null : editing}
+          onClose={() => setEditing(null)}
+          onToggle={editing === 'new' ? undefined : () => { toggleEntry(editing); setEditing(null) }}
+          onSaved={m => { setEditing(null); snack(m); reload() }} />
+      )}
+      {reviewing && (
+        <ReviewDialog request={reviewing} onClose={() => setReviewing(null)} onSaved={m => { setReviewing(null); snack(m); reload() }} />
+      )}
+    </Page>
+  )
+}
+
+function CatalogDialog({ entry, onClose, onToggle, onSaved }: {
+  entry: GlobalCategory | null; onClose: () => void; onToggle?: () => void; onSaved: (message: string) => void
+}) {
+  const [name, setName] = useState(entry?.name ?? '')
+  const [miles, setMiles] = useState(entry?.interval_miles != null ? String(entry.interval_miles) : '')
+  const [days, setDays] = useState(entry?.interval_days != null ? String(entry.interval_days) : '')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function save() {
+    setSaving(true); setError(null)
+    const payload = { name: name.trim(), interval_miles: int(miles), interval_days: int(days) }
+    const res = await runSave(async () => {
+      if (entry) await step(() => supabase.from('global_categories').update(payload).eq('id', entry.id))
+      else await step(() => supabase.from('global_categories').insert({ ...payload, category_type: 'maintenance', is_active: true }))
+    })
+    setSaving(false)
+    if (!res.ok) { setError(res.message); return }
+    onSaved(entry ? 'Catalog updated. Users will be offered the change.' : `${payload.name} added. Users will be offered it.`)
+  }
+
+  return (
+    <Dialog open onClose={onClose} title={entry ? 'Edit catalog category' : 'Add to catalog'} size="md"
+      primary={{ label: 'Save', onClick: save, disabled: !name.trim() || saving, loading: saving }}>
+      <div className="flex flex-col gap-5">
+        <TextField label="Name" placeholder="e.g. Engine air filter" value={name} onChange={e => setName(e.target.value)} />
+        <div className="grid grid-cols-2 gap-3">
+          <TextField label="Every" suffix="mi" type="number" inputMode="numeric" value={miles} onChange={e => setMiles(e.target.value)} />
+          <TextField label="or every" suffix="days" type="number" inputMode="numeric" value={days} onChange={e => setDays(e.target.value)} />
+        </div>
+        <p className="type-body-sm text-on-surface-variant">Users see this as “new in the catalog”, or as a change they can accept or keep their own.</p>
+        {error && <p role="alert" className="type-body text-error">{error}</p>}
+        {onToggle && <Button variant="text" className="self-start -ml-2" onClick={onToggle}>{entry?.is_active ? 'Stop offering this' : 'Offer this again'}</Button>}
       </div>
+    </Dialog>
+  )
+}
 
-      {/* ── Global Category Modal ── */}
-      {showCatModal && (
-        <div
-          className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4"
-          onMouseDown={e => { if (e.target === e.currentTarget) setShowCatModal(false) }}
-        >
-          <div className="bg-surface border border-border rounded-3xl w-full max-w-sm p-6">
-            <div className="flex items-center justify-between mb-5">
-              <h3 className="font-bold text-foreground">{editCat ? 'Edit Category' : 'Add Global Category'}</h3>
-              <button onClick={() => setShowCatModal(false)} className="text-muted hover:text-foreground"><X size={18} /></button>
-            </div>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-muted mb-1.5">Name</label>
-                <input type="text" value={catForm.name} onChange={e => setCatForm(f => ({ ...f, name: e.target.value }))}
-                  placeholder="e.g. Transmission Service"
-                  className="w-full bg-surface-2 border border-border-strong rounded-xl px-3 py-2.5 text-foreground text-sm placeholder-faint focus:outline-none focus:border-accent/70 transition-all" />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-muted mb-1.5">Miles interval</label>
-                  <input type="number" value={catForm.interval_miles} onChange={e => setCatForm(f => ({ ...f, interval_miles: e.target.value }))}
-                    placeholder="e.g. 5000"
-                    className="w-full bg-surface-2 border border-border-strong rounded-xl px-3 py-2.5 text-foreground text-sm placeholder-faint focus:outline-none focus:border-accent/70 transition-all" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-muted mb-1.5">Days interval</label>
-                  <input type="number" value={catForm.interval_days} onChange={e => setCatForm(f => ({ ...f, interval_days: e.target.value }))}
-                    placeholder="e.g. 180"
-                    className="w-full bg-surface-2 border border-border-strong rounded-xl px-3 py-2.5 text-foreground text-sm placeholder-faint focus:outline-none focus:border-accent/70 transition-all" />
-                </div>
-              </div>
-            </div>
-            <div className="flex gap-3 mt-5">
-              <button onClick={() => setShowCatModal(false)} className="flex-1 bg-surface-2 hover:bg-surface-2 text-foreground font-medium rounded-2xl py-2.5 text-sm transition-colors">Cancel</button>
-              <button
-                onClick={saveCat}
-                disabled={savingCat || !catForm.name.trim()}
-                className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-40 text-white font-bold rounded-2xl py-2.5 text-sm transition-colors"
-              >
-                {savingCat ? 'Saving…' : editCat ? 'Update' : 'Add'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+function ReviewDialog({ request, onClose, onSaved }: { request: CategoryRequest; onClose: () => void; onSaved: (message: string) => void }) {
+  const [notes, setNotes] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-      {/* ── Request Review Modal ── */}
-      {reviewRequest && (
-        <div
-          className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4"
-          onMouseDown={e => { if (e.target === e.currentTarget) setReviewRequest(null) }}
-        >
-          <div className="bg-surface border border-border rounded-3xl w-full max-w-sm p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold text-foreground">Review Request</h3>
-              <button onClick={() => setReviewRequest(null)} className="text-muted hover:text-foreground"><X size={18} /></button>
-            </div>
-            <p className="text-foreground font-semibold mb-1">{reviewRequest.name}</p>
-            {reviewRequest.description && <p className="text-muted text-sm mb-3">{reviewRequest.description}</p>}
-            <div className="flex gap-3 text-xs text-muted mb-4">
-              {reviewRequest.interval_miles && <span>Every {reviewRequest.interval_miles.toLocaleString()} mi</span>}
-              {reviewRequest.interval_days && <span>{reviewRequest.interval_days} days</span>}
-            </div>
-            <div className="mb-4">
-              <label className="block text-xs font-medium text-muted mb-1.5">Admin notes (optional)</label>
-              <textarea
-                value={adminNotes}
-                onChange={e => setAdminNotes(e.target.value)}
-                rows={2}
-                className="w-full bg-surface-2 border border-border-strong rounded-xl px-3 py-2.5 text-foreground text-sm placeholder-faint focus:outline-none focus:border-accent/70 transition-all resize-none"
-                placeholder="Reason for approval or rejection…"
-              />
-            </div>
-            <div className="flex gap-3">
-              <button
-                onClick={() => handleRequest(reviewRequest, 'rejected')}
-                disabled={savingRequest}
-                className="flex-1 bg-danger/10 hover:bg-danger/20 text-danger font-medium rounded-2xl py-2.5 text-sm transition-colors disabled:opacity-40"
-              >
-                Reject
-              </button>
-              <button
-                onClick={() => handleRequest(reviewRequest, 'approved')}
-                disabled={savingRequest}
-                className="flex-1 bg-success/10 hover:bg-success/20 text-success font-bold rounded-2xl py-2.5 text-sm transition-colors disabled:opacity-40"
-              >
-                {savingRequest ? 'Saving…' : 'Approve & Add'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+  async function decide(status: 'approved' | 'rejected') {
+    setSaving(true); setError(null)
+    const res = await runSave(async () => {
+      // Catalog first: if it fails, the suggestion is still waiting and can be retried.
+      if (status === 'approved') {
+        await step(() => supabase.from('global_categories').insert({
+          name: request.name, category_type: 'maintenance', interval_miles: request.interval_miles, interval_days: request.interval_days, is_active: true,
+        }))
+      }
+      await step(() => supabase.from('category_requests').update({ status, admin_notes: notes.trim() || null }).eq('id', request.id))
+    })
+    setSaving(false)
+    if (!res.ok) { setError(res.message); return }
+    onSaved(status === 'approved' ? `${request.name} added to the catalog and offered to everyone` : 'Suggestion declined')
+  }
+
+  return (
+    <Dialog open onClose={onClose} title={request.name} subtitle={intervalText(request) ?? undefined} size="md" variant="basic"
+      primary={{ label: 'Approve', onClick: () => decide('approved'), disabled: saving, loading: saving }}
+      secondary={{ label: 'Decline', onClick: () => decide('rejected') }}>
+      <div className="flex flex-col gap-5">
+        {request.description && <p className="type-body text-on-surface-variant">{request.description}</p>}
+        <TextArea label="Note to the user (optional)" rows={2} value={notes} onChange={e => setNotes(e.target.value)} />
+        <p className="type-body-sm text-on-surface-variant">Approving adds it to the catalog and offers it to every user.</p>
+        {error && <p role="alert" className="type-body text-error">{error}</p>}
+      </div>
+    </Dialog>
   )
 }

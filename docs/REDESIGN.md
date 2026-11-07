@@ -36,5 +36,6 @@ Nothing is merged to `main` without Vinit's go-ahead.
 
 ## SQL Vinit must run (Supabase SQL Editor)
 - `supabase/convert_product_unit.sql` (from PR #1)
+- `supabase/add_product_archive.sql` (Archive product; everything else works without it)
 
 ## Notes / decisions made overnight

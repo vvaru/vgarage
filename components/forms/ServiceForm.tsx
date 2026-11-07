@@ -6,7 +6,7 @@ import { supabase, ensureFreshSession } from '@/lib/supabase'
 import { read, withRetry, write } from '@/lib/recover'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
-import { loadGarage, lotSource, productLabel, type GarageContext } from '@/lib/formData'
+import { pickable, loadGarage, lotSource, productLabel, type GarageContext } from '@/lib/formData'
 import { checkOdometer, odometerProblem } from '@/lib/odometer'
 import { useOdometerPoints } from '@/lib/useOdometerPoints'
 import { planDraw, type LotBalance } from '@/lib/inventory'
@@ -525,7 +525,7 @@ function PartPicker({ ctx, categoryId, date, taken, onClose, onPick }: {
           <p className="type-body text-on-surface-variant">For parts you bought for this job. The receipt is saved as a product receipt, its parts go into stock, and what you used comes straight back out for this service.</p>
           <SelectField label="Product" value={fresh.productId} onChange={e => setFresh(f => ({ ...f, productId: e.target.value }))}>
             <option value="">New product…</option>
-            {ctx.products.map(p => <option key={p.id} value={p.id}>{productLabel(p)}</option>)}
+            {pickable(ctx.products, fresh.productId).map(p => <option key={p.id} value={p.id}>{productLabel(p)}</option>)}
           </SelectField>
           {!fresh.productId && (
             <div className="grid grid-cols-[1fr_7rem] gap-3">

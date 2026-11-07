@@ -28,7 +28,7 @@ interface Data {
 const int = (s: string) => (s.trim() ? parseInt(s) : null)
 
 export default function AdminPage() {
-  const { isAdmin, loading: authLoading } = useAuth()
+  const { isAdmin, roleReady } = useAuth()
   const router = useRouter()
   const snack = useSnackbar()
   const [data, setData] = useState<Data | null>(null)
@@ -43,8 +43,8 @@ export default function AdminPage() {
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
-    if (!authLoading && !isAdmin) router.replace('/dashboard')
-  }, [authLoading, isAdmin, router])
+    if (roleReady && !isAdmin) router.replace('/dashboard')
+  }, [roleReady, isAdmin, router])
 
   useEffect(() => {
     if (!isAdmin) return
@@ -83,7 +83,7 @@ export default function AdminPage() {
     return true
   }
 
-  if (authLoading || !isAdmin) return null
+  if (!isAdmin) return null
 
   const pending = data?.requests.filter(r => r.status === 'pending').length ?? 0
   const carsOf = (id: string) => data!.vehicles.filter(v => v.user_id === id)

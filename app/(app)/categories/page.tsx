@@ -67,7 +67,7 @@ export default function CategoriesPage() {
       if (!live) return
       if (cats.error) throw new Error(cats.error.message)
       setData({
-        cats: (cats.data ?? []) as ServiceCategory[],
+        cats: ((cats.data ?? []) as ServiceCategory[]).sort((x, y) => x.name.localeCompare(y.name, undefined, { sensitivity: 'base' })),
         catalog: (catalog.data ?? []) as GlobalCategory[],
         links: (links.data ?? []) as ProductCategoryLink[],
         products: (products.data ?? []) as Product[],
@@ -397,7 +397,7 @@ function SuggestDialog({ userId, vehicleId, onClose, onSaved }: { userId: string
   async function send() {
     setSaving(true); setError(null)
     const res = await runSave(() => step(() => supabase.from('category_requests').insert({
-      user_id: userId, vehicle_id: vehicleId, name: name.trim(), description: why.trim() || null, interval_miles: int(miles), interval_days: int(days),
+      user_id: userId, vehicle_id: vehicleId, status: 'pending', name: name.trim(), description: why.trim() || null, interval_miles: int(miles), interval_days: int(days),
     })).then(() => {}))
     setSaving(false)
     if (!res.ok) { setError(res.message); return }

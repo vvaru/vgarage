@@ -28,7 +28,7 @@ interface Props {
   onEditProduct?: (productId: string) => void
 }
 
-const inputCls = 'w-full bg-surface-2 border border-border-strong rounded-xl px-3 py-2.5 text-foreground placeholder-faint focus:outline-none focus:border-accent/70 text-sm transition-all'
+const inputCls = 'w-full bg-surface-container-high border border-outline rounded-xl px-3 py-2.5 text-on-surface placeholder-faint focus:outline-none focus:border-primary/70 text-sm transition-all'
 
 export default function RotateTiresModal({
   vehicle, lives, events, products, categories, onClose, onSaved, onEditProduct,
@@ -139,29 +139,29 @@ export default function RotateTiresModal({
   const byId = new Map(lives.map(l => [l.tire.id, l]))
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[60] flex items-end sm:items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="bg-surface border border-border rounded-3xl w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden">
-        <div className="shrink-0 flex items-center justify-between px-6 pt-6 pb-4 border-b border-border">
+    <div className="fixed inset-0 bg-[var(--md-scrim)] z-[60] flex items-end sm:items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="bg-surface border border-outline-variant rounded-[28px] w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden">
+        <div className="shrink-0 flex items-center justify-between px-6 pt-6 pb-4 border-b border-outline-variant">
           <div className="flex items-center gap-2">
-            <div className="w-9 h-9 rounded-xl bg-accent/10 flex items-center justify-center"><RotateCw size={17} className="text-accent" /></div>
-            <h3 className="font-bold text-foreground text-lg">Rotate tires</h3>
+            <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center"><RotateCw size={17} className="text-primary" /></div>
+            <h3 className="font-bold text-on-surface text-lg">Rotate tires</h3>
           </div>
-          <button onClick={onClose} className="text-muted hover:text-foreground"><X size={20} /></button>
+          <button onClick={onClose} className="text-on-surface-variant hover:text-on-surface"><X size={20} /></button>
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-muted mb-1.5">Date</label>
+              <label className="block text-xs font-medium text-on-surface-variant mb-1.5">Date</label>
               <input type="date" value={date} onChange={e => setDate(e.target.value)} className={inputCls} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-muted mb-1.5">Odometer</label>
+              <label className="block text-xs font-medium text-on-surface-variant mb-1.5">Odometer</label>
               <input type="number" inputMode="numeric" value={odometer} onChange={e => setOdometer(e.target.value)} className={inputCls} />
             </div>
           </div>
           {odoTooLow && (
-            <p className="text-danger text-xs">
+            <p className="text-error text-xs">
               A tire last moved at {floor.toLocaleString()} mi — a rotation before that would scramble its mileage.
             </p>
           )}
@@ -171,30 +171,30 @@ export default function RotateTiresModal({
           })()}
 
           {!tracking ? (
-            <div className="flex items-start gap-2 bg-surface-2/50 border border-border rounded-2xl p-3">
-              <Info size={14} className="text-muted shrink-0 mt-0.5" />
-              <p className="text-muted text-xs">
+            <div className="flex items-start gap-2 bg-surface-container-high/50 border border-outline-variant rounded-2xl p-3">
+              <Info size={14} className="text-on-surface-variant shrink-0 mt-0.5" />
+              <p className="text-on-surface-variant text-xs">
                 Corners aren’t tracked for this car, so this just records that a rotation happened.
                 Tire mileage is unaffected either way.
               </p>
             </div>
           ) : (
             <div>
-              <p className="text-xs font-medium text-muted mb-2">Pattern</p>
+              <p className="text-xs font-medium text-on-surface-variant mb-2">Pattern</p>
 
               {options.known === 'directional' && (
-                <p className="text-faint text-xs mb-2">
+                <p className="text-on-surface-variant text-xs mb-2">
                   Your tires are directional, so they can only move front-to-back on their own side.
                 </p>
               )}
               {options.known === 'non-directional' && (
-                <p className="text-faint text-xs mb-2">
+                <p className="text-on-surface-variant text-xs mb-2">
                   Your tires can cross sides. X-pattern suits any drivetrain; change it if you used another.
                 </p>
               )}
               {options.known === 'unknown' && (
                 <div className="bg-warn/10 border border-warn/20 rounded-2xl p-3 mb-2 space-y-1.5">
-                  <p className="text-foreground text-xs">
+                  <p className="text-on-surface text-xs">
                     It isn’t recorded whether{' '}
                     {options.unknownProductIds.map((id, i) => (
                       <span key={id}>
@@ -207,7 +207,7 @@ export default function RotateTiresModal({
                   </p>
                   {onEditProduct && options.unknownProductIds[0] && (
                     <button onClick={() => { onClose(); onEditProduct(options.unknownProductIds[0]) }}
-                      className="text-accent text-xs font-medium">Set it on the product so Rotate can choose next time →</button>
+                      className="text-primary text-xs font-medium">Set it on the product so Rotate can choose next time →</button>
                   )}
                 </div>
               )}
@@ -217,22 +217,22 @@ export default function RotateTiresModal({
                   <button key={p.key} onClick={() => { setPatternKey(p.key); setUntrack(false) }}
                     className={`w-full text-left rounded-xl border px-3 py-2.5 transition-colors ${
                       patternKey === p.key && !untrack
-                        ? 'bg-accent/10 border-accent/40'
-                        : 'bg-surface-2/40 border-border hover:border-border-strong'
+                        ? 'bg-primary/10 border-primary/40'
+                        : 'bg-surface-container-high/40 border-outline-variant hover:border-outline'
                     }`}>
-                    <span className="text-foreground text-sm font-semibold">{p.label}</span>
-                    {options.recommended?.key === p.key && <span className="text-accent text-[10px] font-semibold ml-2">RECOMMENDED</span>}
-                    <span className="text-faint text-[11px] block">{p.description}</span>
+                    <span className="text-on-surface text-sm font-semibold">{p.label}</span>
+                    {options.recommended?.key === p.key && <span className="text-primary text-[10px] font-semibold ml-2">RECOMMENDED</span>}
+                    <span className="text-on-surface-variant text-[11px] block">{p.description}</span>
                   </button>
                 ))}
 
                 {options.known === 'unknown' && (
                   <button onClick={() => { setUntrack(true); setPatternKey('') }}
                     className={`w-full text-left rounded-xl border px-3 py-2.5 transition-colors ${
-                      untrack ? 'bg-accent/10 border-accent/40' : 'bg-surface-2/40 border-dashed border-border hover:border-border-strong'
+                      untrack ? 'bg-primary/10 border-primary/40' : 'bg-surface-container-high/40 border-dashed border-outline-variant hover:border-outline'
                     }`}>
-                    <span className="text-foreground text-sm font-semibold">I’d rather not track corners</span>
-                    <span className="text-faint text-[11px] block">
+                    <span className="text-on-surface text-sm font-semibold">I’d rather not track corners</span>
+                    <span className="text-on-surface-variant text-[11px] block">
                       Stop asking which corner each tire is on. Mileage and life keep counting —
                       they never depended on corners.
                     </span>
@@ -241,15 +241,15 @@ export default function RotateTiresModal({
               </div>
 
               {moves.length > 0 && (
-                <div className="mt-3 bg-surface-2/40 border border-border rounded-2xl p-3 space-y-1">
+                <div className="mt-3 bg-surface-container-high/40 border border-outline-variant rounded-2xl p-3 space-y-1">
                   {moves.map(m => {
                     const life = byId.get(m.tireId)
                     return (
-                      <p key={m.tireId} className="text-xs text-muted flex items-center gap-1.5">
-                        <span className="text-foreground w-20 shrink-0">{POSITION_LABELS[m.from]}</span>
-                        <ArrowRight size={11} className="text-faint shrink-0" />
-                        <span className="text-foreground w-20 shrink-0">{POSITION_LABELS[m.to]}</span>
-                        {life && <span className="text-faint truncate">{tireName(life, productName)} · {life.miles.toLocaleString()} mi</span>}
+                      <p key={m.tireId} className="text-xs text-on-surface-variant flex items-center gap-1.5">
+                        <span className="text-on-surface w-20 shrink-0">{POSITION_LABELS[m.from]}</span>
+                        <ArrowRight size={11} className="text-on-surface-variant shrink-0" />
+                        <span className="text-on-surface w-20 shrink-0">{POSITION_LABELS[m.to]}</span>
+                        {life && <span className="text-on-surface-variant truncate">{tireName(life, productName)} · {life.miles.toLocaleString()} mi</span>}
                       </p>
                     )
                   })}
@@ -259,11 +259,11 @@ export default function RotateTiresModal({
           )}
 
           {/* A rotation is also a service — logging it keeps the schedule honest. */}
-          <div className="bg-surface-2/40 border border-border rounded-2xl p-3 space-y-2">
+          <div className="bg-surface-container-high/40 border border-outline-variant rounded-2xl p-3 space-y-2">
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" checked={logService} onChange={e => setLogService(e.target.checked)}
                 disabled={categories.length === 0} className="accent-[var(--color-accent)]" />
-              <span className="text-foreground text-sm">Also log it as a service</span>
+              <span className="text-on-surface text-sm">Also log it as a service</span>
             </label>
             {logService && (
               <div className="flex gap-2">
@@ -274,7 +274,7 @@ export default function RotateTiresModal({
                 {(['owner', 'shop'] as const).map(v => (
                   <button key={v} onClick={() => setPerformedBy(v)}
                     className={`px-3 rounded-xl text-xs font-semibold border transition-colors ${
-                      performedBy === v ? 'bg-accent/15 text-accent border-accent/30' : 'bg-surface-2 text-muted border-border-strong'
+                      performedBy === v ? 'bg-primary/15 text-primary border-primary/30' : 'bg-surface-container-high text-on-surface-variant border-outline'
                     }`}>{v === 'owner' ? 'DIY' : 'Shop'}</button>
                 ))}
               </div>
@@ -283,12 +283,12 @@ export default function RotateTiresModal({
           </div>
         </div>
 
-        <div className="shrink-0 border-t border-border px-6 py-4 space-y-3">
-          {error && <p className="text-danger text-sm bg-danger/10 border border-danger/20 rounded-xl px-3 py-2">{error}</p>}
+        <div className="shrink-0 border-t border-outline-variant px-6 py-4 space-y-3">
+          {error && <p className="text-error text-sm bg-error/10 border border-error/20 rounded-xl px-3 py-2">{error}</p>}
           <div className="flex gap-3">
-            <button onClick={onClose} className="flex-1 bg-surface-2 hover:bg-border text-foreground font-medium rounded-2xl py-3 transition-colors">Cancel</button>
+            <button onClick={onClose} className="flex-1 bg-surface-container-high hover:bg-border text-on-surface font-medium rounded-2xl py-3 transition-colors">Cancel</button>
             <button onClick={handleSave} disabled={!canSave || saving || (logService && !categoryId)}
-              className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-40 text-white font-bold rounded-2xl py-3 transition-colors">
+              className="flex-1 bg-primary hover:shadow-elev-1 disabled:opacity-40 text-white font-bold rounded-2xl py-3 transition-colors">
               {saving ? 'Saving…' : untrack ? 'Save and stop tracking corners' : 'Rotate'}
             </button>
           </div>

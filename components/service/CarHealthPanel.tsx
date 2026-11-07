@@ -37,10 +37,10 @@ export default function CarHealthPanel({
     <div className="flex-1 min-h-0 flex flex-col xl:flex-row gap-6 p-6 lg:p-8">
       <div className="xl:flex-1 flex flex-col items-center min-h-0">
         <div className="self-stretch mb-2">
-          <p className="text-xs font-semibold uppercase tracking-widest text-faint">Vehicle health</p>
-          <p className="text-foreground font-bold text-lg">{heading}</p>
-          <p className="text-muted text-sm">
-            {counts.due > 0 && <span className="text-danger font-semibold">{counts.due} need{counts.due === 1 ? 's' : ''} doing</span>}
+          <p className="type-title-sm text-on-surface-variant">Vehicle health</p>
+          <p className="text-on-surface font-bold text-lg">{heading}</p>
+          <p className="text-on-surface-variant text-sm">
+            {counts.due > 0 && <span className="text-error font-semibold">{counts.due} need{counts.due === 1 ? 's' : ''} doing</span>}
             {counts.due > 0 && counts.soon > 0 && ' · '}
             {counts.soon > 0 && <span className="text-warn font-semibold">{counts.soon} coming up</span>}
             {counts.due === 0 && counts.soon === 0 && 'Nothing pressing'}
@@ -54,7 +54,7 @@ export default function CarHealthPanel({
             onZone={z => setActive(prev => (prev === z ? null : z))}
           />
         </div>
-        <div className="flex items-center gap-4 text-[11px] text-faint">
+        <div className="flex items-center gap-4 text-[11px] text-on-surface-variant">
           {(['due', 'soon', 'ok'] as const).map(l => (
             <span key={l} className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-sm" style={{ background: LEVEL_COLOR[l] }} />
@@ -72,7 +72,7 @@ export default function CarHealthPanel({
             <div
               key={st.zone.id}
               className={`rounded-2xl border p-3 transition-all ${
-                isActive ? 'bg-surface-2/70 border-accent/40' : 'bg-surface border-border'
+                isActive ? 'bg-surface-container-high/70 border-primary/40' : 'bg-surface border-outline-variant'
               } ${dim ? 'opacity-45' : ''}`}
             >
               <button
@@ -81,22 +81,22 @@ export default function CarHealthPanel({
               >
                 <span className="flex items-center gap-2">
                   <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: LEVEL_COLOR[st.level], opacity: st.level === 'none' ? 0.35 : 1 }} />
-                  <span className="text-foreground text-sm font-semibold">{st.zone.label}</span>
+                  <span className="text-on-surface text-sm font-semibold">{st.zone.label}</span>
                 </span>
                 <span className="text-xs font-medium" style={{ color: st.level === 'none' ? undefined : LEVEL_COLOR[st.level] }}>
-                  <span className={st.level === 'none' ? 'text-faint' : ''}>{LEVEL_LABEL[st.level]}</span>
+                  <span className={st.level === 'none' ? 'text-on-surface-variant' : ''}>{LEVEL_LABEL[st.level]}</span>
                 </span>
               </button>
               {st.items.length > 0 && (
                 <div className="mt-2 space-y-1">
                   {st.items.map(it => (
                     <button key={it.id} onClick={() => onItem(it)}
-                      className="w-full flex items-center justify-between gap-2 rounded-xl px-2.5 py-1.5 hover:bg-surface-2/60 transition-colors text-left">
+                      className="w-full flex items-center justify-between gap-2 rounded-xl px-2.5 py-1.5 hover:bg-surface-container-high/60 transition-colors text-left">
                       <span className="min-w-0">
-                        <span className="text-muted text-xs block truncate">{it.name}</span>
+                        <span className="text-on-surface-variant text-xs block truncate">{it.name}</span>
                         {it.detail && <span className="text-[11px] block truncate" style={{ color: LEVEL_COLOR[it.level] }}>{it.detail}</span>}
                       </span>
-                      <ChevronRight size={13} className="text-faint shrink-0" />
+                      <ChevronRight size={13} className="text-on-surface-variant shrink-0" />
                     </button>
                   ))}
                 </div>

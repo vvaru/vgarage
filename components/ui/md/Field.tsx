@@ -14,7 +14,7 @@ const box = [
 ].join(' ')
 const labelCls = [
   'pointer-events-none absolute left-3 px-1 text-on-surface-variant transition-all duration-150 origin-left',
-  'bg-[var(--field-bg,var(--md-surface))] rounded-sm max-w-[calc(100%-1.5rem)] truncate',
+  'bg-[var(--field-bg,var(--md-surface-container-low))] rounded-sm max-w-[calc(100%-1.5rem)] truncate',
 ].join(' ')
 
 interface Common {

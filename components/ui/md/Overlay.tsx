@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode, type CSSProperties } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import Icon from '../Icon'
 import Button, { IconButton } from './Button'
@@ -47,15 +47,14 @@ export function Dialog({ open, onClose, title, subtitle, children, primary, seco
   }, [open, dismissible, onClose])
   if (!open) return null
   const width = { sm: 'sm:max-w-sm', md: 'sm:max-w-lg', lg: 'sm:max-w-2xl', xl: 'sm:max-w-4xl' }[size]
-  const fieldBg = { '--field-bg': 'var(--md-surface-container-high)' } as CSSProperties
-  const fieldBgPhone = variant === 'form' ? 'max-sm:[--field-bg:var(--md-surface)]' : ''
+  const fieldBg = variant === 'form' ? '[--field-bg:var(--md-surface-container-high)] max-sm:[--field-bg:var(--md-surface-container-low)]' : '[--field-bg:var(--md-surface-container-high)]'
 
   return (
     <Portal>
       <div className="fixed inset-0 z-[60] flex items-center justify-center sm:p-6 md-fade" style={{ background: 'var(--md-scrim)' }}
         onMouseDown={e => { if (dismissible && e.target === e.currentTarget) onClose() }}>
-        <div role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined} style={fieldBg}
-          className={`relative flex flex-col w-full ${width} md-scale overflow-hidden ${fieldBgPhone} ${variant === 'form'
+        <div role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined}
+          className={`relative flex flex-col w-full ${width} md-scale overflow-hidden ${fieldBg} ${variant === 'form'
             ? 'max-sm:h-full max-sm:bg-surface sm:max-h-[min(860px,calc(100vh-48px))] sm:rounded-[28px] bg-surface-container-high'
             : 'max-w-[calc(100%-48px)] max-h-[calc(100%-48px)] rounded-[28px] bg-surface-container-high'}`}>
           {variant === 'form' ? (

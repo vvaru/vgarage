@@ -26,16 +26,21 @@ Nothing is merged to `main` without Vinit's go-ahead.
 
 ## Phases
 - [x] 0. Demo mode + screenshot QA
-- [ ] 1. Design system (tokens light/dark, Roboto Flex, Material Symbols, shared components) + app shell
-- [ ] 2. Data fixes (service date, attach without overwrite, deletes, product delete guard, add/remove stock,
-       category seeding/self-heal/catalog updates/suggestions)
-- [ ] 3. Forms (service, product receipt, stock, fuel) + Add menu
-- [ ] 4. Analytics (miles driven, spend comparisons, cost per mile, insights)
-- [ ] 5. Pages (Home, Services, Fuel, Stock, More: Cars, Categories, Import & export, Admin; login)
-- [ ] 6. QA pass (phone/desktop × light/dark), summary for Vinit
+- [x] 1. Design system (tokens light/dark, Roboto Flex, Material Symbols, shared components) + app shell
+- [x] 2. Data fixes (service date, attach without overwrite, deletes, product archive, add/remove stock,
+       category seeding/catalog updates/suggestions)
+- [x] 3. Forms (service, product receipt, stock, fuel, car) + Add menu
+- [x] 4. Analytics (miles driven, spend comparisons, cost per mile, insights)
+- [x] 5. Pages (Home, Services, Fuel, Stock, More: Cars, Categories, Import & export, Admin; login)
+- [ ] 6. QA on the real database, then the cleanup review (see CLAUDE.md) before merging
 
 ## SQL Vinit must run (Supabase SQL Editor)
 - `supabase/convert_product_unit.sql` (from PR #1)
 - `supabase/add_product_archive.sql` (Archive product; everything else works without it)
 
 ## Notes / decisions made overnight
+- The catalog is a template: new entries and interval changes are offered on Service categories, never pushed
+  into users' cars. "Keep mine" on an interval change is remembered per device (localStorage).
+- Archiving a product requires nothing on hand, so an archived product can never be in stock or a picker.
+- Old free-text category product lists stay readable; each has a "Make it a product" button in the category dialog.
+- Decided later with Vinit: moving old `service_logs.receipt_url` photos into receipts (D5), the bad Oct 18 fill-up (D7).

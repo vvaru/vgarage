@@ -1,6 +1,7 @@
 'use client'
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import type { Vehicle } from '@/lib/types'
 
 // One place that opens the app's data-entry forms from anywhere (the Add menu,
 // a product page, a service's Edit button), and tells every page when saved data
@@ -12,6 +13,7 @@ export type FormRequest =
   | { kind: 'receipt'; receiptId?: string }
   | { kind: 'stock'; mode: 'add' | 'remove'; productId?: string }
   | { kind: 'product'; productId?: string }
+  | { kind: 'car'; car?: Vehicle }
 
 interface FormsApi {
   open: (req: FormRequest) => void

@@ -11,6 +11,7 @@ import ServiceForm from './ServiceForm'
 import ReceiptForm from './ReceiptForm'
 import StockForm from './StockForm'
 import ProductForm from './ProductForm'
+import CarForm from './CarForm'
 import type { FuelLog } from '@/lib/types'
 
 // Renders whichever data-entry form is open. Each form loads what it needs, saves,
@@ -50,6 +51,7 @@ export default function FormHost() {
   }
   if (active.kind === 'receipt') return <ReceiptForm key={active.receiptId ?? 'new'} receiptId={active.receiptId} onClose={close} onSaved={done} />
   if (active.kind === 'product') return <ProductForm key={active.productId ?? 'new'} productId={active.productId} onClose={close} onSaved={done} />
+  if (active.kind === 'car') return <CarForm key={active.car?.id ?? 'new'} car={active.car} onClose={close} onSaved={done} />
   if (active.kind === 'stock') return <StockForm mode={active.mode} productId={active.productId} onClose={close} onSaved={done} />
   return null
 }

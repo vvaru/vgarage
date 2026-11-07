@@ -60,8 +60,8 @@ export function Dialog({ open, onClose, title, subtitle, children, primary, seco
             : 'max-w-[calc(100%-48px)] max-h-[calc(100%-48px)] rounded-[28px] bg-surface-container-high'}`}>
           {variant === 'form' ? (
             <div className="flex items-center gap-1 pl-1 pr-2 sm:pl-6 sm:pr-3 pt-[max(8px,env(safe-area-inset-top))] sm:pt-5 pb-2 shrink-0">
-              <IconButton icon="close" label="Close" onClick={onClose} className="sm:hidden" />
-              <div className="flex-1 min-w-0 pl-1 sm:pl-0">
+              {dismissible && <IconButton icon="close" label="Close" onClick={onClose} className="sm:hidden" />}
+              <div className={`flex-1 min-w-0 sm:pl-0 ${dismissible ? 'pl-1' : 'pl-3'}`}>
                 <h2 className="type-title-lg sm:type-headline-sm text-on-surface truncate">{title}</h2>
                 {subtitle && <p className="type-body text-on-surface-variant truncate">{subtitle}</p>}
               </div>
@@ -69,7 +69,7 @@ export function Dialog({ open, onClose, title, subtitle, children, primary, seco
               {primary && (
                 <Button variant="text" className="sm:hidden" onClick={primary.onClick} disabled={primary.disabled} loading={primary.loading}>{primary.label}</Button>
               )}
-              <IconButton icon="close" label="Close" onClick={onClose} className="max-sm:hidden" />
+              {dismissible && <IconButton icon="close" label="Close" onClick={onClose} className="max-sm:hidden" />}
             </div>
           ) : (
             <div className="px-6 pt-6 pb-2">
@@ -82,7 +82,7 @@ export function Dialog({ open, onClose, title, subtitle, children, primary, seco
           </div>
           {(primary || secondary) && (
             <div className={`flex justify-end gap-2 px-6 pb-6 pt-2 shrink-0 ${variant === 'form' ? 'max-sm:hidden' : ''}`}>
-              <Button variant="text" onClick={secondary?.onClick ?? onClose}>{secondary?.label ?? 'Cancel'}</Button>
+              {(dismissible || secondary) && <Button variant="text" onClick={secondary?.onClick ?? onClose}>{secondary?.label ?? 'Cancel'}</Button>}
               {primary && (
                 <Button variant={primary.danger ? 'danger-filled' : 'filled'} onClick={primary.onClick} disabled={primary.disabled} loading={primary.loading}>{primary.label}</Button>
               )}

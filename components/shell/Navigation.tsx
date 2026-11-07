@@ -11,7 +11,7 @@ export const DESTINATIONS: { href: string; label: string; icon: IconName; match:
   { href: '/service', label: 'Services', icon: 'build', match: ['/service'] },
   { href: '/fuel', label: 'Fuel', icon: 'local_gas_station', match: ['/fuel'] },
   { href: '/products', label: 'Stock', icon: 'inventory_2', match: ['/products'] },
-  { href: '/more', label: 'More', icon: 'more_horiz', match: ['/more', '/garage', '/admin', '/categories'] },
+  { href: '/more', label: 'More', icon: 'more_horiz', match: ['/more', '/garage', '/admin', '/categories', '/import'] },
 ]
 
 const isActive = (path: string, match: string[]) => match.some(m => path === m || path.startsWith(m + '/'))

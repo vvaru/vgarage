@@ -26,9 +26,6 @@ import { fmtQty } from '@/lib/units'
 import { diySaving } from '@/lib/serviceFilter'
 import type { ServiceLog } from '@/lib/types'
 
-const ExportPdfModal = dynamic(() => import('@/components/service/ExportPdfModal'), { ssr: false })
-const CarfaxImportModal = dynamic(() => import('@/components/service/CarfaxImportModal'), { ssr: false })
-const CategoryManagerModal = dynamic(() => import('@/components/service/CategoryManagerModal'), { ssr: false })
 const ReceiptViewer = dynamic(() => import('@/components/ui/ReceiptViewer'), { ssr: false })
 
 const usd = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -63,7 +60,6 @@ export default function ServicesPage() {
   const [typeFilter, setTypeFilter] = useState('')
   const [groupKey, setGroupKey] = useState<string | null>(null)
   const [catOpen, setCatOpen] = useState<string | null>(null)
-  const [modal, setModal] = useState<'export' | 'carfax' | 'categories' | null>(null)
   const [photo, setPhoto] = useState<string | null>(null)
   const [extraOf, setExtraOf] = useState<ServiceLog[] | null>(null)
   const [merge, setMerge] = useState<{ dupes: ServiceLog[]; notes: string; conflicts: { field: string; label: string; values: string[]; chosen: string }[] } | null>(null)
@@ -308,9 +304,8 @@ export default function ServicesPage() {
     <Menu
       trigger={({ toggle, open: o }) => <IconButton icon="more_vert" label="More actions" onClick={toggle} selected={o} />}
       items={[
-        { label: 'Service categories', supporting: 'What you track and how often', icon: 'category', onClick: () => setModal('categories') },
-        { label: 'Import from Carfax', supporting: 'Past services from a report', icon: 'upload_file', onClick: () => setModal('carfax') },
-        { label: 'Export history (PDF)', supporting: 'With receipts, e.g. for selling the car', icon: 'picture_as_pdf', onClick: () => setModal('export') },
+        { label: 'Service categories', supporting: 'What you track and how often', icon: 'category', onClick: () => router.push('/categories') },
+        { label: 'Import & export', supporting: 'Carfax import, PDF history', icon: 'import_export', onClick: () => router.push('/import') },
       ]}
     />
   )
@@ -328,7 +323,7 @@ export default function ServicesPage() {
       {tab === 'schedule' ? (
         loading ? <div className="grid lg:grid-cols-2 gap-4"><Skeleton className="h-96" /><Skeleton className="h-96" /></div> : d.statuses.length === 0 && d.unscheduled.length === 0 ? (
           <EmptyState icon="category" title="No service categories yet" body="Categories (oil change every 5,000 mi…) are what reminders come from."
-            action={<Button onClick={() => setModal('categories')}>Set up categories</Button>} />
+            action={<Button href="/categories">Set up categories</Button>} />
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)] gap-6 items-start">
             <Card variant="outlined" className="py-2 overflow-hidden">
@@ -517,9 +512,6 @@ export default function ServicesPage() {
         )}
       </Dialog>
 
-      {modal === 'export' && <ExportPdfModal vehicle={vehicle} logs={services} categories={categories} onClose={() => setModal(null)} />}
-      {modal === 'carfax' && <CarfaxImportModal vehicle={vehicle} categories={categories} onClose={() => setModal(null)} onImported={reload} />}
-      {modal === 'categories' && <CategoryManagerModal vehicle={vehicle} onClose={() => setModal(null)} onUpdated={reload} />}
     </Page>
   )
 }

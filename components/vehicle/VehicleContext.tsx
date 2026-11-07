@@ -32,6 +32,9 @@ export function VehicleProvider({ children }: { children: React.ReactNode }) {
   const [activeId, setActiveId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // Whose cars are loaded. Between sign-in and the first fetch starting, this is what
+  // says "still loading", so nothing mistakes the empty list for having no car.
+  const [loadedFor, setLoadedFor] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     if (!session) return
@@ -57,6 +60,7 @@ export function VehicleProvider({ children }: { children: React.ReactNode }) {
       setError(e instanceof Error ? e.message : 'Could not reach the database.')
     } finally {
       setLoading(false)
+      setLoadedFor(session.user.id)
     }
   }, [session])
 
@@ -77,9 +81,10 @@ export function VehicleProvider({ children }: { children: React.ReactNode }) {
   }
 
   const vehicle = vehicles.find(v => v.id === activeId) ?? null
+  const stillLoading = loading || (session != null && loadedFor !== session.user.id)
 
   return (
-    <VehicleContext.Provider value={{ vehicle, vehicles, loading, error, refresh, setActiveVehicleId }}>
+    <VehicleContext.Provider value={{ vehicle, vehicles, loading: stillLoading, error, refresh, setActiveVehicleId }}>
       {children}
     </VehicleContext.Provider>
   )

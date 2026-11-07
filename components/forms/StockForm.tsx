@@ -9,6 +9,7 @@ import { useVehicle } from '@/components/vehicle/VehicleContext'
 import { loadGarage, pickable, productLabel, type GarageContext } from '@/lib/formData'
 import { fmtQty, guessUnit, UNIT_GROUPS } from '@/lib/units'
 import { Dialog, Icon, Segmented, SelectField, Skeleton, TextField } from '@/components/ui/md'
+import { newId } from '@/lib/newId'
 
 const num = (s: string): number | null => { const n = parseFloat(s); return s.trim() !== '' && !isNaN(n) ? n : null }
 const ADD_REASONS = ['Already had it (old inventory)', 'Gift or hand-me-down', 'Bought, no receipt', 'Correction']
@@ -33,7 +34,7 @@ export default function StockForm({ mode: initialMode, productId, onClose, onSav
   const [reason, setReason] = useState(initialMode === 'add' ? ADD_REASONS[0] : REMOVE_REASONS[0])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const ids = useRef({ adj: crypto.randomUUID(), prod: crypto.randomUUID() })
+  const ids = useRef({ adj: newId(), prod: newId() })
 
   useEffect(() => {
     if (!user || !vehicle) return

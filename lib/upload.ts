@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase'
 import { withRetry, write } from '@/lib/recover'
+import { newId } from '@/lib/newId'
 
 /** Phone photos are huge; receipts read fine at 2000px. PDFs and small images pass through. */
 async function shrink(file: File): Promise<File> {
@@ -29,4 +30,4 @@ export async function uploadReceiptFile(path: string, file: File): Promise<void>
 }
 
 export const receiptPath = (userId: string, file: File) =>
-  `${userId}/${crypto.randomUUID()}.${file.type === 'application/pdf' ? 'pdf' : file.type.startsWith('image/') && file.size >= 600_000 ? 'jpg' : (file.name.split('.').pop() ?? 'jpg')}`
+  `${userId}/${newId()}.${file.type === 'application/pdf' ? 'pdf' : file.type.startsWith('image/') && file.size >= 600_000 ? 'jpg' : (file.name.split('.').pop() ?? 'jpg')}`

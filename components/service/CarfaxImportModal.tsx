@@ -6,6 +6,7 @@ import { supabase, ensureFreshSession } from '@/lib/supabase'
 import { write, saveMessage } from '@/lib/recover'
 import { useAuth } from '@/components/auth/AuthProvider'
 import type { ServiceCategory, Vehicle } from '@/lib/types'
+import { newId } from '@/lib/newId'
 
 function buildClaudePrompt() {
   return `I have vehicle service records I need to import into a car maintenance tracker. These may be from a Carfax report, a dealership service PDF, or my own handwritten/typed notes. Extract every service record and return them as a JSON array — nothing else, just raw JSON, no markdown fences, no explanatory text.
@@ -99,7 +100,16 @@ export default function CarfaxImportModal({ vehicle, categories, onClose, onImpo
   }
 
   async function copyPrompt() {
-    await navigator.clipboard.writeText(buildClaudePrompt())
+    // navigator.clipboard only exists on HTTPS and localhost.
+    if (navigator.clipboard) await navigator.clipboard.writeText(buildClaudePrompt())
+    else {
+      const box = document.createElement('textarea')
+      box.value = buildClaudePrompt()
+      document.body.appendChild(box)
+      box.select()
+      document.execCommand('copy')
+      box.remove()
+    }
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
@@ -181,7 +191,7 @@ export default function CarfaxImportModal({ vehicle, categories, onClose, onImpo
     for (const row of reviewRows) {
       if (row.action === 'skip') continue
       if (!sessionIdMap.has(row.session_key)) {
-        sessionIdMap.set(row.session_key, crypto.randomUUID())
+        sessionIdMap.set(row.session_key, newId())
       }
     }
 

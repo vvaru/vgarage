@@ -11,6 +11,7 @@ import { fmtQty, guessUnit, UNIT_GROUPS } from '@/lib/units'
 import { loadGarage, type GarageContext } from '@/lib/formData'
 import { Button, Chip, Confirm, Dialog, Icon, IconButton, Segmented, SelectField, Skeleton, TextArea, TextField } from '@/components/ui/md'
 import type { ProductLink } from '@/lib/types'
+import { newId } from '@/lib/newId'
 
 interface LinkDraft { label: string; url: string }
 
@@ -34,7 +35,7 @@ export default function ProductForm({ productId, onClose, onSaved }: { productId
   const [error, setError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [confirmArchive, setConfirmArchive] = useState(false)
-  const newId = useRef(crypto.randomUUID())
+  const draftId = useRef(newId())
 
   useEffect(() => {
     if (!user || !vehicle) return
@@ -88,7 +89,7 @@ export default function ProductForm({ productId, onClose, onSaved }: { productId
           typeId = (data as { id: string } | null)?.id ?? null
         }
       }
-      const id = productId ?? newId.current
+      const id = productId ?? draftId.current
       const payload = {
         user_id: user.id, vehicle_id: null, name: name.trim(), brand: brand.trim() || null, unit: effUnit,
         product_type_id: typeId, notes: notes.trim() || null,

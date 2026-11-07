@@ -8,6 +8,7 @@ import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
 import { Dialog, SelectField, TextField } from '@/components/ui/md'
 import type { Vehicle } from '@/lib/types'
+import { newId } from '@/lib/newId'
 
 const CURRENT_YEAR = new Date().getFullYear()
 const YEARS = Array.from({ length: CURRENT_YEAR - 1979 }, (_, i) => CURRENT_YEAR - i)
@@ -32,7 +33,7 @@ export default function CarForm({ car, setup, onClose, onSaved }: {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Stable id: a retry re-writes the same car instead of adding a second one.
-  const newId = useRef(crypto.randomUUID())
+  const draftId = useRef(newId())
 
   const askOdometer = !car || setup
   const odo = parseInt(odometer)
@@ -57,8 +58,8 @@ export default function CarForm({ car, setup, onClose, onSaved }: {
         await step(() => supabase.from('vehicles').update(details).eq('id', car.id))
         return
       }
-      await step(() => supabase.from('vehicles').upsert({ id: newId.current, user_id: user.id, ...details }))
-      const count = await seedCar(user.id, newId.current)
+      await step(() => supabase.from('vehicles').upsert({ id: draftId.current, user_id: user.id, ...details }))
+      const count = await seedCar(user.id, draftId.current)
       message = `${details.make} ${details.model} added with ${count} service categories`
     })
     setSaving(false)
@@ -67,7 +68,7 @@ export default function CarForm({ car, setup, onClose, onSaved }: {
       return
     }
     await refresh()
-    if (!car) setActiveVehicleId(newId.current)
+    if (!car) setActiveVehicleId(draftId.current)
     onSaved(message)
   }
 

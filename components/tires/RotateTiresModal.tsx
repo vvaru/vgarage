@@ -13,6 +13,7 @@ import {
   POSITION_LABELS, type TireEvent, type TireLife,
 } from '@/lib/tires'
 import type { Product, ServiceCategory, Vehicle } from '@/lib/types'
+import { newId } from '@/lib/newId'
 
 type ProductU = Product & { unit?: string }
 
@@ -76,7 +77,7 @@ export default function RotateTiresModal({
     if (!user || !canSave) return
     setSaving(true)
     setError(null)
-    if (!ids.current) ids.current = { log: crypto.randomUUID(), events: {} }
+    if (!ids.current) ids.current = { log: newId(), events: {} }
     const { log: logId } = ids.current
 
     try {
@@ -113,7 +114,7 @@ export default function RotateTiresModal({
         if (vErr) throw new Error(vErr.message)
       } else {
         for (const m of moves) {
-          ids.current.events[m.tireId] ??= crypto.randomUUID()
+          ids.current.events[m.tireId] ??= newId()
           const { error: eErr } = await withRetry(() => write(supabase.from('tire_events').upsert({
             id: ids.current!.events[m.tireId],
             user_id: user.id,

@@ -15,6 +15,7 @@ import {
   Avatar, Button, Card, Confirm, Dialog, EmptyState, IconButton, ListItem, Pill, Segmented, SelectField, Skeleton, TextArea, TextField, useSnackbar,
 } from '@/components/ui/md'
 import type { CategoryRequest, GlobalCategory, Product, ProductCategoryLink, ServiceCategory, ServiceCategoryProduct } from '@/lib/types'
+import { newId } from '@/lib/newId'
 
 interface Data {
   cats: ServiceCategory[]
@@ -307,7 +308,7 @@ function CategoryDialog({ category, data, userId, vehicleId, onClose, onSaved, o
     setSaving(true); setError(null)
     const res = await runSave(async () => {
       const existing = data.products.find(p => p.name.trim().toLowerCase() === old.name.trim().toLowerCase())
-      const productId = existing?.id ?? crypto.randomUUID()
+      const productId = existing?.id ?? newId()
       if (!existing) {
         await step(() => supabase.from('products').upsert({
           id: productId, user_id: userId, vehicle_id: null, name: old.name.trim(), brand: null, unit: guessUnit(old.name),

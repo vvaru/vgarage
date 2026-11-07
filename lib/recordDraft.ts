@@ -1,6 +1,7 @@
 import { differenceInDays, parseISO } from 'date-fns'
 import type { ServiceCategory, ServiceLog } from '@/lib/types'
 import type { ProductStock } from '@/lib/inventory'
+import { newId } from '@/lib/newId'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Draft shapes for the two-phase record wizard, plus the pure logic that turns
@@ -36,7 +37,7 @@ export interface LineDraft {
 }
 
 export const emptyLine = (): LineDraft => ({
-  key: crypto.randomUUID(), itemId: null, productId: '', newName: '', newBrand: '',
+  key: newId(), itemId: null, productId: '', newName: '', newBrand: '',
   unit: 'each', unitTouched: false, qty: '', unitPrice: '',
   count: '1', size: '', price: '', priceMode: 'each',
   newNotes: '', newBuyUrl: '', newCategoryIds: [],
@@ -62,7 +63,7 @@ export interface ServiceTag {
 }
 
 export const emptyTag = (): ServiceTag => ({
-  key: crypto.randomUUID(), categoryId: '', customName: '', performedBy: 'shop', amount: '',
+  key: newId(), categoryId: '', customName: '', performedBy: 'shop', amount: '',
 })
 
 export interface ReceiptDraft {
@@ -80,7 +81,7 @@ export interface ReceiptDraft {
 }
 
 export const emptyReceipt = (date: string): ReceiptDraft => ({
-  key: crypto.randomUUID(), receiptId: null, originLogId: null,
+  key: newId(), receiptId: null, originLogId: null,
   file: null, preview: null, existingImage: null,
   date, store: '', noProducts: false, lines: [emptyLine()], tags: [],
 })

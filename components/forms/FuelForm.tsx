@@ -10,6 +10,7 @@ import { checkOdometer, odometerProblem } from '@/lib/odometer'
 import { useOdometerPoints } from '@/lib/useOdometerPoints'
 import { Dialog, TextField } from '@/components/ui/md'
 import type { FuelLog, Vehicle } from '@/lib/types'
+import { newId } from '@/lib/newId'
 
 interface Props {
   vehicle: Vehicle
@@ -45,7 +46,7 @@ export default function FuelForm({ vehicle, log, onClose, onSaved }: Props) {
   const [recent, setRecent] = useState<Field[]>([])
   // A stable row id for this modal session so any retry (or re-tap of Save) re-writes
   // the SAME row instead of creating a duplicate — this is what makes auto-retry safe.
-  const [rowId] = useState(() => (isEdit ? log!.id : crypto.randomUUID()))
+  const [rowId] = useState(() => (isEdit ? log!.id : newId()))
   // Readings only go up: warn as soon as this one doesn't fit the entries around its date.
   const odoPoints = useOdometerPoints(vehicle.id)
   const odoWarning = odoPoints && odometer.trim() ? odometerProblem(odoPoints, date, parseInt(odometer), [rowId]) : null

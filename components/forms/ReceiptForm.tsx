@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/md'
 import ReceiptViewer from '@/components/ui/ReceiptViewer'
 import type { Receipt, ReceiptItem } from '@/lib/types'
+import { newId } from '@/lib/newId'
 
 const num = (s: string): number | null => { const n = parseFloat(s); return s.trim() !== '' && !isNaN(n) ? n : null }
 const usd = (n: number) => `$${n.toFixed(2)}`
@@ -36,8 +37,8 @@ export default function ReceiptForm({ receiptId, onClose, onSaved }: { receiptId
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [convert, setConvert] = useState<{ lineKey: string; productId: string; from: string; to: string; factor: string; busy: boolean; err: string | null } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
-  const ids = useRef<{ receipt: string; keys: Record<string, string> }>({ receipt: receiptId ?? crypto.randomUUID(), keys: {} })
-  const key = (k: string) => (ids.current.keys[k] ??= crypto.randomUUID())
+  const ids = useRef<{ receipt: string; keys: Record<string, string> }>({ receipt: receiptId ?? newId(), keys: {} })
+  const key = (k: string) => (ids.current.keys[k] ??= newId())
 
   const load = useCallback(async () => {
     if (!user || !vehicle) return null

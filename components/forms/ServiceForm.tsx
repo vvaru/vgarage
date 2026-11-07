@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/md'
 import TireFitting from './TireFitting'
 import type { ServiceLog } from '@/lib/types'
+import { newId } from '@/lib/newId'
 
 const num = (s: string): number | null => { const n = parseFloat(s); return s.trim() !== '' && !isNaN(n) ? n : null }
 const usd = (n: number) => `$${n.toFixed(2)}`
@@ -64,9 +65,9 @@ export default function ServiceForm({ logId, productId, categoryId, onClose, onS
   const [confirmDelete, setConfirmDelete] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   // The record's id is fixed for this form session, so a retried save rewrites the same rows.
-  const [recordId] = useState(() => logId ?? crypto.randomUUID())
+  const [recordId] = useState(() => logId ?? newId())
   const ids = useRef<{ keys: Record<string, string> }>({ keys: {} })
-  const key = (k: string) => (ids.current.keys[k] ??= crypto.randomUUID())
+  const key = (k: string) => (ids.current.keys[k] ??= newId())
   const odoPoints = useOdometerPoints(vehicle?.id)
 
   // ── Load what the form needs; when editing, the service as it was saved ──
@@ -80,7 +81,7 @@ export default function ServiceForm({ logId, productId, categoryId, onClose, onS
         setCtx(garage)
         if (!logId) {
           setOdo(String(vehicle.odometer))
-          if (productId) setParts([{ key: crypto.randomUUID(), productId, qty: '1' }])
+          if (productId) setParts([{ key: newId(), productId, qty: '1' }])
           if (productId && !categoryId) {
             const link = garage.links.find(l => l.product_id === productId && garage.categories.some(c => c.id === l.category_id))
             if (link) setCatId(link.category_id)
@@ -103,7 +104,7 @@ export default function ServiceForm({ logId, productId, categoryId, onClose, onS
         const used = garage.usage.filter(u => u.log_id === logId)
         const byProduct = new Map<string, number>()
         for (const u of used) byProduct.set(u.product_id, (byProduct.get(u.product_id) ?? 0) + Number(u.qty))
-        setParts([...byProduct].map(([pid, q]) => ({ key: crypto.randomUUID(), productId: pid, qty: String(+q.toFixed(3)) })))
+        setParts([...byProduct].map(([pid, q]) => ({ key: newId(), productId: pid, qty: String(+q.toFixed(3)) })))
         const partsCost = used.reduce((s, u) => s + Number(u.qty) * Number(u.unit_cost ?? 0), 0)
         if (l.performed_by === 'shop' && l.cost != null) setCharged(String(+(Number(l.cost) - partsCost).toFixed(2)))
         const linked = ((links ?? []) as { receipt_id: string }[]).map(x => garage.receipts.get(x.receipt_id)).filter(Boolean)
@@ -157,7 +158,7 @@ export default function ServiceForm({ logId, productId, categoryId, onClose, onS
   const canSave = Boolean(ctx && date && odoN && name && !odoWarning && !saving)
   const tiresOn = Boolean(cat?.tracks_tires && !logId)
 
-  function addPart(row: Omit<PartRow, 'key'>) { setParts(p => [...p, { ...row, key: crypto.randomUUID() }]) }
+  function addPart(row: Omit<PartRow, 'key'>) { setParts(p => [...p, { ...row, key: newId() }]) }
 
   // ── Save ──────────────────────────────────────────────────────────────
   async function save() {
@@ -425,7 +426,7 @@ export default function ServiceForm({ logId, productId, categoryId, onClose, onS
                 </div>
               ))}
               <input ref={fileRef} type="file" accept="image/*,application/pdf" hidden
-                onChange={e => { const f = e.target.files?.[0]; if (f) setUploads(us => [...us, { key: crypto.randomUUID(), file: f }]); e.target.value = '' }} />
+                onChange={e => { const f = e.target.files?.[0]; if (f) setUploads(us => [...us, { key: newId(), file: f }]); e.target.value = '' }} />
               <Button variant="outlined" icon="add_a_photo" className="self-start" onClick={() => fileRef.current?.click()}>{isShop ? 'Add the shop’s bill' : 'Add a receipt'}</Button>
               <p className="type-body-sm text-on-surface-variant">Receipts for the parts above attach themselves, whenever you bought them. A photo added here belongs to this service.</p>
             </section>

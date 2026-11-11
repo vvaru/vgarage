@@ -7,17 +7,15 @@ import { LEVEL_COLOR, LEVEL_LABEL, ZONES, type ZoneId, type ZoneItem, type ZoneL
 import type { TirePosition } from '@/lib/tires'
 
 /**
- * The Services page's resting state on a wide screen: the car, big, with every
- * region it can speak to listed beside it. Picking a region highlights it and
- * its jobs; picking a job opens it.
+ * The car, with every part that has something tracked listed beside it. Picking a
+ * part highlights it and its jobs; picking a job opens it.
  */
 export default function CarHealthPanel({
-  states, tireCorners, onItem, heading,
+  states, tireCorners, onItem,
 }: {
   states: Map<ZoneId, ZoneState>
   tireCorners: Map<TirePosition, ZoneLevel> | null
   onItem: (item: ZoneItem) => void
-  heading: string
 }) {
   const [active, setActive] = useState<ZoneId | null>(null)
 
@@ -29,21 +27,21 @@ export default function CarHealthPanel({
   // Regions with something to say first, worst first; untracked ones last.
   const rank: Record<ZoneLevel, number> = { due: 3, soon: 2, ok: 1, none: 0 }
   // General has no part on the drawing, so it only earns a row when something's in it.
-  const ordered = ZONES.map(z => states.get(z.id)!)
-    .filter(st => st.zone.drawn || st.items.length > 0)
-    .sort((a, b) => rank[b.level] - rank[a.level])
+  const all = ZONES.map(z => states.get(z.id)!).filter(st => st.zone.drawn || st.items.length > 0)
+  const ordered = all.filter(st => st.level !== 'none').sort((a, b) => rank[b.level] - rank[a.level])
+  const untracked = all.filter(st => st.level === 'none')
 
   return (
     <div className="flex-1 min-h-0 flex flex-col xl:flex-row gap-6 p-6 lg:p-8">
       <div className="xl:flex-1 flex flex-col items-center min-h-0">
         <div className="self-stretch mb-2">
-          <p className="type-title-sm text-on-surface-variant">Vehicle health</p>
-          <p className="text-on-surface font-bold text-lg">{heading}</p>
-          <p className="text-on-surface-variant text-sm">
-            {counts.due > 0 && <span className="text-error font-semibold">{counts.due} need{counts.due === 1 ? 's' : ''} doing</span>}
+          <p className="type-title-lg text-on-surface">Car health</p>
+          <p className="type-body text-on-surface-variant">
+            {counts.due > 0 && <span className="text-error font-medium">{counts.due} need{counts.due === 1 ? 's' : ''} doing</span>}
             {counts.due > 0 && counts.soon > 0 && ' · '}
-            {counts.soon > 0 && <span className="text-warn font-semibold">{counts.soon} coming up</span>}
+            {counts.soon > 0 && <span className="text-[var(--md-warn)] font-medium">{counts.soon} coming up</span>}
             {counts.due === 0 && counts.soon === 0 && 'Nothing pressing'}
+            {' · tap a part of the car'}
           </p>
         </div>
         <div className="w-full max-w-[340px] flex-1 min-h-[460px] max-h-[74vh] py-2">
@@ -104,6 +102,11 @@ export default function CarHealthPanel({
             </div>
           )
         })}
+        {untracked.length > 0 && (
+          <p className="type-body-sm text-on-surface-variant px-1 pt-1">
+            Not tracked: {untracked.map(st => st.zone.label).join(', ')}. Add a category for one in Service categories.
+          </p>
+        )}
       </div>
     </div>
   )

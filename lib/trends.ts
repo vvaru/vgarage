@@ -245,13 +245,7 @@ export function insights(d: DrivingSummary | null, s: SpendSummary, mpgRecent: n
         text: `${usd(s.thisMonth.total)} spent so far this month, ${Math.abs(Math.round(p))}% ${p > 0 ? 'more' : 'less'} than by this day last month (${usd(lastSame)}).` })
     }
   }
-  if (s.ytdLastYear && s.ytdLastYear.total > 0) {
-    const p = pctChange(s.ytd.total, s.ytdLastYear.total)!
-    if (Math.abs(p) >= 10) {
-      out.push({ id: 'spend-ytd', icon: 'payments', tone: p > 0 ? 'bad' : 'good',
-        text: `This year so far: ${usd(s.ytd.total)}, ${Math.abs(Math.round(p))}% ${p > 0 ? 'above' : 'below'} the same point last year.` })
-    }
-  }
+  // Year to date vs last year is on the Running costs card, so it isn't repeated here.
   if (mpgRecent != null && mpgBefore != null) {
     const p = pctChange(mpgRecent, mpgBefore)!
     if (Math.abs(p) >= 5) {

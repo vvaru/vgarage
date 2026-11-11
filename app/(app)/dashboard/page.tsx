@@ -1,7 +1,6 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import Link from 'next/link'
 import { format, parseISO } from 'date-fns'
 import { supabase } from '@/lib/supabase'
 import { runSave, step } from '@/lib/recover'
@@ -9,7 +8,7 @@ import { useVehicle } from '@/components/vehicle/VehicleContext'
 import { useForms } from '@/components/shell/forms'
 import PageHeader, { Page } from '@/components/shell/PageHeader'
 import {
-  Avatar, Button, Card, CompareBars, Delta, Dialog, EmptyState, IconButton, ListItem, Pill, Progress,
+  Avatar, Button, Card, CompareBars, Delta, Dialog, EmptyState, IconButton, ListItem, Pill,
   Segmented, Skeleton, Sparkline, TextField, useSnackbar, Icon, type IconName,
 } from '@/components/ui/md'
 import { WeeklyMilesChart, MonthlySpendChart, Legend } from '@/components/charts/TrendCharts'
@@ -128,20 +127,6 @@ export default function HomePage() {
               <Button variant="tonal" icon="build" onClick={() => open({ kind: 'service' })}>Log service</Button>
             </div>
           </div>
-          {next && (
-            <Link href="/service" className="mt-6 block rounded-xl bg-surface-container-highest/60 hover:bg-surface-container-highest transition-colors p-4">
-              <div className="flex items-center justify-between gap-3 mb-2">
-                <span className="type-title text-on-surface truncate">Next: {next.cat.name}</span>
-                <Pill tone={next.isOverdue ? 'due' : next.isDueSoon ? 'soon' : 'ok'}>{dueText(next)}</Pill>
-              </div>
-              <Progress value={next.used} tone={next.isOverdue ? 'error' : next.isDueSoon ? 'warn' : 'primary'} />
-              <p className="type-body-sm text-on-surface-variant mt-2">
-                {next.lastDate ? `Last done ${short(next.lastDate)} at ${mi(next.lastOdo!)}` : 'Never logged'}
-                {next.cat.interval_miles ? ` · every ${next.cat.interval_miles.toLocaleString()} mi` : ''}
-                {next.cat.interval_days ? ` or ${Math.round(next.cat.interval_days / 30)} months` : ''}
-              </p>
-            </Link>
-          )}
         </Card>
 
         {/* ── Needs attention ──────────────────────────────────────────────── */}

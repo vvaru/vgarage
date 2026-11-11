@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { read } from '@/lib/recover'
 import { useDataRefresh } from '@/components/shell/forms'
-import type { Product, Receipt, ReceiptItem, ServiceProductUsage } from '@/lib/types'
+import type { Product, ProductCategoryLink, Receipt, ReceiptItem, ServiceProductUsage } from '@/lib/types'
 import type { Tire, TireEvent } from '@/lib/tires'
 
 export interface ServiceExtras {
@@ -13,14 +13,15 @@ export interface ServiceExtras {
   receipts: Map<string, Receipt>
   items: Map<string, ReceiptItem>
   billLinks: { log_id: string; receipt_id: string }[]
+  links: ProductCategoryLink[]
   tires: Tire[]
   tireEvents: TireEvent[]
 }
 
-const EMPTY: ServiceExtras = { products: new Map(), usage: [], receipts: new Map(), items: new Map(), billLinks: [], tires: [], tireEvents: [] }
+const EMPTY: ServiceExtras = { products: new Map(), usage: [], receipts: new Map(), items: new Map(), billLinks: [], links: [], tires: [], tireEvents: [] }
 
 async function fetchExtras(userId: string, vehicleId: string): Promise<ServiceExtras> {
-  const [p, u, r, i, b, t, e] = await Promise.all([
+  const [p, u, r, i, b, t, e, pl] = await Promise.all([
     read(supabase.from('products').select('*').eq('user_id', userId)),
     read(supabase.from('service_product_usage').select('*')),
     read(supabase.from('receipts').select('*').eq('user_id', userId)),
@@ -28,6 +29,7 @@ async function fetchExtras(userId: string, vehicleId: string): Promise<ServiceEx
     read(supabase.from('service_log_receipts').select('*')),
     read(supabase.from('tires').select('*')),
     read(supabase.from('tire_events').select('*').eq('vehicle_id', vehicleId)),
+    read(supabase.from('product_category_links').select('*')),
   ])
   return {
     products: new Map(((p.data ?? []) as (Product & { unit?: string })[]).map(x => [x.id, x])),
@@ -37,6 +39,7 @@ async function fetchExtras(userId: string, vehicleId: string): Promise<ServiceEx
     billLinks: (b.data ?? []) as { log_id: string; receipt_id: string }[],
     tires: (t.data ?? []) as Tire[],
     tireEvents: (e.data ?? []) as TireEvent[],
+    links: (pl.data ?? []) as ProductCategoryLink[],
   }
 }
 

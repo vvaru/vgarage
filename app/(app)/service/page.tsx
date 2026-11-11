@@ -14,7 +14,6 @@ import {
   Avatar, Button, Card, Chip, Dialog, EmptyState, Icon, IconButton, ListItem, Menu, Pill, Progress,
   SelectField, Skeleton, Tabs, useSnackbar,
 } from '@/components/ui/md'
-import CarHealthMap from '@/components/service/CarHealthMap'
 import CarHealthPanel from '@/components/service/CarHealthPanel'
 import { useCarData } from '@/lib/useCarData'
 import { useServiceExtras } from '@/lib/useServiceExtras'
@@ -51,7 +50,7 @@ export default function ServicesPage() {
   const { vehicle } = useVehicle()
   const { open } = useForms()
   const snack = useSnackbar()
-  const { categories, services, fuel, catalog, loading, error, reload } = useCarData(vehicle?.id)
+  const { categories, services, fuel, loading, error, reload } = useCarData(vehicle?.id)
   const extras = useServiceExtras(user?.id, vehicle?.id)
   const desktop = useIsDesktop()
 
@@ -289,6 +288,7 @@ export default function ServicesPage() {
   const catStatus = catOpen ? d.statuses.find(s => s.cat.id === catOpen) ?? null : null
   const catObj = catOpen ? categories.find(c => c.id === catOpen) ?? null : null
   const catLogs = catObj ? services.filter(s => s.category_id === catObj.id) : []
+  const catProducts = catObj ? extras.links.filter(l => l.category_id === catObj.id).flatMap(l => extras.products.get(l.product_id) ?? []).filter(p => !p.archived_at) : []
   const catGaps = (() => {
     const asc = [...catLogs].filter(l => l.odometer > 0).sort((a, b) => a.date.localeCompare(b.date))
     const m: number[] = [], dd: number[] = []
@@ -349,23 +349,10 @@ export default function ServicesPage() {
               )}
             </Card>
             <div className="flex flex-col gap-6 min-w-0">
-              <Card variant="filled" className="p-4 sm:p-6">
-                <div className="flex items-center justify-between gap-3 mb-2">
-                  <div>
-                    <p className="type-title-lg text-on-surface">Car health</p>
-                    <p className="type-body text-on-surface-variant">Tap a part of the car to see what’s due there</p>
-                  </div>
-                  <Pill tone={d.statuses.some(s => s.isOverdue) ? 'due' : d.statuses.some(s => s.isDueSoon) ? 'soon' : 'ok'}>
-                    {d.statuses.filter(s => s.isOverdue).length ? `${d.statuses.filter(s => s.isOverdue).length} overdue` : d.statuses.some(s => s.isDueSoon) ? 'Some due soon' : 'All good'}
-                  </Pill>
-                </div>
-                <div className="mx-auto max-w-[420px]">
-                  <CarHealthMap compact states={d.zones} tireCorners={d.corners}
-                    onZone={z => { const it = d.zones.get(z)?.items[0]; if (!it) return; if (it.id === 'tires:life') router.push('/products?tires=1'); else setCatOpen(it.id) }} />
-                </div>
+              <Card variant="filled" className="overflow-hidden">
+                <CarHealthPanel states={d.zones} tireCorners={d.corners}
+                  onItem={it => (it.id === 'tires:life' ? router.push('/products?tires=1') : setCatOpen(it.id))} />
               </Card>
-              <CarHealthPanel states={d.zones} tireCorners={d.corners} heading={`${vehicle.year} ${vehicle.make} ${vehicle.model}`}
-                onItem={it => (it.id === 'tires:life' ? router.push('/products?tires=1') : setCatOpen(it.id))} />
             </div>
           </div>
         )
@@ -457,11 +444,11 @@ export default function ServicesPage() {
               <div className="rounded-xl bg-surface-container-low px-3 py-2.5"><p className="type-label text-on-surface-variant">Usually every</p><p className="type-title-lg tabular-nums">{catGaps.miles ? mi(catGaps.miles) : '—'}</p></div>
               <div className="rounded-xl bg-surface-container-low px-3 py-2.5"><p className="type-label text-on-surface-variant">Spent</p><p className="type-title-lg tabular-nums">${Math.round(catLogs.reduce((s, l) => s + Number(l.cost ?? 0), 0)).toLocaleString()}</p></div>
             </div>
-            {catalog.filter(p => p.category_id === catObj.id).length > 0 && (
+            {catProducts.length > 0 && (
               <div>
-                <p className="type-title-sm text-on-surface-variant mb-1">Usually uses</p>
-                {catalog.filter(p => p.category_id === catObj.id).map(p => (
-                  <p key={p.id} className="type-body text-on-surface">{p.name}{p.last_price != null && <span className="text-on-surface-variant"> · last ${Number(p.last_price).toFixed(2)}</span>}</p>
+                <p className="type-title-sm text-on-surface-variant mb-1">Products used for this</p>
+                {catProducts.map(p => (
+                  <p key={p.id} className="type-body text-on-surface">{[p.brand, p.name].filter(Boolean).join(' ')}</p>
                 ))}
               </div>
             )}

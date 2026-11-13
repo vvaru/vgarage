@@ -10,7 +10,6 @@ import { findType, type ProductType } from '@/lib/productTypes'
 import { fmtQty, guessUnit, UNIT_GROUPS } from '@/lib/units'
 import { buildGarage, fetchGarageRows, type GarageContext } from '@/lib/formData'
 import { Button, Chip, Confirm, Dialog, Icon, IconButton, Segmented, SelectField, Skeleton, TextArea, TextField } from '@/components/ui/md'
-
 import { newId } from '@/lib/newId'
 
 interface LinkDraft { label: string; url: string }

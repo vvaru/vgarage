@@ -8,7 +8,7 @@ import { useVehicle } from '@/components/vehicle/VehicleContext'
 import { convertProductUnit } from '@/lib/productUnit'
 import { findType, type ProductType } from '@/lib/productTypes'
 import { fmtQty, guessUnit, UNIT_GROUPS } from '@/lib/units'
-import { loadGarage, type GarageContext } from '@/lib/formData'
+import { buildGarage, fetchGarageRows, type GarageContext } from '@/lib/formData'
 import { Button, Chip, Confirm, Dialog, Icon, IconButton, Segmented, SelectField, Skeleton, TextArea, TextField } from '@/components/ui/md'
 import type { ProductLink } from '@/lib/types'
 import { newId } from '@/lib/newId'
@@ -41,20 +41,17 @@ export default function ProductForm({ productId, onClose, onSaved }: { productId
     if (!user || !vehicle) return
     let live = true
     ;(async () => {
-      const [g, t, l] = await Promise.all([
-        loadGarage(user.id, vehicle.id, vehicle.odometer),
-        read(supabase.from('product_types').select('*').eq('user_id', user.id).order('name')),
-        productId ? read(supabase.from('product_links').select('*').eq('product_id', productId)) : Promise.resolve({ data: [] }),
-      ])
+      const rows = await fetchGarageRows(user.id, vehicle.id)
+      const g = buildGarage(rows, vehicle.odometer)
       if (!live) return
-      setCtx(g); setTypes((t.data ?? []) as ProductType[])
+      setCtx(g); setTypes(rows.types)
       const p = g.products.find(x => x.id === productId)
       if (p) {
         setName(p.name); setBrand(p.brand ?? ''); setNotes(p.notes ?? ''); setUnit(p.unit ?? 'each')
-        setTypeName(((t.data ?? []) as ProductType[]).find(x => x.id === p.product_type_id)?.name ?? '')
+        setTypeName(rows.types.find(x => x.id === p.product_type_id)?.name ?? '')
         setDirectional(p.tire_directional === true ? 'yes' : p.tire_directional === false ? 'no' : 'unknown')
         setUsedFor(g.links.filter(x => x.product_id === p.id).map(x => x.category_id))
-        const ls = (l.data ?? []) as ProductLink[]
+        const ls = rows.productLinks.filter(x => x.product_id === p.id)
         if (ls.length) setLinks(ls.map(x => ({ label: x.label, url: x.url })))
       }
     })().catch(e => { if (live) setError(e instanceof Error ? e.message : 'Couldn’t load the product.') })

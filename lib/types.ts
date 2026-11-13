@@ -116,6 +116,7 @@ export interface Product {
   unit?: string            // inventory unit (gal, qt, each…); added with the inventory feature
   product_type_id?: string | null   // what it IS, e.g. "Transmission Fluid"
   tire_directional?: boolean | null // tires only: true / false / null = never said
+  archived_at?: string | null       // hidden from lists and pickers, history kept
   created_at: string
 }
 

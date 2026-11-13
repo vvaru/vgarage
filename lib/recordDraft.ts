@@ -1,6 +1,7 @@
 import { differenceInDays, parseISO } from 'date-fns'
 import type { ServiceCategory, ServiceLog } from '@/lib/types'
 import type { ProductStock } from '@/lib/inventory'
+import { newId } from '@/lib/newId'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Draft shapes for the two-phase record wizard, plus the pure logic that turns
@@ -20,8 +21,14 @@ export interface LineDraft {
   newBrand: string
   unit: string
   unitTouched: boolean
-  qty: string
-  unitPrice: string
+  qty: string                // total amount in `unit` — what gets saved (derived, see withDerivedQty)
+  unitPrice: string          // cost per one `unit` — what gets saved (derived)
+  // How the line is typed in: `count` items of `size` <unit> each, priced per
+  // item or in total. 2 × 5 qt at $45.99 each → qty 10, unitPrice 9.198.
+  count: string
+  size: string
+  price: string
+  priceMode: 'each' | 'total'
   // Catalogue detail for a product being created here. All optional — a receipt
   // shouldn't demand them, and the service it's used in fills the category in.
   newNotes: string
@@ -30,10 +37,22 @@ export interface LineDraft {
 }
 
 export const emptyLine = (): LineDraft => ({
-  key: crypto.randomUUID(), itemId: null, productId: '', newName: '', newBrand: '',
+  key: newId(), itemId: null, productId: '', newName: '', newBrand: '',
   unit: 'each', unitTouched: false, qty: '', unitPrice: '',
+  count: '1', size: '', price: '', priceMode: 'each',
   newNotes: '', newBuyUrl: '', newCategoryIds: [],
 })
+
+/** Recompute the saved amount and cost per unit from count × size and the price as typed. */
+export function withDerivedQty(l: LineDraft): LineDraft {
+  const count = parseFloat(l.count), price = parseFloat(l.price)
+  // Things counted one by one ("each") are size 1 unless told otherwise.
+  const size = l.size.trim() === '' && l.unit === 'each' ? 1 : parseFloat(l.size)
+  const total = count > 0 && size > 0 ? count * size : NaN
+  if (isNaN(total)) return { ...l, qty: '', unitPrice: '' }
+  const perUnit = isNaN(price) ? NaN : l.priceMode === 'each' ? price / size : price / total
+  return { ...l, qty: String(+total.toFixed(4)), unitPrice: isNaN(perUnit) ? '' : String(+perUnit.toFixed(6)) }
+}
 
 export interface ServiceTag {
   key: string
@@ -44,7 +63,7 @@ export interface ServiceTag {
 }
 
 export const emptyTag = (): ServiceTag => ({
-  key: crypto.randomUUID(), categoryId: '', customName: '', performedBy: 'shop', amount: '',
+  key: newId(), categoryId: '', customName: '', performedBy: 'shop', amount: '',
 })
 
 export interface ReceiptDraft {
@@ -62,7 +81,7 @@ export interface ReceiptDraft {
 }
 
 export const emptyReceipt = (date: string): ReceiptDraft => ({
-  key: crypto.randomUUID(), receiptId: null, originLogId: null,
+  key: newId(), receiptId: null, originLogId: null,
   file: null, preview: null, existingImage: null,
   date, store: '', noProducts: false, lines: [emptyLine()], tags: [],
 })

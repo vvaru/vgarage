@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { format, parseISO } from 'date-fns'
-import { CircleGauge, AlertTriangle, Archive, RotateCw } from 'lucide-react'
+import { CircleGauge, AlertTriangle, Archive, RotateCw } from '@/components/ui/icons'
 import TireDiagram, { STATUS_COLOR, STATUS_LABEL } from './TireDiagram'
 import {
   mountedByPosition, axleWarnings, setHealth, tireName, setView,
@@ -45,22 +45,22 @@ export default function TirePanel({
         onClick={() => l.position && setPicked(l.position === picked ? null : l.position)}
         className={`w-full text-left rounded-2xl border p-3 transition-colors ${
           l.position && l.position === picked
-            ? 'bg-surface-2/70 border-accent/40'
-            : 'bg-surface-2/40 border-border hover:border-border-strong'
+            ? 'bg-surface-container-high/70 border-primary/40'
+            : 'bg-surface-container-high/40 border-outline-variant hover:border-outline'
         }`}
       >
         <div className="flex items-center justify-between gap-2">
-          <span className="text-foreground text-sm font-semibold truncate">{tireName(l, productName)}</span>
+          <span className="text-on-surface text-sm font-semibold truncate">{tireName(l, productName)}</span>
           <span className="text-xs font-semibold shrink-0" style={{ color }}>
             {l.pctUsed != null ? `${Math.round(Math.max(0, 100 - l.pctUsed))}% left` : STATUS_LABEL[l.status]}
           </span>
         </div>
         {l.pctUsed != null && (
-          <div className="h-1.5 rounded-full bg-surface-2 mt-2 overflow-hidden">
+          <div className="h-1.5 rounded-full bg-surface-container-high mt-2 overflow-hidden">
             <div className="h-full rounded-full" style={{ width: `${Math.max(2, Math.min(100, 100 - l.pctUsed))}%`, background: color }} />
           </div>
         )}
-        <p className="text-faint text-[11px] mt-1.5">
+        <p className="text-on-surface-variant text-[11px] mt-1.5">
           {[
             where,
             `${l.miles.toLocaleString()} mi turned`,
@@ -74,15 +74,15 @@ export default function TirePanel({
 
   return (
     <div className="space-y-4">
-      <div className="bg-surface border border-border rounded-2xl p-4">
+      <div>
         <div className="flex items-center justify-between gap-2 mb-3">
           <div className="flex items-center gap-2">
-            <CircleGauge size={14} className="text-accent" />
-            <p className="text-xs font-semibold uppercase tracking-widest text-faint">On the car</p>
+            <CircleGauge size={14} className="text-primary" />
+            <p className="type-title-sm text-on-surface-variant">On the car</p>
           </div>
           {onRotate && mixed && (
             <button onClick={onRotate}
-              className="flex items-center gap-1.5 bg-accent/10 text-accent border border-accent/20 rounded-xl px-3 py-1.5 text-xs font-semibold hover:bg-accent/20 transition-colors">
+              className="flex items-center gap-1.5 bg-primary/10 text-primary border border-primary/20 rounded-xl px-3 py-1.5 text-xs font-semibold hover:bg-primary/20 transition-colors">
               <RotateCw size={12} /> Rotate tires
             </button>
           )}
@@ -95,12 +95,12 @@ export default function TirePanel({
               onPick={p => setPicked(p === picked ? null : p)} activePosition={picked}
               unlocated={trackPositions && mixed ? null : { status: health.status, pctLeft: health.pctLeft }}
             />
-            {mixed && <p className="text-faint text-[11px] text-center mt-2">{trackPositions ? 'Tap a corner' : 'Corners not tracked'}</p>}
+            {mixed && <p className="text-on-surface-variant text-[11px] text-center mt-2">{trackPositions ? 'Tap a corner' : 'Corners not tracked'}</p>}
           </div>
 
           <div className="flex-1 min-w-0 space-y-2">
             {health.mounted === 0 ? (
-              <p className="text-faint text-sm">
+              <p className="text-on-surface-variant text-sm">
                 Nothing fitted yet. Log a tire change and pick which tires went on.
               </p>
             ) : (
@@ -108,14 +108,14 @@ export default function TirePanel({
                 <p className="text-2xl font-bold tracking-tight" style={{ color: STATUS_COLOR[health.status === 'empty' ? 'empty' : health.status] }}>
                   {health.pctLeft != null ? `${Math.round(health.pctLeft)}%` : STATUS_LABEL[health.status === 'empty' ? 'empty' : health.status]}
                 </p>
-                <p className="text-muted text-xs -mt-1">
+                <p className="text-on-surface-variant text-xs -mt-1">
                   {mixed ? `life left on the worst ${trackPositions ? 'corner' : 'tire'}` : 'life left'}
-                  {health.spare > 0 && <span className="text-faint"> · {health.spare} more in storage</span>}
+                  {health.spare > 0 && <span className="text-on-surface-variant"> · {health.spare} more in storage</span>}
                 </p>
                 {view.shape === 'uniform' ? (
-                  <div className="rounded-2xl border border-border bg-surface-2/40 p-3">
+                  <div className="rounded-2xl border border-outline-variant bg-surface-container-high/40 p-3">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-foreground text-sm font-semibold truncate">
+                      <span className="text-on-surface text-sm font-semibold truncate">
                         {tireName(view.mounted[0], productName)} · set of 4
                       </span>
                       <span className="text-xs font-semibold shrink-0" style={{ color: STATUS_COLOR[view.mounted[0].status] }}>
@@ -125,14 +125,14 @@ export default function TirePanel({
                       </span>
                     </div>
                     {view.mounted[0].pctUsed != null && (
-                      <div className="h-1.5 rounded-full bg-surface-2 mt-2 overflow-hidden">
+                      <div className="h-1.5 rounded-full bg-surface-container-high mt-2 overflow-hidden">
                         <div className="h-full rounded-full" style={{
                           width: `${Math.max(2, Math.min(100, 100 - view.mounted[0].pctUsed))}%`,
                           background: STATUS_COLOR[view.mounted[0].status],
                         }} />
                       </div>
                     )}
-                    <p className="text-faint text-[11px] mt-1.5">
+                    <p className="text-on-surface-variant text-[11px] mt-1.5">
                       {[
                         `${view.mounted[0].miles.toLocaleString()} mi turned`,
                         view.mounted[0].expected ? `of ${view.mounted[0].expected.toLocaleString()}` : 'no expected life set',
@@ -143,7 +143,7 @@ export default function TirePanel({
                 ) : (
                   <>
                     {view.reason && (
-                      <p className="text-faint text-[11px]">Tracking each tire — {view.reason}.</p>
+                      <p className="text-on-surface-variant text-[11px]">Tracking each tire — {view.reason}.</p>
                     )}
                     {trackPositions
                       ? TIRE_POSITIONS.map(pos => {
@@ -151,8 +151,8 @@ export default function TirePanel({
                           return l
                             ? row(l, POSITION_LABELS[pos])
                             : (
-                              <div key={pos} className="rounded-2xl border border-dashed border-border p-3">
-                                <p className="text-faint text-xs">{POSITION_LABELS[pos]} — nothing recorded</p>
+                              <div key={pos} className="rounded-2xl border border-dashed border-outline-variant p-3">
+                                <p className="text-on-surface-variant text-xs">{POSITION_LABELS[pos]} — nothing recorded</p>
                               </div>
                             )
                         })
@@ -160,7 +160,7 @@ export default function TirePanel({
                   </>
                 )}
                 {!trackPositions && onResumeTracking && (
-                  <button onClick={onResumeTracking} className="text-accent text-xs font-medium pt-1">
+                  <button onClick={onResumeTracking} className="text-primary text-xs font-medium pt-1">
                     Track corners again →
                   </button>
                 )}
@@ -173,7 +173,7 @@ export default function TirePanel({
         {warnings.map(w => (
           <div key={w.axle} className="mt-3 flex items-start gap-2 bg-warn/10 border border-warn/20 rounded-xl p-3">
             <AlertTriangle size={15} className="text-warn shrink-0 mt-0.5" />
-            <p className="text-foreground text-xs">
+            <p className="text-on-surface text-xs">
               <span className="font-semibold">{w.axle} axle mismatch.</span>{' '}
               These two are {w.differenceMiles.toLocaleString()} miles apart. Tires on the same axle
               wearing very differently can affect how the car handles.
@@ -183,15 +183,15 @@ export default function TirePanel({
       </div>
 
       {stored.length > 0 && (
-        <div className="bg-surface border border-border rounded-2xl p-4">
+        <div>
           <div className="flex items-center gap-2 mb-3">
-            <Archive size={14} className="text-muted" />
-            <p className="text-xs font-semibold uppercase tracking-widest text-faint">In storage · {stored.length}</p>
+            <Archive size={14} className="text-on-surface-variant" />
+            <p className="type-title-sm text-on-surface-variant">In storage · {stored.length}</p>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {stored.map(l => row(l, 'Off the car'))}
           </div>
-          <p className="text-faint text-[11px] mt-2">Mileage is paused while a tire is off the car.</p>
+          <p className="text-on-surface-variant text-[11px] mt-2">Mileage is paused while a tire is off the car.</p>
         </div>
       )}
 

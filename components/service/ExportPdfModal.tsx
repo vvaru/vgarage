@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { X, Download } from 'lucide-react'
+import { X, Download } from '@/components/ui/icons'
 import { format, parseISO, differenceInDays } from 'date-fns'
 import { supabase } from '@/lib/supabase'
 import type { Vehicle, ServiceLog, ServiceCategory } from '@/lib/types'
@@ -390,36 +390,36 @@ export default function ExportPdfModal({ vehicle, logs, categories, onClose }: P
   }
 
   return (
-    <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
-      <div className="bg-surface border border-border rounded-3xl w-full max-w-sm p-6">
+    <div className="fixed inset-0 bg-[var(--md-scrim)] z-50 flex items-end sm:items-center justify-center p-4">
+      <div className="bg-surface border border-outline-variant rounded-[28px] w-full max-w-sm p-6">
         <div className="flex items-center justify-between mb-5">
-          <h3 className="font-bold text-foreground text-lg">Export Car History</h3>
-          <button onClick={onClose} className="text-muted hover:text-foreground"><X size={20} /></button>
+          <h3 className="font-bold text-on-surface text-lg">Export Car History</h3>
+          <button onClick={onClose} className="text-on-surface-variant hover:text-on-surface"><X size={20} /></button>
         </div>
 
         <div className="space-y-3 mb-6">
-          <div className="flex items-center justify-between bg-surface-2/60 rounded-xl px-4 py-3">
-            <span className="text-muted text-sm">Total records</span>
-            <span className="text-foreground font-semibold">{logs.length}</span>
+          <div className="flex items-center justify-between bg-surface-container-high/60 rounded-xl px-4 py-3">
+            <span className="text-on-surface-variant text-sm">Total records</span>
+            <span className="text-on-surface font-semibold">{logs.length}</span>
           </div>
           <div className="flex items-center gap-3">
-            <div className="flex-1 bg-surface-2/60 rounded-xl px-3 py-2.5 text-center">
-              <p className="text-accent font-bold">{logs.filter(l => l.performed_by !== 'shop').length}</p>
-              <p className="text-muted text-xs">DIY</p>
+            <div className="flex-1 bg-surface-container-high/60 rounded-xl px-3 py-2.5 text-center">
+              <p className="text-primary font-bold">{logs.filter(l => l.performed_by !== 'shop').length}</p>
+              <p className="text-on-surface-variant text-xs">DIY</p>
             </div>
-            <div className="flex-1 bg-surface-2/60 rounded-xl px-3 py-2.5 text-center">
+            <div className="flex-1 bg-surface-container-high/60 rounded-xl px-3 py-2.5 text-center">
               <p className="text-success font-bold">{logs.filter(l => l.performed_by === 'shop').length}</p>
-              <p className="text-muted text-xs">Shop</p>
+              <p className="text-on-surface-variant text-xs">Shop</p>
             </div>
-            <div className="flex-1 bg-surface-2/60 rounded-xl px-3 py-2.5 text-center">
-              <p className="text-accent font-bold">{receiptCount}</p>
-              <p className="text-muted text-xs">Verified</p>
+            <div className="flex-1 bg-surface-container-high/60 rounded-xl px-3 py-2.5 text-center">
+              <p className="text-primary font-bold">{receiptCount}</p>
+              <p className="text-on-surface-variant text-xs">Verified</p>
             </div>
           </div>
         </div>
 
-        <div className="bg-surface-2/40 border border-border-strong/50 rounded-xl px-4 py-3 mb-5 space-y-1.5">
-          <p className="text-foreground text-sm font-medium">Report includes:</p>
+        <div className="bg-surface-container-high/40 border border-outline/50 rounded-xl px-4 py-3 mb-5 space-y-1.5">
+          <p className="text-on-surface text-sm font-medium">Report includes:</p>
           {[
             'Cover with summary & table of contents',
             `Grouped by part of the car (${sections.length}), each service with its average interval`,
@@ -427,8 +427,8 @@ export default function ExportPdfModal({ vehicle, logs, categories, onClose }: P
             'Verified column for receipted services',
             receiptCount > 0 ? `Appendix: ${receiptCount} receipt image${receiptCount !== 1 ? 's' : ''}` : null,
           ].filter(Boolean).map(item => (
-            <div key={item as string} className="flex items-center gap-2 text-muted text-xs">
-              <div className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
+            <div key={item as string} className="flex items-center gap-2 text-on-surface-variant text-xs">
+              <div className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
               {item}
             </div>
           ))}
@@ -436,16 +436,16 @@ export default function ExportPdfModal({ vehicle, logs, categories, onClose }: P
 
         {generating ? (
           <div className="flex items-center justify-center gap-3 py-4">
-            <div className="w-5 h-5 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-            <p className="text-muted text-sm">{progress}</p>
+            <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            <p className="text-on-surface-variant text-sm">{progress}</p>
           </div>
         ) : (
           <div className="flex gap-3">
-            <button onClick={onClose} className="flex-1 bg-surface-2 hover:bg-surface-2 text-foreground font-medium rounded-2xl py-3 transition-colors">Cancel</button>
+            <button onClick={onClose} className="flex-1 bg-surface-container-high hover:bg-surface-container-high text-on-surface font-medium rounded-2xl py-3 transition-colors">Cancel</button>
             <button
               onClick={generate}
               disabled={logs.length === 0}
-              className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-40 text-white font-bold rounded-2xl py-3 transition-colors flex items-center justify-center gap-2"
+              className="flex-1 bg-primary hover:shadow-elev-1 disabled:opacity-40 text-white font-bold rounded-2xl py-3 transition-colors flex items-center justify-center gap-2"
             >
               <Download size={16} />
               Export PDF

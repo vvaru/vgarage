@@ -113,6 +113,27 @@ export function seasonBests(logs: FuelLog[], excluded: Set<string>): Map<string,
   return best
 }
 
+// Flags fills whose MPG is an implausible high outlier vs THIS vehicle's own
+// history — the signature of a forgotten earlier fill-up (≈2× the norm). Fully
+// self-calibrating from the data (median + MAD), so it adapts to any MPG or tank
+// size, and it skips the high half of a partial-fill pair (a top-off shows up as
+// an abnormally low reading immediately before a high one).
+export function detectMissedFills(logs: FuelLog[]): Set<string> {
+  const flags = new Set<string>()
+  const withMpg = logs.filter(l => l.mpg != null && Number(l.mpg) > 0).sort((a, b) => a.date.localeCompare(b.date))
+  if (withMpg.length < 4) return flags
+  const vals = withMpg.map(l => Number(l.mpg))
+  const med = median(vals)
+  const mad = median(vals.map(v => Math.abs(v - med))) || med * 0.15
+  const threshold = Math.max(med * 1.8, med + 3 * mad)
+  for (let i = 0; i < withMpg.length; i++) {
+    if (vals[i] <= threshold) continue
+    if (i > 0 && vals[i - 1] < med * 0.7 && (vals[i] + vals[i - 1]) / 2 < med * 1.3) continue
+    flags.add(withMpg[i].id)
+  }
+  return flags
+}
+
 export interface FuelPoint {
   log: FuelLog
   date: string

@@ -1,11 +1,12 @@
 ﻿'use client'
 
 import { useState, useEffect } from 'react'
-import { X, Copy, Check, Upload, AlertCircle, Pencil } from 'lucide-react'
+import { X, Copy, Check, Upload, AlertCircle, Pencil } from '@/components/ui/icons'
 import { supabase, ensureFreshSession } from '@/lib/supabase'
 import { write, saveMessage } from '@/lib/recover'
 import { useAuth } from '@/components/auth/AuthProvider'
 import type { ServiceCategory, Vehicle } from '@/lib/types'
+import { newId } from '@/lib/newId'
 
 function buildClaudePrompt() {
   return `I have vehicle service records I need to import into a car maintenance tracker. These may be from a Carfax report, a dealership service PDF, or my own handwritten/typed notes. Extract every service record and return them as a JSON array — nothing else, just raw JSON, no markdown fences, no explanatory text.
@@ -99,7 +100,16 @@ export default function CarfaxImportModal({ vehicle, categories, onClose, onImpo
   }
 
   async function copyPrompt() {
-    await navigator.clipboard.writeText(buildClaudePrompt())
+    // navigator.clipboard only exists on HTTPS and localhost.
+    if (navigator.clipboard) await navigator.clipboard.writeText(buildClaudePrompt())
+    else {
+      const box = document.createElement('textarea')
+      box.value = buildClaudePrompt()
+      document.body.appendChild(box)
+      box.select()
+      document.execCommand('copy')
+      box.remove()
+    }
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
@@ -181,7 +191,7 @@ export default function CarfaxImportModal({ vehicle, categories, onClose, onImpo
     for (const row of reviewRows) {
       if (row.action === 'skip') continue
       if (!sessionIdMap.has(row.session_key)) {
-        sessionIdMap.set(row.session_key, crypto.randomUUID())
+        sessionIdMap.set(row.session_key, newId())
       }
     }
 
@@ -253,21 +263,21 @@ export default function CarfaxImportModal({ vehicle, categories, onClose, onImpo
   const duplicateCount = reviewRows?.filter(r => r.isDuplicate).length ?? 0
 
   return (
-    <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
-      <div className="bg-surface border border-border rounded-3xl w-full max-w-xl max-h-[90vh] flex flex-col">
+    <div className="fixed inset-0 bg-[var(--md-scrim)] z-50 flex items-end sm:items-center justify-center p-4">
+      <div className="bg-surface border border-outline-variant rounded-[28px] w-full max-w-xl max-h-[90vh] flex flex-col">
 
-        <div className="flex items-center justify-between p-5 border-b border-border shrink-0">
+        <div className="flex items-center justify-between p-5 border-b border-outline-variant shrink-0">
           <div>
-            <h3 className="font-bold text-foreground text-lg">Import Service Records</h3>
-            <p className="text-muted text-sm">Carfax, dealer PDFs, or your own notes</p>
+            <h3 className="font-bold text-on-surface text-lg">Import Service Records</h3>
+            <p className="text-on-surface-variant text-sm">Carfax, dealer PDFs, or your own notes</p>
           </div>
-          <button onClick={onClose} className="text-muted hover:text-foreground"><X size={20} /></button>
+          <button onClick={onClose} className="text-on-surface-variant hover:text-on-surface"><X size={20} /></button>
         </div>
 
-        <div className="flex border-b border-border shrink-0">
+        <div className="flex border-b border-outline-variant shrink-0">
           {(['prompt', 'import'] as const).map(t => (
             <button key={t} onClick={() => setTab(t)}
-              className={`flex-1 py-3 text-sm font-medium transition-colors ${tab === t ? 'text-accent border-b-2 border-accent' : 'text-muted'}`}>
+              className={`flex-1 py-3 text-sm font-medium transition-colors ${tab === t ? 'text-primary border-b-2 border-primary' : 'text-on-surface-variant'}`}>
               {t === 'prompt' ? '1. Get Claude Prompt' : '2. Paste & Review'}
             </button>
           ))}
@@ -278,9 +288,9 @@ export default function CarfaxImportModal({ vehicle, categories, onClose, onImpo
           {/* ── Step 1: Copy prompt ── */}
           {tab === 'prompt' && (
             <div className="space-y-4">
-              <div className="bg-surface-2/60 border border-border-strong/60 rounded-xl p-3">
-                <p className="text-foreground text-sm font-medium mb-2">How it works:</p>
-                <ol className="text-muted text-sm space-y-1 list-decimal list-inside">
+              <div className="bg-surface-container-high/60 border border-outline/60 rounded-xl p-3">
+                <p className="text-on-surface text-sm font-medium mb-2">How it works:</p>
+                <ol className="text-on-surface-variant text-sm space-y-1 list-decimal list-inside">
                   <li>Copy the prompt below and open Claude.ai</li>
                   <li>Paste the prompt, then paste your service records after it</li>
                   <li>Works with Carfax text, dealer PDFs, or your own notes</li>
@@ -288,16 +298,16 @@ export default function CarfaxImportModal({ vehicle, categories, onClose, onImpo
                 </ol>
               </div>
               <div className="relative">
-                <pre className="bg-background border border-border rounded-xl p-4 text-foreground text-xs leading-relaxed overflow-x-auto whitespace-pre-wrap font-mono">
+                <pre className="bg-background border border-outline-variant rounded-xl p-4 text-on-surface text-xs leading-relaxed overflow-x-auto whitespace-pre-wrap font-mono">
                   {buildClaudePrompt()}
                 </pre>
                 <button onClick={copyPrompt}
-                  className={`absolute top-3 right-3 flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-all ${copied ? 'bg-success/20 text-success border border-success/30' : 'bg-surface-2 text-muted border border-border-strong hover:text-foreground'}`}>
+                  className={`absolute top-3 right-3 flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-all ${copied ? 'bg-success/20 text-success border border-success/30' : 'bg-surface-container-high text-on-surface-variant border border-outline hover:text-on-surface'}`}>
                   {copied ? <Check size={12} /> : <Copy size={12} />}
                   {copied ? 'Copied!' : 'Copy'}
                 </button>
               </div>
-              <button onClick={() => setTab('import')} className="w-full bg-accent hover:bg-accent-hover text-white font-bold rounded-2xl py-3 transition-colors">
+              <button onClick={() => setTab('import')} className="w-full bg-primary hover:shadow-elev-1 text-white font-bold rounded-2xl py-3 transition-colors">
                 Next: Paste JSON →
               </button>
             </div>
@@ -310,34 +320,34 @@ export default function CarfaxImportModal({ vehicle, categories, onClose, onImpo
               {/* Done state */}
               {importResult ? (
                 <div className="text-center py-6">
-                  <div className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-3 ${importResult.success > 0 ? 'bg-success/10' : 'bg-danger/10'}`}>
-                    <Check size={28} className={importResult.success > 0 ? 'text-success' : 'text-danger'} />
+                  <div className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-3 ${importResult.success > 0 ? 'bg-success/10' : 'bg-error/10'}`}>
+                    <Check size={28} className={importResult.success > 0 ? 'text-success' : 'text-error'} />
                   </div>
-                  <p className="font-bold text-foreground text-lg">{importResult.success > 0 ? 'Import Complete' : 'Import Failed'}</p>
-                  <p className="text-muted text-sm mt-1">
+                  <p className="font-bold text-on-surface text-lg">{importResult.success > 0 ? 'Import Complete' : 'Import Failed'}</p>
+                  <p className="text-on-surface-variant text-sm mt-1">
                     {importResult.success} imported
                     {importResult.replaced > 0 ? ` (${importResult.replaced} replaced)` : ''}
                     {importResult.skipped > 0 ? `, ${importResult.skipped} skipped` : ''}
                     {importResult.errors > 0 ? `, ${importResult.errors} failed` : ''}
                   </p>
                   {importResult.lastError && (
-                    <div className="mt-3 bg-danger/10 border border-danger/20 rounded-xl px-3 py-3 text-left">
-                      <p className="text-danger text-xs">Error: {importResult.lastError}</p>
+                    <div className="mt-3 bg-error/10 border border-error/20 rounded-xl px-3 py-3 text-left">
+                      <p className="text-error text-xs">Error: {importResult.lastError}</p>
                     </div>
                   )}
-                  <button onClick={onClose} className="mt-4 bg-surface-2 hover:bg-surface-2 text-foreground font-medium rounded-2xl px-6 py-2.5 transition-colors">Done</button>
+                  <button onClick={onClose} className="mt-4 bg-surface-container-high hover:bg-surface-container-high text-on-surface font-medium rounded-2xl px-6 py-2.5 transition-colors">Done</button>
                 </div>
 
               /* Review state */
               ) : reviewRows ? (
                 <>
                   {/* Summary banner */}
-                  <div className={`rounded-xl px-4 py-3 border ${duplicateCount > 0 ? 'bg-accent/5 border-accent/20' : 'bg-success/5 border-success/20'}`}>
-                    <p className={`text-sm font-medium ${duplicateCount > 0 ? 'text-accent' : 'text-success'}`}>
+                  <div className={`rounded-xl px-4 py-3 border ${duplicateCount > 0 ? 'bg-primary/5 border-primary/20' : 'bg-success/5 border-success/20'}`}>
+                    <p className={`text-sm font-medium ${duplicateCount > 0 ? 'text-primary' : 'text-success'}`}>
                       {toImportCount} of {reviewRows.length} records will be imported
                     </p>
                     {duplicateCount > 0 && (
-                      <p className="text-muted text-xs mt-0.5">
+                      <p className="text-on-surface-variant text-xs mt-0.5">
                         {duplicateCount} possible duplicate{duplicateCount !== 1 ? 's' : ''} detected — review each one below
                       </p>
                     )}
@@ -346,13 +356,13 @@ export default function CarfaxImportModal({ vehicle, categories, onClose, onImpo
                   {/* Per-row review */}
                   <div className="space-y-2">
                     {reviewRows.map((row, idx) => (
-                      <div key={idx} className={`border rounded-2xl overflow-hidden transition-opacity ${row.action === 'skip' ? 'opacity-50 bg-surface-2/20 border-border' : row.isDuplicate ? 'bg-accent/5 border-accent/25' : 'bg-surface-2/50 border-border-strong/60'}`}>
+                      <div key={idx} className={`border rounded-2xl overflow-hidden transition-opacity ${row.action === 'skip' ? 'opacity-50 bg-surface-container-high/20 border-outline-variant' : row.isDuplicate ? 'bg-primary/5 border-primary/25' : 'bg-surface-container-high/50 border-outline/60'}`}>
                         <div className="flex items-start gap-3 px-3 py-3">
                           {/* Action toggle for non-duplicates */}
                           {!row.isDuplicate && (
                             <button
                               onClick={() => setAction(idx, row.action === 'import' ? 'skip' : 'import')}
-                              className={`shrink-0 mt-0.5 w-5 h-5 rounded border flex items-center justify-center transition-colors ${row.action === 'import' ? 'bg-accent border-accent text-accent-foreground' : 'bg-surface-2 border-border-strong text-faint'}`}
+                              className={`shrink-0 mt-0.5 w-5 h-5 rounded border flex items-center justify-center transition-colors ${row.action === 'import' ? 'bg-primary border-primary text-on-primary' : 'bg-surface-container-high border-outline text-on-surface-variant'}`}
                               title={row.action === 'import' ? 'Click to skip' : 'Click to import'}
                             >
                               {row.action === 'import' && <Check size={11} />}
@@ -360,8 +370,8 @@ export default function CarfaxImportModal({ vehicle, categories, onClose, onImpo
                           )}
                           {/* Duplicate indicator */}
                           {row.isDuplicate && (
-                            <div className="shrink-0 mt-0.5 w-5 h-5 rounded border border-accent/40 bg-accent/10 flex items-center justify-center">
-                              <span className="text-accent text-xs font-bold">!</span>
+                            <div className="shrink-0 mt-0.5 w-5 h-5 rounded border border-primary/40 bg-primary/10 flex items-center justify-center">
+                              <span className="text-primary text-xs font-bold">!</span>
                             </div>
                           )}
 
@@ -378,24 +388,24 @@ export default function CarfaxImportModal({ vehicle, categories, onClose, onImpo
                                   if (e.key === 'Enter') commitRename(idx, row.editingName ?? row.service_type)
                                   if (e.key === 'Escape') setReviewRows(prev => prev ? prev.map((r, i) => i === idx ? { ...r, editingName: null } : r) : null)
                                 }}
-                                className="w-full bg-surface-2 border border-border-strong rounded-lg px-2 py-1 text-foreground text-sm focus:outline-none focus:border-accent/70"
+                                className="w-full bg-surface-container-high border border-outline rounded-lg px-2 py-1 text-on-surface text-sm focus:outline-none focus:border-primary/70"
                               />
                             ) : (
                               <div className="flex items-center gap-2 flex-wrap">
-                                <p className={`text-sm font-medium ${row.action === 'skip' ? 'text-muted' : 'text-foreground'}`}>{row.service_type}</p>
+                                <p className={`text-sm font-medium ${row.action === 'skip' ? 'text-on-surface-variant' : 'text-on-surface'}`}>{row.service_type}</p>
                                 {row.isDuplicate && (
-                                  <span className="text-xs px-1.5 py-0.5 rounded bg-accent/15 text-accent border border-accent/25 shrink-0">⚠ Duplicate</span>
+                                  <span className="text-xs px-1.5 py-0.5 rounded bg-primary/15 text-primary border border-primary/25 shrink-0">⚠ Duplicate</span>
                                 )}
                                 <button
                                   onClick={() => setReviewRows(prev => prev ? prev.map((r, i) => i === idx ? { ...r, editingName: r.service_type } : r) : null)}
-                                  className="text-faint hover:text-foreground transition-colors shrink-0"
+                                  className="text-on-surface-variant hover:text-on-surface transition-colors shrink-0"
                                   title="Rename"
                                 >
                                   <Pencil size={10} />
                                 </button>
                               </div>
                             )}
-                            <p className="text-muted text-xs mt-0.5">
+                            <p className="text-on-surface-variant text-xs mt-0.5">
                               {row.date}
                               {row.odometer ? ` · ${row.odometer.toLocaleString()} mi` : ''}
                               {row.shop_name ? ` · ${row.shop_name}` : ''}
@@ -407,24 +417,24 @@ export default function CarfaxImportModal({ vehicle, categories, onClose, onImpo
 
                         {/* Duplicate action bar */}
                         {row.isDuplicate && (
-                          <div className="border-t border-accent/20 px-3 py-2.5 flex items-center gap-2 flex-wrap">
-                            <p className="text-muted text-xs flex-1">A record with this name already exists on this date.</p>
+                          <div className="border-t border-primary/20 px-3 py-2.5 flex items-center gap-2 flex-wrap">
+                            <p className="text-on-surface-variant text-xs flex-1">A record with this name already exists on this date.</p>
                             <div className="flex gap-1.5 shrink-0">
                               <button
                                 onClick={() => setAction(idx, 'skip')}
-                                className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${row.action === 'skip' ? 'bg-surface-2 text-foreground border-border-strong' : 'text-muted border-border-strong hover:text-foreground'}`}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${row.action === 'skip' ? 'bg-surface-container-high text-on-surface border-outline' : 'text-on-surface-variant border-outline hover:text-on-surface'}`}
                               >
                                 Skip
                               </button>
                               <button
                                 onClick={() => setAction(idx, 'replace')}
-                                className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${row.action === 'replace' ? 'bg-danger/20 text-danger border-danger/40' : 'text-muted border-border-strong hover:text-danger'}`}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${row.action === 'replace' ? 'bg-error/20 text-error border-error/40' : 'text-on-surface-variant border-outline hover:text-error'}`}
                               >
                                 Replace old
                               </button>
                               <button
                                 onClick={() => setAction(idx, 'import')}
-                                className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${row.action === 'import' ? 'bg-accent/20 text-accent border-accent/40' : 'text-muted border-border-strong hover:text-accent'}`}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${row.action === 'import' ? 'bg-primary/20 text-primary border-primary/40' : 'text-on-surface-variant border-outline hover:text-primary'}`}
                               >
                                 Keep both
                               </button>
@@ -436,11 +446,11 @@ export default function CarfaxImportModal({ vehicle, categories, onClose, onImpo
                   </div>
 
                   <div className="flex gap-3 pt-1">
-                    <button onClick={() => { setReviewRows(null); setJsonText('') }} className="flex-1 bg-surface-2 hover:bg-surface-2 text-foreground font-medium rounded-2xl py-3 transition-colors">Back</button>
+                    <button onClick={() => { setReviewRows(null); setJsonText('') }} className="flex-1 bg-surface-container-high hover:bg-surface-container-high text-on-surface font-medium rounded-2xl py-3 transition-colors">Back</button>
                     <button
                       onClick={handleImport}
                       disabled={importing || toImportCount === 0}
-                      className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-40 text-white font-bold rounded-2xl py-3 transition-colors flex items-center justify-center gap-2"
+                      className="flex-1 bg-primary hover:shadow-elev-1 disabled:opacity-40 text-white font-bold rounded-2xl py-3 transition-colors flex items-center justify-center gap-2"
                     >
                       <Upload size={15} />
                       {importing ? 'Importing…' : `Import ${toImportCount}`}
@@ -451,24 +461,24 @@ export default function CarfaxImportModal({ vehicle, categories, onClose, onImpo
               /* Paste state */
               ) : (
                 <>
-                  <p className="text-muted text-sm">Paste Claude&apos;s JSON output here:</p>
+                  <p className="text-on-surface-variant text-sm">Paste Claude&apos;s JSON output here:</p>
                   <textarea
                     value={jsonText}
                     onChange={e => { setJsonText(e.target.value); setParseError(null) }}
                     placeholder={'[\n  {\n    "session_key": 1,\n    "date": "2023-05-12",\n    "service_type": "Oil Change",\n    ...\n  }\n]'}
                     rows={9}
-                    className="w-full bg-background border border-border-strong rounded-xl px-4 py-3 text-foreground placeholder-faint focus:outline-none focus:border-accent/70 transition-all text-xs font-mono resize-none"
+                    className="w-full bg-background border border-outline rounded-xl px-4 py-3 text-on-surface placeholder-faint focus:outline-none focus:border-primary/70 transition-all text-xs font-mono resize-none"
                   />
                   {parseError && (
-                    <div className="flex items-start gap-2 bg-danger/10 border border-danger/20 rounded-xl px-3 py-2.5">
-                      <AlertCircle size={15} className="text-danger shrink-0 mt-0.5" />
-                      <p className="text-danger text-sm">{parseError}</p>
+                    <div className="flex items-start gap-2 bg-error/10 border border-error/20 rounded-xl px-3 py-2.5">
+                      <AlertCircle size={15} className="text-error shrink-0 mt-0.5" />
+                      <p className="text-error text-sm">{parseError}</p>
                     </div>
                   )}
                   <button
                     onClick={parseJson}
                     disabled={!jsonText.trim()}
-                    className="w-full bg-surface-2 hover:bg-faint disabled:opacity-40 text-foreground font-medium rounded-2xl py-3 transition-colors"
+                    className="w-full bg-surface-container-high hover:bg-faint disabled:opacity-40 text-on-surface font-medium rounded-2xl py-3 transition-colors"
                   >
                     Validate & Review →
                   </button>

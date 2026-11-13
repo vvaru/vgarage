@@ -12,6 +12,8 @@ interface AuthContextType {
   user: User | null
   loading: boolean
   isAdmin: boolean
+  /** False until the signed-in user's role has been looked up. */
+  roleReady: boolean
   role: 'admin' | 'user'
 }
 
@@ -20,6 +22,7 @@ const AuthContext = createContext<AuthContextType>({
   user: null,
   loading: true,
   isAdmin: false,
+  roleReady: false,
   role: 'user',
 })
 
@@ -53,6 +56,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const [role, setRole] = useState<'admin' | 'user'>('user')
+  const [roleReady, setRoleReady] = useState(false)
 
   useEffect(() => {
     // Safety net: never block the app shell longer than 8s waiting for the
@@ -65,11 +69,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       clearTimeout(bail)
       setSession(session)
       setUser(session?.user ?? null)
-      if (!session?.user) setRole('user')
+      if (!session?.user) { setRole('user'); setRoleReady(true) }
       setLoading(false)
       if (session?.user) {
         const r = await ensureProfile(session.user)
         setRole(r)
+        setRoleReady(true)
       }
     })
 
@@ -84,7 +89,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   return (
-    <AuthContext.Provider value={{ session, user, loading, isAdmin: role === 'admin', role }}>
+    <AuthContext.Provider value={{ session, user, loading, isAdmin: role === 'admin', roleReady, role }}>
       {children}
     </AuthContext.Provider>
   )

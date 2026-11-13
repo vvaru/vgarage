@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase, ensureFreshSession } from '@/lib/supabase'
-import { read, withRetry, write } from '@/lib/recover'
+import { withRetry, write } from '@/lib/recover'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useVehicle } from '@/components/vehicle/VehicleContext'
 import { convertProductUnit } from '@/lib/productUnit'
@@ -10,7 +10,7 @@ import { findType, type ProductType } from '@/lib/productTypes'
 import { fmtQty, guessUnit, UNIT_GROUPS } from '@/lib/units'
 import { buildGarage, fetchGarageRows, type GarageContext } from '@/lib/formData'
 import { Button, Chip, Confirm, Dialog, Icon, IconButton, Segmented, SelectField, Skeleton, TextArea, TextField } from '@/components/ui/md'
-import type { ProductLink } from '@/lib/types'
+
 import { newId } from '@/lib/newId'
 
 interface LinkDraft { label: string; url: string }

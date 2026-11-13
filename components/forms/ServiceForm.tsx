@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
 import { format } from 'date-fns'
 import { supabase, ensureFreshSession } from '@/lib/supabase'
 import { read, withRetry, write } from '@/lib/recover'
@@ -20,6 +21,8 @@ import {
 import TireFitting from './TireFitting'
 import type { ServiceLog } from '@/lib/types'
 import { newId } from '@/lib/newId'
+
+const ImageCropModal = dynamic(() => import('@/components/service/ImageCropModal'), { ssr: false })
 
 const num = (s: string): number | null => { const n = parseFloat(s); return s.trim() !== '' && !isNaN(n) ? n : null }
 const usd = (n: number) => `$${n.toFixed(2)}`
@@ -56,6 +59,9 @@ export default function ServiceForm({ logId, productId, categoryId, onClose, onS
   const [bills, setBills] = useState<Bill[]>([])
   const [removedBills, setRemovedBills] = useState<string[]>([])
   const [uploads, setUploads] = useState<Upload[]>([])
+  // A photo goes through the crop step first; a PDF is attached as it is.
+  const [toCrop, setToCrop] = useState<File | null>(null)
+  const attach = (f: File) => setUploads(us => [...us, { key: newId(), file: f }])
   const [legacyReceipt, setLegacyReceipt] = useState<string | null>(null)
   const [dropLegacy, setDropLegacy] = useState(false)
   const [tires, setTires] = useState<TireDraft>(emptyTireDraft())
@@ -426,7 +432,7 @@ export default function ServiceForm({ logId, productId, categoryId, onClose, onS
                 </div>
               ))}
               <input ref={fileRef} type="file" accept="image/*,application/pdf" hidden
-                onChange={e => { const f = e.target.files?.[0]; if (f) setUploads(us => [...us, { key: newId(), file: f }]); e.target.value = '' }} />
+                onChange={e => { const f = e.target.files?.[0]; if (f?.type.startsWith('image/')) setToCrop(f); else if (f) attach(f); e.target.value = '' }} />
               <Button variant="outlined" icon="add_a_photo" className="self-start" onClick={() => fileRef.current?.click()}>{isShop ? 'Add the shop’s bill' : 'Add a receipt'}</Button>
               <p className="type-body-sm text-on-surface-variant">Receipts for the parts above attach themselves, whenever you bought them. A photo added here belongs to this service.</p>
             </section>
@@ -457,6 +463,7 @@ export default function ServiceForm({ logId, productId, categoryId, onClose, onS
           onClose={() => setPicker(false)}
           onPick={row => { addPart(row); setPicker(false) }} />
       )}
+      {toCrop && <ImageCropModal file={toCrop} onConfirm={f => { attach(f); setToCrop(null) }} onCancel={() => setToCrop(null)} />}
 
       <Confirm open={confirmDelete} title="Delete this service?" confirmLabel="Delete" danger busy={saving}
         onCancel={() => setConfirmDelete(false)} onConfirm={remove}

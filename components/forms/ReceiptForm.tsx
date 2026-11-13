@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
 import { format } from 'date-fns'
 import { supabase, ensureFreshSession } from '@/lib/supabase'
 import { read, withRetry, write } from '@/lib/recover'
@@ -18,6 +19,8 @@ import ReceiptViewer from '@/components/ui/ReceiptViewer'
 import type { Receipt, ReceiptItem } from '@/lib/types'
 import { newId } from '@/lib/newId'
 
+const ImageCropModal = dynamic(() => import('@/components/service/ImageCropModal'), { ssr: false })
+
 const num = (s: string): number | null => { const n = parseFloat(s); return s.trim() !== '' && !isNaN(n) ? n : null }
 const usd = (n: number) => `$${n.toFixed(2)}`
 
@@ -30,6 +33,8 @@ export default function ReceiptForm({ receiptId, onClose, onSaved }: { receiptId
   const [store, setStore] = useState('')
   const [image, setImage] = useState<string | null>(null)
   const [file, setFile] = useState<File | null>(null)
+  // A photo goes through the crop step first; a PDF is used as it is.
+  const [toCrop, setToCrop] = useState<File | null>(null)
   const [lines, setLines] = useState<LineDraft[]>([])
   const [removed, setRemoved] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
@@ -172,7 +177,7 @@ export default function ReceiptForm({ receiptId, onClose, onSaved }: { receiptId
           loadError ? <p className="type-body text-error">{loadError}</p> : <div className="space-y-4">{[0, 1, 2].map(i => <Skeleton key={i} className="h-14" />)}</div>
         ) : (
           <div className="flex flex-col gap-5">
-            <input ref={fileRef} type="file" accept="image/*,application/pdf" hidden onChange={e => { setFile(e.target.files?.[0] ?? null); e.target.value = '' }} />
+            <input ref={fileRef} type="file" accept="image/*,application/pdf" hidden onChange={e => { const f = e.target.files?.[0] ?? null; if (f?.type.startsWith('image/')) setToCrop(f); else setFile(f); e.target.value = '' }} />
             {image && !file ? (
               <div className="flex items-start gap-3">
                 <div className="w-24 h-28 rounded-xl overflow-hidden bg-surface-container-highest shrink-0"><ReceiptViewer path={image} className="w-full h-full" /></div>
@@ -297,6 +302,7 @@ export default function ReceiptForm({ receiptId, onClose, onSaved }: { receiptId
           </div>
         )}
       </Dialog>
+      {toCrop && <ImageCropModal file={toCrop} onConfirm={f => { setFile(f); setToCrop(null) }} onCancel={() => setToCrop(null)} />}
 
       <Confirm open={confirmDelete} title="Delete this receipt?" confirmLabel="Delete" danger busy={saving}
         onCancel={() => setConfirmDelete(false)} onConfirm={remove}

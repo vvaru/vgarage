@@ -3,17 +3,17 @@
 import { useState, useRef, useCallback } from 'react'
 import ReactCrop, { type Crop, type PixelCrop } from 'react-image-crop'
 import 'react-image-crop/dist/ReactCrop.css'
-import { X, Check } from '@/components/ui/icons'
+import { Dialog } from '@/components/ui/md'
 
 interface Props {
   file: File
-  onConfirm: (compressed: File) => void
+  onConfirm: (cropped: File) => void
   onCancel: () => void
 }
 
 const MAX_PX = 1600
 
-async function cropAndCompress(img: HTMLImageElement, crop: PixelCrop, originalType: string): Promise<File> {
+async function cropAndCompress(img: HTMLImageElement, crop: PixelCrop, file: File): Promise<File> {
   const scaleX = img.naturalWidth / img.width
   const scaleY = img.naturalHeight / img.height
 
@@ -22,7 +22,7 @@ async function cropAndCompress(img: HTMLImageElement, crop: PixelCrop, originalT
   const srcW = crop.width * scaleX
   const srcH = crop.height * scaleY
 
-  const isPNG = originalType === 'image/png'
+  const isPNG = file.type === 'image/png'
   const longest = Math.max(srcW, srcH)
   const scale = longest > MAX_PX ? MAX_PX / longest : 1
   const outW = Math.round(srcW * scale)
@@ -31,27 +31,29 @@ async function cropAndCompress(img: HTMLImageElement, crop: PixelCrop, originalT
   const canvas = document.createElement('canvas')
   canvas.width = outW
   canvas.height = outH
-  const ctx = canvas.getContext('2d')!
-  ctx.drawImage(img, srcX, srcY, srcW, srcH, 0, 0, outW, outH)
+  canvas.getContext('2d')!.drawImage(img, srcX, srcY, srcW, srcH, 0, 0, outW, outH)
 
-  return new Promise(resolve => {
+  return new Promise((resolve, reject) => {
     canvas.toBlob(
       blob => {
-        const ext = isPNG ? 'png' : 'jpg'
-        resolve(new File([blob!], `receipt.${ext}`, { type: isPNG ? 'image/png' : 'image/jpeg' }))
+        if (!blob) { reject(new Error('Couldn’t crop the photo.')); return }
+        const base = file.name.replace(/\.\w+$/, '') || 'receipt'
+        resolve(new File([blob], `${base}.${isPNG ? 'png' : 'jpg'}`, { type: isPNG ? 'image/png' : 'image/jpeg' }))
       },
       isPNG ? 'image/png' : 'image/jpeg',
-      isPNG ? undefined : 0.85
+      isPNG ? undefined : 0.85,
     )
   })
 }
 
+/** Trim a receipt photo to the paper before it's saved. "Use whole photo" skips it. */
 export default function ImageCropModal({ file, onConfirm, onCancel }: Props) {
   const [crop, setCrop] = useState<Crop>()
   const [completedCrop, setCompletedCrop] = useState<PixelCrop>()
   const [processing, setProcessing] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const imgRef = useRef<HTMLImageElement>(null)
-  const srcUrl = useRef(URL.createObjectURL(file)).current
+  const [srcUrl] = useState(() => URL.createObjectURL(file))
 
   const onImageLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
     const { width, height } = e.currentTarget
@@ -61,68 +63,38 @@ export default function ImageCropModal({ file, onConfirm, onCancel }: Props) {
 
   async function handleConfirm() {
     if (!imgRef.current || !completedCrop || completedCrop.width === 0) return
-    setProcessing(true)
-    const compressed = await cropAndCompress(imgRef.current, completedCrop, file.type)
-    setProcessing(false)
-    URL.revokeObjectURL(srcUrl)
-    onConfirm(compressed)
+    setProcessing(true); setError(null)
+    try {
+      const cropped = await cropAndCompress(imgRef.current, completedCrop, file)
+      URL.revokeObjectURL(srcUrl)
+      onConfirm(cropped)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Couldn’t crop the photo.')
+    } finally {
+      setProcessing(false)
+    }
   }
 
-  function handleCancel() {
+  function close(use: File | null) {
     URL.revokeObjectURL(srcUrl)
-    onCancel()
+    if (use) onConfirm(use)
+    else onCancel()
   }
 
   return (
-    <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-[60] flex items-end sm:items-center justify-center p-4">
-      <div className="bg-surface border border-border rounded-3xl w-full max-w-sm flex flex-col max-h-[90vh]">
-        <div className="flex items-center justify-between px-5 pt-5 pb-3 shrink-0">
-          <h3 className="font-bold text-foreground">Crop Receipt</h3>
-          <button onClick={handleCancel} className="text-muted hover:text-foreground">
-            <X size={20} />
-          </button>
+    <Dialog open onClose={() => close(null)} title="Crop the receipt" subtitle="Drag the corners to the edges of the paper" size="md"
+      primary={{ label: 'Crop & use', onClick: handleConfirm, disabled: processing || !completedCrop || completedCrop.width === 0, loading: processing }}
+      secondary={{ label: 'Use whole photo', onClick: () => close(file) }}>
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-center rounded-xl overflow-hidden bg-surface-container-highest">
+          <ReactCrop crop={crop} onChange={c => setCrop(c)} onComplete={c => setCompletedCrop(c)} ruleOfThirds>
+            {/* eslint-disable-next-line @next/next/no-img-element -- a local blob preview, not a page image */}
+            <img ref={imgRef} src={srcUrl} alt="Receipt" onLoad={onImageLoad} style={{ maxHeight: '60vh', maxWidth: '100%', display: 'block' }} />
+          </ReactCrop>
         </div>
-
-        <div className="overflow-y-auto flex-1 px-4 pb-2">
-          <div className="flex items-center justify-center bg-background rounded-xl overflow-hidden">
-            <ReactCrop
-              crop={crop}
-              onChange={c => setCrop(c)}
-              onComplete={c => setCompletedCrop(c)}
-              ruleOfThirds
-            >
-              <img
-                ref={imgRef}
-                src={srcUrl}
-                alt="Receipt"
-                onLoad={onImageLoad}
-                style={{ maxHeight: '55vh', maxWidth: '100%', display: 'block' }}
-              />
-            </ReactCrop>
-          </div>
-          <p className="text-faint text-xs text-center mt-2 mb-1">Drag handles to adjust · Pinch to zoom on mobile</p>
-        </div>
-
-        <div className="flex gap-3 px-5 pb-5 pt-3 shrink-0">
-          <button
-            onClick={handleCancel}
-            className="flex-1 bg-surface-2 hover:bg-surface-2 text-foreground font-medium rounded-2xl py-3 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleConfirm}
-            disabled={processing || !completedCrop || completedCrop.width === 0}
-            className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-40 text-white font-bold rounded-2xl py-3 transition-colors flex items-center justify-center gap-2"
-          >
-            {processing
-              ? <div className="w-4 h-4 border-2 border-border border-t-transparent rounded-full animate-spin" />
-              : <Check size={16} />
-            }
-            {processing ? 'Processing…' : 'Crop & Use'}
-          </button>
-        </div>
+        <button type="button" onClick={() => close(file)} className="sm:hidden self-center type-label-lg text-primary px-3 h-10">Use whole photo</button>
+        {error && <p role="alert" className="type-body text-error">{error}</p>}
       </div>
-    </div>
+    </Dialog>
   )
 }
